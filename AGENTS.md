@@ -1,6 +1,6 @@
 # OmniDesign Project Charter
 
-This file is the authoritative baseline for agents and contributors working on OmniDesign. Preserve these principles when making plans, architectural decisions, designs, and code changes. If a future request conflicts with this charter, surface the conflict explicitly rather than silently changing the project's direction.
+This file is the authoritative product and working baseline for agents and contributors working on OmniDesign. `ARCHITECTURE.md` is the authoritative source for accepted and proposed technical decisions. Preserve both when making plans, architectural decisions, designs, and code changes. If a future request conflicts with either document, surface the conflict explicitly rather than silently changing the project's direction.
 
 ## Product Vision
 
@@ -18,7 +18,7 @@ The defining product principles are:
 - The design workflow depends primarily on communicating requested changes to AI.
 - Manual editing and adjustment should exist only at a high level; the product is not intended to center on low-level, pixel-by-pixel editing.
 
-The application architecture, frameworks, and supporting technologies are not yet decided. Do not treat any particular stack as settled until the relevant architectural decisions have been made and recorded.
+Parts of the application architecture, frameworks, and supporting technologies are now decided, while others remain provisional or open. Consult `ARCHITECTURE.md` for current decision status and do not treat a proposal as settled until it is recorded as accepted.
 
 ## Development Standards
 
@@ -60,7 +60,7 @@ Do not create commits that knowingly leave the branch in a broken or untestable 
 
 ## Architecture Principles
 
-The concrete architecture is still to be defined, but architectural proposals and implementations should favor:
+The current concrete and proposed architecture is recorded in `ARCHITECTURE.md`. Architectural proposals and implementations should continue to favor:
 
 - Clear boundaries between the desktop or web application, AI-provider integrations, project context, generation, rendering, history, persistence, and future cloud services.
 - A provider abstraction that can support Codex, Claude, and additional providers without coupling the product to a single vendor.
@@ -141,9 +141,10 @@ This is the preparation required to begin Phase 1 responsibly; it does not repla
 Before making changes:
 
 1. Read this file completely.
-2. Inspect the repository and any more narrowly scoped `AGENTS.md` files.
-3. Identify the current roadmap phase and keep the work within its intended scope.
-4. Confirm that proposed frameworks or APIs are based on current official documentation.
-5. Plan for tests, UI/UX quality, modularity, and an appropriate Git Flow branch before implementation.
+2. Read `ARCHITECTURE.md` completely.
+3. Inspect the repository and any more narrowly scoped `AGENTS.md` files.
+4. Identify the current roadmap phase and keep the work within its intended scope.
+5. Confirm that proposed frameworks or APIs are based on current official documentation.
+6. Plan for tests, UI/UX quality, modularity, and an appropriate Git Flow branch before implementation.
 
 When completing changes, verify the relevant behavior, keep documentation aligned with important decisions, and leave the codebase in a testable state.
