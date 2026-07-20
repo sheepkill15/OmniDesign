@@ -19,6 +19,7 @@ import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
+const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let preview: PreviewController | null = null
@@ -28,6 +29,8 @@ protocol.registerSchemesAsPrivileged([{
   scheme: 'omnidesign-preview',
   privileges: { standard: true, secure: true, supportFetchAPI: true },
 }])
+
+if (testUserDataDirectory) app.setPath('userData', testUserDataDirectory)
 
 function isProviderPrompt(value: unknown): value is ProviderPrompt {
   if (typeof value !== 'object' || value === null) return false
