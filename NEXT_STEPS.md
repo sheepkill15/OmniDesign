@@ -41,9 +41,9 @@ Export the design
 
 ## Recommended Sequence
 
-### 1. Write the Phase 1 Product Specification
+### 1. Review and Ratify the Phase 1 Product Specification
 
-Create `docs/PHASE_1_SPEC.md` when the product details have been worked out.
+An initial specification is now recorded in `docs/PHASE_1_SPEC.md`. Review it with the project owner and keep it aligned as implementation discoveries resolve remaining foundation decisions.
 
 Define:
 
@@ -166,5 +166,8 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - Tailwind CSS with Alpine.js is the provisional generated-design stack.
 - The generated-design stack requires a benchmark before final acceptance.
 - Provider subscription integration awaits the reference implementation.
-- The next product artifact to finalize is `docs/PHASE_1_SPEC.md`.
+- The initial Phase 1 product specification is recorded in `docs/PHASE_1_SPEC.md` and awaits review and ratification.
+- Basic multiple-design support is now included in Phase 1; multiple conversations and visible branching remain deferred.
+- Phase 1 is qualified on Windows first while preserving the accepted cross-platform architecture.
+- Persistent AI-extracted project profiles are deferred; Phase 1 uses read-only project context on demand during generation.
 - Broad implementation should not begin until the primary Phase 1 flow and initial visual language are sufficiently defined.
