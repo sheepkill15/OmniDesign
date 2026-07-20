@@ -28,10 +28,9 @@ interface ProviderReply {
 interface ProviderActivity {
   readonly requestId: string
   readonly providerId: 'codex' | 'claude'
-  readonly kind: 'status' | 'text' | 'tool' | 'result' | 'diagnostic' | 'raw'
+  readonly kind: 'status' | 'text' | 'tool' | 'result' | 'diagnostic'
   readonly label: string
   readonly detail?: string
-  readonly raw?: unknown
 }
 
 interface Window {

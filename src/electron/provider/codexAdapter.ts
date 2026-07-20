@@ -122,17 +122,12 @@ export class CodexAdapter implements ProviderAdapter {
         const textDelta = method === 'item/agentMessage/delta' && isObject(params) && typeof params.delta === 'string'
           ? params.delta
           : undefined
+        const toolDetail = method.startsWith('item/') ? describeCodexTool(params) : undefined
         if (textDelta) output += textDelta
-        const kind = textDelta
-          ? 'text'
-          : method.includes('error')
-            ? 'diagnostic'
-            : method.startsWith('item/')
-              ? 'tool'
-              : method === 'turn/completed'
-                ? 'result'
-                : 'raw'
-        this.emit(onActivity, kind, method, textDelta, params)
+        if (textDelta) this.emit(onActivity, 'text', 'Response update', textDelta)
+        else if (method.includes('error')) this.emit(onActivity, 'diagnostic', 'Provider diagnostic', method)
+        else if (toolDetail) this.emit(onActivity, 'tool', 'Agent action', toolDetail)
+        else if (method === 'turn/completed') this.emit(onActivity, 'result', 'Completed')
         if (method === 'turn/completed') done()
       })
       const done = (error?: Error) => {
@@ -157,13 +152,27 @@ export class CodexAdapter implements ProviderAdapter {
     kind: ProviderAdapterActivity['kind'],
     label: string,
     detail?: string,
-    raw?: unknown,
   ): void {
     listener({
       kind,
       label,
       ...(detail ? { detail } : {}),
-      ...(raw !== undefined ? { raw } : {}),
     })
   }
+}
+
+export function describeCodexTool(params: unknown): string | undefined {
+  if (!isObject(params) || !isObject(params.item) || typeof params.item.type !== 'string') return undefined
+  const item = params.item
+  if (item.type === 'commandExecution') return typeof item.command === 'string' ? `Command: ${item.command}` : 'Command execution'
+  if (item.type === 'fileChange') return 'File change'
+  if (item.type === 'mcpToolCall') {
+    const name = [item.server, item.tool].filter((value) => typeof value === 'string').join('/')
+    return name || 'MCP tool call'
+  }
+  if (item.type === 'dynamicToolCall') return typeof item.tool === 'string' ? item.tool : 'Tool call'
+  if (item.type === 'webSearch') return typeof item.query === 'string' ? `Web search: ${item.query}` : 'Web search'
+  if (item.type === 'imageView') return 'View image'
+  if (item.type === 'imageGeneration') return 'Generate image'
+  return undefined
 }

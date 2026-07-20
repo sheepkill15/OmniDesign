@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
+import { describeCodexTool } from './codexAdapter.js'
 import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
 import { isProviderId, ProviderService } from './providerService.js'
 import { providerFailure } from './providerUtils.js'
@@ -15,7 +16,7 @@ function createAdapter(id: 'codex' | 'claude'): ProviderAdapter {
       models: [{ id: 'model-1', name: 'Model 1', effortLevels: [] }],
     })),
     prompt: vi.fn(async (_request: ProviderAdapterPrompt, onActivity) => {
-      onActivity({ kind: 'tool', label: 'Used a tool', raw: { command: 'inspect' } })
+      onActivity({ kind: 'tool', label: 'Agent action', detail: 'inspect' })
       return { modelId: 'model-1', text: 'Done' }
     }),
   }
@@ -71,8 +72,8 @@ describe('ProviderService', () => {
       requestId: 'request-1',
       providerId: 'claude',
       kind: 'tool',
-      label: 'Used a tool',
-      raw: { command: 'inspect' },
+      label: 'Agent action',
+      detail: 'inspect',
     })
   })
 
@@ -118,5 +119,14 @@ describe('parseClaudeModels', () => {
 describe('providerFailure', () => {
   it('surfaces structured errors written to stdout', () => {
     expect(providerFailure('Claude', '{"result":"Selected model is unavailable."}', '').message).toBe('Selected model is unavailable.')
+  })
+})
+
+describe('describeCodexTool', () => {
+  it('normalizes common tool actions and excludes provider-only item types', () => {
+    expect(describeCodexTool({ item: { type: 'commandExecution', command: 'pnpm test' } })).toBe('Command: pnpm test')
+    expect(describeCodexTool({ item: { type: 'webSearch', query: 'accessible dialogs' } })).toBe('Web search: accessible dialogs')
+    expect(describeCodexTool({ item: { type: 'reasoning', summary: ['Thinking'] } })).toBeUndefined()
+    expect(describeCodexTool({ item: { type: 'agentMessage', text: 'Done' } })).toBeUndefined()
   })
 })

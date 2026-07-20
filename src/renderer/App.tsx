@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 interface Message { readonly role: 'user' | 'assistant'; readonly text: string }
+const sharedActivityKinds: readonly ProviderActivity['kind'][] = ['status', 'text', 'tool', 'result', 'diagnostic']
 
 function createRequestId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -22,13 +23,18 @@ export function App() {
   const selectedModel = useMemo(() => selectedProvider?.models.find((model) => model.id === modelId), [selectedProvider, modelId])
   const refresh = async () => {
     setError('')
-    const next = await window.omnidesign.providers.discover()
+    const providerApi = window.omnidesign?.providers
+    if (!providerApi) {
+      setError('Live provider discovery is available in the Electron test application.')
+      return
+    }
+    const next = await providerApi.discover()
     setProviders(next)
     const available = next.find((provider) => provider.installed && provider.authenticated)
     if (available) { setProviderId(available.id); setModelId(available.models[0]?.id ?? '') }
   }
   useEffect(() => { void refresh().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Could not check providers.')) }, [])
-  useEffect(() => window.omnidesign.providers.onActivity((activity) => setActivities((current) => [...current, activity])), [])
+  useEffect(() => window.omnidesign?.providers.onActivity((activity) => setActivities((current) => [...current, activity])), [])
   useEffect(() => setModelId(selectedProvider?.models[0]?.id ?? ''), [selectedProvider?.id])
   useEffect(() => setEffort(selectedModel?.effortLevels.find((level) => level.isDefault)?.id ?? ''), [selectedModel?.id])
 
@@ -48,24 +54,31 @@ export function App() {
   }
 
   return <main className="app-shell">
-    <header><p className="eyebrow">OmniDesign · Provider connection</p><h1>Talk through your installed subscriptions.</h1><p>Codex and Claude remain authenticated by their own local applications. No API key is stored here.</p></header>
+    <header><p className="eyebrow">OmniDesign · Unified provider test</p><h1>One interface. Any installed provider.</h1><p>Codex and Claude use the same discovery, capability, prompt, activity, and reply contracts. Their local adapters handle every protocol difference.</p></header>
+    <section className="contract-panel" aria-label="Unified provider contract">
+      <div><span>1</span><strong>Discover</strong></div><i aria-hidden="true">→</i>
+      <div><span>2</span><strong>Choose model + effort</strong></div><i aria-hidden="true">→</i>
+      <div><span>3</span><strong>Send prompt</strong></div><i aria-hidden="true">→</i>
+      <div><span>4</span><strong>Stream shared events</strong></div><i aria-hidden="true">→</i>
+      <div><span>5</span><strong>Receive reply</strong></div>
+    </section>
     <section className="provider-panel" aria-label="Available providers">
       <div><h2>Installed providers</h2><button className="quiet" type="button" onClick={() => void refresh()} disabled={busy}>Refresh</button></div>
       {providers.map((provider) => <button type="button" key={provider.id} className={`provider ${provider.installed && provider.authenticated ? 'ready' : ''}`} onClick={() => setProviderId(provider.id)} disabled={!provider.installed || !provider.authenticated || busy} aria-pressed={provider.id === providerId}>
-        <strong>{provider.name}</strong><span>{provider.installed && provider.authenticated ? 'Ready' : 'Unavailable'}</span><p>{provider.detail}</p>
+        <strong>{provider.name}</strong><span>{provider.installed && provider.authenticated ? 'Adapter ready' : 'Unavailable'}</span><p>{provider.detail}</p>
       </button>)}
     </section>
     <section className="conversation" aria-label="Provider conversation">
       <div className="messages" aria-live="polite">
         {messages.length === 0 && activities.length === 0 ? <p className="empty">Choose an available provider and start a conversation.</p> : messages.map((message, index) => <article className={`message ${message.role}`} key={`${message.role}-${index}`}><strong>{message.role === 'user' ? 'You' : selectedProvider?.name}</strong><p>{message.text}</p></article>)}
-        {activities.length > 0 && <section className="activity-log" aria-label="Agent activity"><h2>Agent activity</h2>{activities.map((activity, index) => <article className={`activity ${activity.kind}`} key={`${activity.requestId}-${index}`}><header><span>{activity.kind}</span><strong>{activity.label}</strong></header>{activity.detail && <p>{activity.detail}</p>}{activity.raw !== undefined && <details><summary>Raw provider event</summary><pre>{JSON.stringify(activity.raw, null, 2)}</pre></details>}</article>)}</section>}
+        {activities.length > 0 && <section className="activity-log" aria-label="Unified agent activity"><div className="activity-heading"><h2>Unified agent activity</h2><p>{sharedActivityKinds.map((kind) => <span key={kind}>{kind}</span>)}</p></div>{activities.map((activity, index) => <article className={`activity ${activity.kind}`} key={`${activity.requestId}-${index}`}><header><span>{activity.kind}</span><strong>{activity.label}</strong></header>{activity.detail && <p>{activity.detail}</p>}</article>)}</section>}
       </div>
       <form onSubmit={(event) => void send(event)}>
         <fieldset><legend>Provider</legend><p>{selectedProvider?.name ?? 'No available provider'}</p></fieldset>
         <fieldset><legend>Model</legend><div className="model-list" role="radiogroup" aria-label="Model">{selectedProvider?.models.map((model) => <button type="button" className="model" key={model.id} role="radio" aria-checked={model.id === modelId} onClick={() => setModelId(model.id)} disabled={busy}>{model.name}</button>)}</div></fieldset>
         <fieldset><legend>Effort</legend><div className="model-list" role="radiogroup" aria-label="Effort"><button type="button" className="model" role="radio" aria-checked={effort === ''} onClick={() => setEffort('')} disabled={busy}>Provider default</button>{selectedModel?.effortLevels.map((level) => <button type="button" className="model" key={level.id} role="radio" aria-checked={effort === level.id} onClick={() => setEffort(level.id)} disabled={busy}>{level.name}</button>)}</div></fieldset>
-        <label className="prompt-label">Prompt<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Ask the selected model anything…" disabled={busy || !modelId} /></label>
-        {error && <p className="error" role="alert">{error}</p>}<button type="submit" disabled={busy || !prompt.trim() || !modelId}>{busy ? 'Waiting for provider…' : 'Send prompt'}</button>
+        <label className="prompt-label">Unified prompt<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Send the same request shape to either provider…" disabled={busy || !modelId} /></label>
+        {error && <p className="error" role="alert">{error}</p>}<button type="submit" disabled={busy || !prompt.trim() || !modelId}>{busy ? 'Waiting for provider…' : 'Send through unified interface'}</button>
       </form>
     </section>
   </main>

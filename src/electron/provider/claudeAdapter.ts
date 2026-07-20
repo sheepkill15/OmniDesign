@@ -88,8 +88,9 @@ export class ClaudeAdapter implements ProviderAdapter {
           return
         }
         const view = this.describeEvent(parsed)
+        if (!view) return
         if (view.finalText) finalText = view.finalText
-        this.emit(onActivity, view.kind, view.label, view.detail, parsed)
+        this.emit(onActivity, view.kind, view.label, view.detail)
       },
       onStderrLine: (line) => this.emit(onActivity, 'diagnostic', 'Claude stderr', line),
     })
@@ -112,37 +113,33 @@ export class ClaudeAdapter implements ProviderAdapter {
     readonly label: string
     readonly detail?: string
     readonly finalText?: string
-  } {
+  } | undefined {
     const type = typeof event.type === 'string' ? event.type : 'event'
     if (type === 'result') {
       const finalText = typeof event.result === 'string' ? event.result : undefined
-      return { kind: 'result', label: 'Claude completed', ...(finalText ? { detail: finalText, finalText } : {}) }
+      return { kind: 'result', label: 'Completed', ...(finalText ? { detail: finalText, finalText } : {}) }
     }
     if (type === 'system') {
-      return { kind: 'status', label: `Claude ${typeof event.subtype === 'string' ? event.subtype : 'system'}` }
+      return { kind: 'status', label: 'Provider status', detail: typeof event.subtype === 'string' ? event.subtype : 'system' }
     }
     if (type === 'stream_event' && isObject(event.event)) {
       const streamEvent = event.event
       const delta = isObject(streamEvent.delta) && typeof streamEvent.delta.text === 'string'
         ? streamEvent.delta.text
         : undefined
-      return {
-        kind: delta ? 'text' : 'raw',
-        label: typeof streamEvent.type === 'string' ? streamEvent.type : 'Claude stream event',
-        ...(delta ? { detail: delta } : {}),
-      }
+      return delta ? { kind: 'text', label: 'Response update', detail: delta } : undefined
     }
     if ((type === 'assistant' || type === 'user') && isObject(event.message) && Array.isArray(event.message.content)) {
       const blocks = event.message.content.filter(isObject)
       const tool = blocks.find((block) => block.type === 'tool_use' || block.type === 'tool_result')
       if (tool) {
         const toolName = typeof tool.name === 'string' ? tool.name : typeof tool.type === 'string' ? tool.type : 'tool'
-        return { kind: 'tool', label: `Claude ${toolName}`, detail: JSON.stringify(tool.input ?? tool.content ?? {}) }
+        return { kind: 'tool', label: 'Agent action', detail: `${toolName}: ${JSON.stringify(tool.input ?? tool.content ?? {})}` }
       }
       const text = blocks.find((block) => block.type === 'text' && typeof block.text === 'string')?.text
-      return { kind: text ? 'text' : 'raw', label: `Claude ${type}`, ...(typeof text === 'string' ? { detail: text } : {}) }
+      return typeof text === 'string' ? { kind: 'text', label: 'Response update', detail: text } : undefined
     }
-    return { kind: 'raw', label: `Claude ${type}` }
+    return undefined
   }
 
   private emit(
@@ -150,13 +147,11 @@ export class ClaudeAdapter implements ProviderAdapter {
     kind: ProviderAdapterActivity['kind'],
     label: string,
     detail?: string,
-    raw?: unknown,
   ): void {
     listener({
       kind,
       label,
       ...(detail ? { detail } : {}),
-      ...(raw !== undefined ? { raw } : {}),
     })
   }
 }

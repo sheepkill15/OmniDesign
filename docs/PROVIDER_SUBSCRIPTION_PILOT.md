@@ -13,7 +13,7 @@ This is a narrow implementation pilot. It is not the completed Phase 1 provider 
 - Ask Codex App Server for the account and live model catalogue.
 - Ask Claude Code for its version and authenticated status. Claude Code does not expose a comparable subscription model-list endpoint, so OmniDesign derives the current model aliases advertised by the installed CLI rather than maintaining a static catalogue.
 - Derive selectable effort levels from Codex model capabilities and Claude Code's installed CLI help. Leaving effort on Provider default omits an override.
-- Forward every provider-emitted Codex notification and Claude `stream-json` event to the trusted renderer. The activity feed shows categorized status, text, tools, results, diagnostics, and expandable raw payloads.
+- Normalize the activity common to both providers as status, text, tool, result, and diagnostic events. Provider-specific and unrecognized protocol messages remain inside their adapters and are not exposed to the application.
 - Send a plain text prompt to one selected provider/model and present its response in the trusted renderer.
 
 ## Safety boundary

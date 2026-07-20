@@ -35,7 +35,7 @@ export interface ProviderReply {
   readonly text: string
 }
 
-export type ProviderActivityKind = 'status' | 'text' | 'tool' | 'result' | 'diagnostic' | 'raw'
+export type ProviderActivityKind = 'status' | 'text' | 'tool' | 'result' | 'diagnostic'
 
 export interface ProviderActivity {
   readonly requestId: string
@@ -43,5 +43,4 @@ export interface ProviderActivity {
   readonly kind: ProviderActivityKind
   readonly label: string
   readonly detail?: string
-  readonly raw?: unknown
 }
