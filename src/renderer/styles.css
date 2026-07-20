@@ -643,13 +643,13 @@ button:disabled,
 }
 
 .mini-preview-image {
-  width: 92px;
-  height: 58px;
+  width: 72px;
+  height: 48px;
   flex: 0 0 auto;
   border: 1px solid var(--border);
   border-radius: 5px;
   background: var(--surface-2);
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .sidebar-empty {
@@ -860,7 +860,7 @@ button:disabled,
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface-1);
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .history-thumbnail-placeholder {
