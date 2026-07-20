@@ -7,9 +7,10 @@ This is a narrow implementation pilot. It is not the completed Phase 1 provider 
 ## Included
 
 - Detect the locally installed Codex and Claude Code CLIs from Electron's main process.
+- Resolve the real executable or Windows command shim before launching a provider. The Codex Desktop-bundled executable is not treated as an installed Codex CLI because it is not an externally supported app-server entry point.
 - Reuse their existing sign-in state; OmniDesign stores no API keys or credentials.
 - Ask Codex App Server for the account and live model catalogue.
-- Ask Claude Code for its version and authenticated status. Claude Code does not expose a comparable subscription model-list endpoint, so the initial picker contains the known model catalogue compatible with the detected CLI version, following the supplied reference implementation's approach.
+- Ask Claude Code for its version and authenticated status. Claude Code does not expose a comparable subscription model-list endpoint, so OmniDesign derives the current model aliases advertised by the installed CLI rather than maintaining a static catalogue.
 - Send a plain text prompt to one selected provider/model and present its response in the trusted renderer.
 
 ## Safety boundary

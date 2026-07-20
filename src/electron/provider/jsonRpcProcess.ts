@@ -1,4 +1,5 @@
 import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import type { ResolvedCommand } from './command.js'
 
 interface JsonRpcMessage {
   readonly id?: number
@@ -13,22 +14,32 @@ export class JsonRpcProcess {
   private readonly listeners = new Set<(method: string, params: unknown) => void>()
   private nextId = 1
   private buffer = ''
+  private stderrTail = ''
 
   public constructor(private readonly child: ChildProcessWithoutNullStreams) {
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => this.read(chunk))
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => {
+      this.stderrTail = `${this.stderrTail}${chunk}`.slice(-8_000)
+    })
     child.on('error', (error) => this.finish(error))
-    child.on('exit', (code) => this.finish(new Error(`Provider process exited (${code ?? 'unknown'}).`)))
+    child.on('exit', (code) => {
+      const detail = this.stderrTail.trim()
+      this.finish(new Error(`Provider process exited (${code ?? 'unknown'}).${detail ? ` ${detail}` : ''}`))
+    })
   }
 
   public request(method: string, params: unknown): Promise<unknown> {
     const id = this.nextId++
-    this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }))
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject })
+      this.child.stdin.write(`${JSON.stringify({ id, method, params })}\n`)
+    })
   }
 
   public notify(method: string, params?: unknown): void {
-    this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`)
+    this.child.stdin.write(`${JSON.stringify({ method, params })}\n`)
   }
 
   public onNotification(listener: (method: string, params: unknown) => void): () => void {
@@ -66,6 +77,6 @@ export class JsonRpcProcess {
   }
 }
 
-export function startJsonRpcProcess(command: string, args: readonly string[]): JsonRpcProcess {
-  return new JsonRpcProcess(spawn(command, args, { stdio: 'pipe', windowsHide: true }))
+export function startJsonRpcProcess(resolved: ResolvedCommand, args: readonly string[]): JsonRpcProcess {
+  return new JsonRpcProcess(spawn(resolved.command, args, { shell: resolved.shell, stdio: 'pipe', windowsHide: true }))
 }
