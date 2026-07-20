@@ -1,4 +1,5 @@
 import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { resolveSpawnInvocation } from './command.js'
 import type { ResolvedCommand } from './command.js'
 
 interface JsonRpcMessage {
@@ -78,5 +79,10 @@ export class JsonRpcProcess {
 }
 
 export function startJsonRpcProcess(resolved: ResolvedCommand, args: readonly string[]): JsonRpcProcess {
-  return new JsonRpcProcess(spawn(resolved.command, args, { shell: resolved.shell, stdio: 'pipe', windowsHide: true }))
+  const invocation = resolveSpawnInvocation(resolved, args)
+  return new JsonRpcProcess(spawn(invocation.command, invocation.args, {
+    stdio: 'pipe',
+    windowsHide: true,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+  }))
 }

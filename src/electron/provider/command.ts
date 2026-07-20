@@ -5,13 +5,19 @@ const execFileAsync = promisify(execFile)
 
 export interface ResolvedCommand {
   readonly command: string
-  readonly shell: boolean
+  readonly kind: 'direct' | 'cmd-shim'
 }
 
 export interface CommandResult {
   readonly code: number | null
   readonly stdout: string
   readonly stderr: string
+}
+
+interface SpawnInvocation {
+  readonly command: string
+  readonly args: readonly string[]
+  readonly windowsVerbatimArguments: boolean
 }
 
 function uniqueNonEmpty(lines: readonly string[]): string[] {
@@ -30,17 +36,31 @@ async function windowsCandidates(command: string): Promise<string[]> {
 export async function runCommand(
   resolved: ResolvedCommand,
   args: readonly string[],
-  options: { readonly input?: string; readonly timeoutMs?: number } = {},
+  options: {
+    readonly input?: string
+    readonly timeoutMs?: number
+    readonly onStdoutLine?: (line: string) => void
+    readonly onStderrLine?: (line: string) => void
+  } = {},
 ): Promise<CommandResult> {
-  const child = spawn(resolved.command, args, {
-    shell: resolved.shell,
+  const invocation = resolveSpawnInvocation(resolved, args)
+  const child = spawn(invocation.command, invocation.args, {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   })
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []
-  child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk))
-  child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk))
+  let stdoutRemainder = ''
+  let stderrRemainder = ''
+  child.stdout.on('data', (chunk: Buffer) => {
+    stdout.push(chunk)
+    stdoutRemainder = emitLines(stdoutRemainder, chunk.toString('utf8'), options.onStdoutLine)
+  })
+  child.stderr.on('data', (chunk: Buffer) => {
+    stderr.push(chunk)
+    stderrRemainder = emitLines(stderrRemainder, chunk.toString('utf8'), options.onStderrLine)
+  })
   if (options.input !== undefined) child.stdin.end(options.input)
   else child.stdin.end()
 
@@ -56,6 +76,8 @@ export async function runCommand(
     })
     child.on('close', (code) => {
       if (timeout) clearTimeout(timeout)
+      if (stdoutRemainder && options.onStdoutLine) options.onStdoutLine(stdoutRemainder)
+      if (stderrRemainder && options.onStderrLine) options.onStderrLine(stderrRemainder)
       const output = {
         code,
         stdout: Buffer.concat(stdout).toString('utf8'),
@@ -70,10 +92,34 @@ export async function runCommand(
   })
 }
 
+function emitLines(remainder: string, chunk: string, listener?: (line: string) => void): string {
+  const lines = `${remainder}${chunk}`.split(/\r?\n/)
+  const nextRemainder = lines.pop() ?? ''
+  if (listener) for (const line of lines) if (line) listener(line)
+  return nextRemainder
+}
+
+function quoteCmdToken(token: string): string {
+  return `"${token.replaceAll('"', '""')}"`
+}
+
+export function resolveSpawnInvocation(resolved: ResolvedCommand, args: readonly string[]): SpawnInvocation {
+  if (resolved.kind === 'direct') return { command: resolved.command, args, windowsVerbatimArguments: false }
+  const commandLine = [resolved.command, ...args].map(quoteCmdToken).join(' ')
+  return {
+    command: process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe',
+    args: ['/d', '/s', '/c', `"${commandLine}"`],
+    windowsVerbatimArguments: true,
+  }
+}
+
 export async function resolveProviderCommand(command: string): Promise<ResolvedCommand> {
   const candidates = process.platform === 'win32' ? await windowsCandidates(command) : [command]
   for (const candidate of candidates) {
-    const resolved = { command: candidate, shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(candidate) }
+    const resolved: ResolvedCommand = {
+      command: candidate,
+      kind: process.platform === 'win32' && /\.(cmd|bat)$/i.test(candidate) ? 'cmd-shim' : 'direct',
+    }
     try {
       const probe = await runCommand(resolved, ['--version'], { timeoutMs: 8_000 })
       if (probe.code === 0) return resolved

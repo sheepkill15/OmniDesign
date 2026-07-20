@@ -10,7 +10,9 @@ function isProviderPrompt(value: unknown): value is ProviderPrompt {
   if (typeof value !== 'object' || value === null) return false
   const request = value as Record<string, unknown>
   return isProviderId(request.providerId)
+    && typeof request.requestId === 'string' && request.requestId.length > 0 && request.requestId.length <= 100
     && typeof request.modelId === 'string' && request.modelId.length > 0
+    && (request.effort === undefined || typeof request.effort === 'string')
     && typeof request.prompt === 'string' && request.prompt.length <= 100_000
 }
 
@@ -52,7 +54,9 @@ app.whenReady().then(() => {
   ipcMain.handle('providers:prompt', (event, request: unknown) => {
     if (!event.senderFrame?.url.startsWith(developmentServerUrl ?? 'file://')) throw new Error('Unauthorized sender.')
     if (!isProviderPrompt(request)) throw new Error('Invalid provider request.')
-    return providers.prompt(request)
+    return providers.prompt(request, (activity) => {
+      if (!event.sender.isDestroyed()) event.sender.send('providers:activity', activity)
+    })
   })
   createMainWindow()
 

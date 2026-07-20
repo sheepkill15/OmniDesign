@@ -1,6 +1,13 @@
 interface ProviderModel {
   readonly id: string
   readonly name: string
+  readonly effortLevels: readonly ProviderEffortLevel[]
+}
+
+interface ProviderEffortLevel {
+  readonly id: string
+  readonly name: string
+  readonly isDefault: boolean
 }
 
 interface ProviderStatus {
@@ -18,11 +25,21 @@ interface ProviderReply {
   readonly text: string
 }
 
+interface ProviderActivity {
+  readonly requestId: string
+  readonly providerId: 'codex' | 'claude'
+  readonly kind: 'status' | 'text' | 'tool' | 'result' | 'diagnostic' | 'raw'
+  readonly label: string
+  readonly detail?: string
+  readonly raw?: unknown
+}
+
 interface Window {
   readonly omnidesign: {
     readonly providers: {
       discover(): Promise<ProviderStatus[]>
-      prompt(request: { providerId: 'codex' | 'claude'; modelId: string; prompt: string }): Promise<ProviderReply>
+      prompt(request: { requestId: string; providerId: 'codex' | 'claude'; modelId: string; effort?: string; prompt: string }): Promise<ProviderReply>
+      onActivity(listener: (activity: ProviderActivity) => void): () => void
     }
   }
 }

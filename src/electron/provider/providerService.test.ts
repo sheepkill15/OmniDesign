@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isProviderId, parseClaudeModels, providerFailure } from './providerService.js'
+import { isProviderId, parseClaudeEfforts, parseClaudeModels, providerFailure } from './providerService.js'
 
 describe('isProviderId', () => {
   it('only accepts the built-in subscription providers', () => {
@@ -11,13 +11,21 @@ describe('isProviderId', () => {
 
 describe('parseClaudeModels', () => {
   it('derives current aliases from the installed CLI help instead of a static catalogue', () => {
-    const help = `--model <model>  Model for the current session. Provide\n  an alias for the latest model (e.g.\n  'fable', 'opus', or 'sonnet') or a\n  model's full name`
+    const help = `--model <model>  Model for the current session. Provide\n  an alias for the latest model (e.g.\n  'fable', 'opus', or 'sonnet') or a\n  model's full name\n--effort <level> Effort level (low, medium, high, xhigh, max)`
+    const effortLevels = [
+      { id: 'low', name: 'Low', isDefault: false },
+      { id: 'medium', name: 'Medium', isDefault: false },
+      { id: 'high', name: 'High', isDefault: false },
+      { id: 'xhigh', name: 'Xhigh', isDefault: false },
+      { id: 'max', name: 'Max', isDefault: false },
+    ]
 
     expect(parseClaudeModels(help)).toEqual([
-      { id: 'fable', name: 'Claude Fable (latest)' },
-      { id: 'opus', name: 'Claude Opus (latest)' },
-      { id: 'sonnet', name: 'Claude Sonnet (latest)' },
+      { id: 'fable', name: 'Claude Fable (latest)', effortLevels },
+      { id: 'opus', name: 'Claude Opus (latest)', effortLevels },
+      { id: 'sonnet', name: 'Claude Sonnet (latest)', effortLevels },
     ])
+    expect(parseClaudeEfforts(help)).toEqual(effortLevels)
   })
 })
 

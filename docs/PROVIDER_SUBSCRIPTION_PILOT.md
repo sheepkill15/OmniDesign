@@ -11,6 +11,8 @@ This is a narrow implementation pilot. It is not the completed Phase 1 provider 
 - Reuse their existing sign-in state; OmniDesign stores no API keys or credentials.
 - Ask Codex App Server for the account and live model catalogue.
 - Ask Claude Code for its version and authenticated status. Claude Code does not expose a comparable subscription model-list endpoint, so OmniDesign derives the current model aliases advertised by the installed CLI rather than maintaining a static catalogue.
+- Derive selectable effort levels from Codex model capabilities and Claude Code's installed CLI help. Leaving effort on Provider default omits an override.
+- Forward every provider-emitted Codex notification and Claude `stream-json` event to the trusted renderer. The activity feed shows categorized status, text, tools, results, diagnostics, and expandable raw payloads.
 - Send a plain text prompt to one selected provider/model and present its response in the trusted renderer.
 
 ## Safety boundary
@@ -19,6 +21,6 @@ The renderer receives only `discover` and `prompt` IPC operations. It cannot acc
 
 ## Deliberately deferred
 
-- API-key configuration, multiple accounts, provider settings, refresh/update actions, attachments, project-context access, conversation persistence, streaming UI, cancellation, retries, usage reporting, and design generation orchestration.
+- API-key configuration, multiple accounts, provider settings, refresh/update actions, attachments, project-context access, conversation persistence, cancellation, retries, and design generation orchestration.
 - Claude's exact subscription-entitled model discovery, if and when Claude Code exposes a stable supported mechanism.
 - Moving these prototype contracts into the planned provider-contract package after the walking skeleton establishes the package boundaries.
