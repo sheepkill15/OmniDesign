@@ -45,6 +45,7 @@ export class PreviewController {
   }
 
   public show(designId: string, revisionId: string, html: string, bounds: Rectangle): void {
+    if (this.window.isDestroyed() || this.view.webContents.isDestroyed()) return
     const token = randomUUID()
     this.documents.clear()
     this.documents.set(token, html)
@@ -59,18 +60,18 @@ export class PreviewController {
   }
 
   public resize(bounds: Rectangle): void {
-    if (this.attached) this.view.setBounds(bounds)
+    if (this.attached && !this.view.webContents.isDestroyed()) this.view.setBounds(bounds)
   }
 
   public hide(): void {
     if (!this.attached) return
-    this.window.contentView.removeChildView(this.view)
+    if (!this.window.isDestroyed()) this.window.contentView.removeChildView(this.view)
     this.attached = false
   }
 
   public destroy(): void {
     this.hide()
-    this.view.webContents.close()
+    if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
   }
 
   private handleRequest(url: string): Response {
