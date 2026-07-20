@@ -24,7 +24,7 @@ function createMainWindow(): BrowserWindow {
   if (developmentServerUrl) {
     void window.loadURL(developmentServerUrl)
   } else {
-    void window.loadFile(path.join(__dirname, '../../../dist-renderer/index.html'))
+    void window.loadFile(path.join(__dirname, '../../dist-renderer/index.html'))
   }
 
   return window
