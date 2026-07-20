@@ -1,0 +1,36 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import type { GenerationActivity } from './contracts.js'
+import { WorkspaceService } from './workspaceService.js'
+import { WorkspaceStore } from './store.js'
+
+const directories: string[] = []
+
+afterEach(() => {
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
+
+describe('WorkspaceService', () => {
+  it('runs creation and iteration through generation, compilation, validation, and immutable persistence', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const activity: GenerationActivity[] = []
+
+    const first = await service.createDesign('A calm analytics dashboard', (event) => activity.push(event))
+    const second = await service.generate(first.id, 'Use a warmer editorial direction', (event) => activity.push(event))
+
+    expect(first.revisions).toHaveLength(1)
+    expect(second.revisions).toHaveLength(2)
+    expect(second.revisions[1].parentRevisionId).toBe(first.activeRevisionId)
+    expect(second.revisions[1].html).toContain('<style>')
+    expect(activity.map((event) => event.stage)).toEqual([
+      'generating', 'compiling', 'validating', 'saving', 'complete',
+      'generating', 'compiling', 'validating', 'saving', 'complete',
+    ])
+    store.close()
+  })
+})
