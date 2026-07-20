@@ -6,6 +6,7 @@ import {
   ClockIcon,
   Cog6ToothIcon,
   CommandLineIcon,
+  CubeTransparentIcon,
   FolderIcon,
   HomeIcon,
   MoonIcon,
@@ -77,9 +78,9 @@ function NavigationItem({ icon: IconComponent, label, badge, active = false }: {
   )
 }
 
-function Sidebar({ compact = false }: { readonly compact?: boolean }) {
+function StandardSidebar() {
   return (
-    <aside className="sidebar" data-compact={compact || undefined} aria-label="Primary navigation">
+    <aside className="sidebar" data-variant="standard" aria-label="Primary navigation">
       <div className="brand-row">
         <span className="brand-mark" aria-hidden="true"><SparklesIcon /></span>
         <span className="brand-name">OmniDesign</span>
@@ -117,6 +118,64 @@ function Sidebar({ compact = false }: { readonly compact?: boolean }) {
           <ChevronDownIcon aria-hidden="true" />
         </div>
       </div>
+    </aside>
+  )
+}
+
+function GallerySidebar() {
+  return (
+    <aside className="gallery-sidebar" data-variant="gallery" aria-label="Primary navigation">
+      <nav className="gallery-rail" aria-label="Application">
+        <span className="brand-mark" aria-label="OmniDesign"><SparklesIcon aria-hidden="true" /></span>
+        <IconButton label="Home" icon={HomeIcon} />
+        <IconButton label="Generations, 2 active" icon={BoltIcon} />
+        <span className="rail-spacer" />
+        <IconButton label="Providers" icon={CommandLineIcon} />
+        <IconButton label="Trash" icon={TrashIcon} />
+        <IconButton label="Settings" icon={Cog6ToothIcon} />
+        <span className="avatar">SI</span>
+      </nav>
+      <div className="gallery-projects">
+        <div className="gallery-sidebar-title">
+          <span><small>Workspace</small><strong>Projects</strong></span>
+          <IconButton label="Add project" icon={PlusIcon} />
+        </div>
+        <div className="gallery-project-list">
+          {projects.map((project) => (
+            <Button className="gallery-project" data-active={project.active || undefined} key={project.name}>
+              <span className="project-monogram">{project.name.slice(0, 1)}</span>
+              <span><strong>{project.name}</strong><small>{project.designs} {project.designs === 1 ? 'design' : 'designs'}</small></span>
+              <ChevronDownIcon aria-hidden="true" />
+            </Button>
+          ))}
+        </div>
+        <Button className="open-project-button"><FolderIcon aria-hidden="true" />Open local project</Button>
+      </div>
+    </aside>
+  )
+}
+
+function WorkbenchSidebar() {
+  return (
+    <aside className="workbench-sidebar" data-variant="workbench" aria-label="Primary navigation">
+      <span className="workbench-brand" aria-label="OmniDesign"><CubeTransparentIcon aria-hidden="true" /></span>
+      <nav className="workbench-navigation" aria-label="Application">
+        <IconButton label="Home" icon={HomeIcon} />
+        <span className="rail-rule" />
+        {projects.map((project) => (
+          <TooltipTrigger key={project.name} delay={300}>
+            <Button className="workbench-project" data-active={project.active || undefined} aria-label={project.name}>{project.name.slice(0, 2).toUpperCase()}</Button>
+            <Tooltip className="tooltip">{project.name} · {project.designs} designs</Tooltip>
+          </TooltipTrigger>
+        ))}
+        <IconButton label="Add project" icon={PlusIcon} />
+      </nav>
+      <nav className="workbench-utilities" aria-label="Utilities">
+        <IconButton label="Generations, 2 active" icon={BoltIcon} />
+        <IconButton label="Providers" icon={CommandLineIcon} />
+        <IconButton label="Settings" icon={Cog6ToothIcon} />
+        <span className="avatar">SI</span>
+      </nav>
     </aside>
   )
 }
@@ -212,7 +271,7 @@ function PageHeading({ eyebrow, title, detail }: { readonly eyebrow?: string; re
 function QuietStudio({ providerLabel }: { readonly providerLabel: string }) {
   return (
     <div className="concept concept-studio">
-      <Sidebar />
+      <StandardSidebar />
       <main className="home-main">
         <div className="studio-content">
           <PageHeading title="Good afternoon, Simon." detail="Start with an idea. OmniDesign will turn it into something you can see, use, and refine." />
@@ -230,7 +289,7 @@ function QuietStudio({ providerLabel }: { readonly providerLabel: string }) {
 function VisualGallery({ providerLabel }: { readonly providerLabel: string }) {
   return (
     <div className="concept concept-gallery">
-      <Sidebar compact />
+      <GallerySidebar />
       <main className="home-main">
         <div className="gallery-content">
           <PageHeading eyebrow="Home" title="Make the next version visible." detail="Describe a direction, choose its context, and start shaping the interface together." />
@@ -249,7 +308,7 @@ function VisualGallery({ providerLabel }: { readonly providerLabel: string }) {
 function ProjectWorkbench({ providerLabel }: { readonly providerLabel: string }) {
   return (
     <div className="concept concept-workbench">
-      <Sidebar compact />
+      <WorkbenchSidebar />
       <main className="home-main">
         <div className="workbench-topbar"><span><span className="status-dot" />All systems ready</span><Button className="secondary-button"><FolderIcon aria-hidden="true" />Open local project</Button></div>
         <div className="workbench-content">

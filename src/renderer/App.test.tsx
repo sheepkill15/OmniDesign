@@ -15,6 +15,7 @@ describe('Phase 1 home concepts', () => {
 
     expect(screen.getByRole('heading', { name: 'Good afternoon, Simon.' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toHaveAttribute('data-variant', 'standard')
     expect(screen.getByRole('region', { name: 'Create a design' })).toBeInTheDocument()
     expect(screen.getAllByText('Set up provider').length).toBeGreaterThan(0)
     expect(screen.getByText('Analytics overview')).toBeInTheDocument()
@@ -26,9 +27,11 @@ describe('Phase 1 home concepts', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'B · Visual gallery' }))
     expect(screen.getByRole('heading', { name: 'Make the next version visible.' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toHaveAttribute('data-variant', 'gallery')
 
     fireEvent.click(screen.getByRole('button', { name: 'C · Project workbench' }))
     expect(screen.getByRole('heading', { name: 'What are we building?' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toHaveAttribute('data-variant', 'workbench')
     expect(screen.getByRole('complementary', { name: 'Workspace activity' })).toBeInTheDocument()
   })
 

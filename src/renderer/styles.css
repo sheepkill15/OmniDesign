@@ -205,9 +205,12 @@ button:disabled,
   overflow: hidden;
 }
 
-.concept-gallery,
+.concept-gallery {
+  grid-template-columns: 252px minmax(0, 1fr);
+}
+
 .concept-workbench {
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -217,6 +220,267 @@ button:disabled,
   padding: 14px 12px 12px;
   border-right: 1px solid var(--border);
   background: var(--surface-1);
+}
+
+.gallery-sidebar {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+}
+
+.gallery-rail {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 14px 0 12px;
+  border-right: 1px solid var(--border);
+  background: var(--background);
+}
+
+.gallery-rail .brand-mark {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 14px;
+}
+
+.gallery-rail .icon-button {
+  width: 38px;
+  height: 38px;
+}
+
+.gallery-rail .icon-button:nth-of-type(1) {
+  background: var(--surface-selected);
+  color: var(--text);
+}
+
+.rail-spacer {
+  flex: 1;
+}
+
+.gallery-rail > .avatar,
+.workbench-utilities > .avatar {
+  width: 32px;
+  height: 32px;
+  margin-top: 7px;
+}
+
+.gallery-projects {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 10px 12px;
+}
+
+.gallery-sidebar-title {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 3px 0 7px;
+}
+
+.gallery-sidebar-title > span {
+  display: grid;
+  gap: 2px;
+}
+
+.gallery-sidebar-title small {
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.gallery-sidebar-title strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gallery-project-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 17px;
+}
+
+.gallery-project {
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-subtle);
+  cursor: pointer;
+  text-align: left;
+}
+
+.gallery-project:hover {
+  background: var(--surface-2);
+}
+
+.gallery-project[data-active] {
+  background: var(--surface-selected);
+  color: var(--text);
+}
+
+.project-monogram {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.gallery-project[data-active] .project-monogram {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.gallery-project > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.gallery-project strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.gallery-project small {
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
+.gallery-project svg {
+  width: 11px;
+  color: var(--text-faint);
+  transform: rotate(-90deg);
+}
+
+.open-project-button {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-subtle);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.open-project-button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.open-project-button svg {
+  width: 15px;
+}
+
+.workbench-sidebar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0 10px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+}
+
+.workbench-brand {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: var(--palette-mauve-shadow);
+  color: #f5edf3;
+}
+
+.workbench-brand svg {
+  width: 20px;
+}
+
+.workbench-navigation,
+.workbench-utilities {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.workbench-navigation .icon-button,
+.workbench-utilities .icon-button {
+  width: 40px;
+  height: 40px;
+}
+
+.workbench-navigation > .icon-button:first-child {
+  background: var(--surface-selected);
+  color: var(--text);
+}
+
+.rail-rule {
+  width: 30px;
+  height: 1px;
+  margin: 4px 0 6px;
+  background: var(--border);
+}
+
+.workbench-project {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--text-subtle);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .03em;
+}
+
+.workbench-project:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.workbench-project[data-active] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.workbench-utilities {
+  margin-top: auto;
 }
 
 .brand-row {
@@ -1024,9 +1288,16 @@ button:disabled,
     grid-template-columns: 238px minmax(0, 1fr);
   }
 
-  .concept-gallery,
+  .concept-gallery {
+    grid-template-columns: 232px minmax(0, 1fr);
+  }
+
   .concept-workbench {
-    grid-template-columns: 224px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .gallery-sidebar {
+    grid-template-columns: 58px minmax(0, 1fr);
   }
 
   .workbench-content {
@@ -1050,6 +1321,22 @@ button:disabled,
 
   .concept {
     grid-template-columns: 214px minmax(0, 1fr);
+  }
+
+  .concept-gallery {
+    grid-template-columns: 212px minmax(0, 1fr);
+  }
+
+  .concept-workbench {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .gallery-sidebar {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .gallery-projects {
+    padding-inline: 7px;
   }
 
   .brand-name {

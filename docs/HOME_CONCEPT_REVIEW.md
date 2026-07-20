@@ -29,13 +29,13 @@ Best fit when OmniDesign should feel quiet, approachable, and primarily driven b
 
 ## Concept B: Visual Gallery
 
-The most artifact-led direction. It uses a more expressive headline, a wide composer, and visual recent-design tiles. It gives generated work more presence while keeping the shell restrained.
+The most artifact-led direction. It uses a narrow global tool rail beside a dedicated visual project navigator, a more expressive headline, a wide composer, and visual recent-design tiles. It gives generated work more presence while keeping the shell restrained.
 
 Best fit when OmniDesign should immediately communicate that it is a visual design product.
 
 ## Concept C: Project Workbench
 
-The densest and most developer-oriented direction. A system-status toolbar, centered creation task, workspace-activity pane, and status footer make local project integration and operational context more visible.
+The densest and most developer-oriented direction. Projects become compact monogram shortcuts in a narrow workbench rail. A system-status toolbar, centered creation task, workspace-activity pane, and status footer make local project integration and operational context more visible.
 
 Best fit when OmniDesign should feel like a professional development tool with design-generation capabilities.
 
