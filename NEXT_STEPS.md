@@ -60,7 +60,7 @@ Define:
 - Export behavior and available export modes.
 - Phase 1 acceptance criteria.
 
-The provider authentication mechanism remains deferred until the planned reference implementation is available.
+The installed-subscription pilot now reuses the sign-in state of local Codex and Claude Code CLIs without storing credentials. Full provider configuration and API-key behavior remain deferred.
 
 ### 2. Establish OmniDesign's Visual Language
 
@@ -124,15 +124,14 @@ The walking skeleton should:
 
 This slice must test the difficult architectural boundaries rather than presenting a broad but disconnected UI mockup.
 
-### 5. Integrate the Reference Provider Implementation
+### 5. Complete the Provider Integration
 
-When the installed-subscription reference implementation is available:
+The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. Continue by:
 
-- Study it before choosing authentication, discovery, or process-integration mechanisms.
-- Implement it behind the provider-neutral contracts described in `ARCHITECTURE.md`.
-- Keep provider-specific concepts in adapters.
+- Preserving the provider-neutral contracts described in `ARCHITECTURE.md` and keeping provider-specific concepts in adapters.
 - Preserve the mock provider for automated tests and local development.
 - Add Codex and Claude contract and integration tests appropriate to their supported capabilities.
+- Add the deferred cancellation, continuation, configuration, and API-key behavior when its Phase 1 contract is defined.
 
 ### 6. Run the Generation-Framework Benchmark
 
@@ -169,7 +168,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - React Aria Components is the accepted headless behavior and accessibility foundation for the trusted UI; OmniDesign retains full ownership of styling and product components.
 - Tailwind CSS with Alpine.js is the provisional generated-design stack.
 - The generated-design stack requires a benchmark before final acceptance.
-- Provider subscription integration awaits the reference implementation.
+- A narrow Codex and Claude Code installed-subscription pilot is implemented with live model and effort discovery, normalized streamed activity, and a provider-neutral adapter gateway; broader Phase 1 provider capabilities remain deferred.
 - The initial Phase 1 product specification is recorded in `docs/PHASE_1_SPEC.md` and awaits review and ratification.
 - The trusted-UI design language in `DESIGN_SYSTEM.md` is ratified: dark-first with a selectable light theme, extensible semantic colors, Oak Sans v2.0 as the bundled interface family, spacious and calm density, and the standard platform title bar in Phase 1.
 - Basic multiple-design support is now included in Phase 1; multiple conversations and visible branching remain deferred.

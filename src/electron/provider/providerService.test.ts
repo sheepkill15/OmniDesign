@@ -1,5 +1,87 @@
-import { describe, expect, it } from 'vitest'
-import { isProviderId, parseClaudeEfforts, parseClaudeModels, providerFailure } from './providerService.js'
+import { describe, expect, it, vi } from 'vitest'
+import { parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
+import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
+import { isProviderId, ProviderService } from './providerService.js'
+import { providerFailure } from './providerUtils.js'
+
+function createAdapter(id: 'codex' | 'claude'): ProviderAdapter {
+  return {
+    id,
+    discover: vi.fn(async () => ({
+      name: `${id} adapter`,
+      installed: true,
+      authenticated: true,
+      detail: 'Ready',
+      models: [{ id: 'model-1', name: 'Model 1', effortLevels: [] }],
+    })),
+    prompt: vi.fn(async (_request: ProviderAdapterPrompt, onActivity) => {
+      onActivity({ kind: 'tool', label: 'Used a tool', raw: { command: 'inspect' } })
+      return { modelId: 'model-1', text: 'Done' }
+    }),
+  }
+}
+
+describe('ProviderService', () => {
+  it('discovers every adapter through the same contract and supplies its identity', async () => {
+    const codex = createAdapter('codex')
+    const claude = createAdapter('claude')
+
+    await expect(new ProviderService([codex, claude]).discover()).resolves.toEqual([
+      {
+        id: 'codex',
+        name: 'codex adapter',
+        installed: true,
+        authenticated: true,
+        detail: 'Ready',
+        models: [{ id: 'model-1', name: 'Model 1', effortLevels: [] }],
+      },
+      {
+        id: 'claude',
+        name: 'claude adapter',
+        installed: true,
+        authenticated: true,
+        detail: 'Ready',
+        models: [{ id: 'model-1', name: 'Model 1', effortLevels: [] }],
+      },
+    ])
+    expect(codex.discover).toHaveBeenCalledOnce()
+    expect(claude.discover).toHaveBeenCalledOnce()
+  })
+
+  it('routes prompts without leaking provider differences to the caller', async () => {
+    const codex = createAdapter('codex')
+    const claude = createAdapter('claude')
+    const activity = vi.fn()
+    const service = new ProviderService([codex, claude])
+
+    await expect(service.prompt({
+      requestId: 'request-1',
+      providerId: 'claude',
+      modelId: 'model-1',
+      effort: 'high',
+      prompt: 'Build it',
+    }, activity)).resolves.toEqual({ providerId: 'claude', modelId: 'model-1', text: 'Done' })
+
+    expect(codex.prompt).not.toHaveBeenCalled()
+    expect(claude.prompt).toHaveBeenCalledWith(
+      { modelId: 'model-1', effort: 'high', prompt: 'Build it' },
+      expect.any(Function),
+    )
+    expect(activity).toHaveBeenCalledWith({
+      requestId: 'request-1',
+      providerId: 'claude',
+      kind: 'tool',
+      label: 'Used a tool',
+      raw: { command: 'inspect' },
+    })
+  })
+
+  it('rejects duplicate adapter identities', () => {
+    expect(() => new ProviderService([createAdapter('codex'), createAdapter('codex')])).toThrow(
+      'Provider adapter identifiers must be unique.',
+    )
+  })
+})
 
 describe('isProviderId', () => {
   it('only accepts the built-in subscription providers', () => {
@@ -11,7 +93,11 @@ describe('isProviderId', () => {
 
 describe('parseClaudeModels', () => {
   it('derives current aliases from the installed CLI help instead of a static catalogue', () => {
-    const help = `--model <model>  Model for the current session. Provide\n  an alias for the latest model (e.g.\n  'fable', 'opus', or 'sonnet') or a\n  model's full name\n--effort <level> Effort level (low, medium, high, xhigh, max)`
+    const help = `--model <model>  Model for the current session. Provide
+  an alias for the latest model (e.g.
+  'fable', 'opus', or 'sonnet') or a
+  model's full name
+--effort <level> Effort level (low, medium, high, xhigh, max)`
     const effortLevels = [
       { id: 'low', name: 'Low', isDefault: false },
       { id: 'medium', name: 'Medium', isDefault: false },

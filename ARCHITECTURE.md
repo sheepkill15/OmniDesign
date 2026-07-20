@@ -27,7 +27,7 @@ The following generation decision is provisional and must be benchmarked before 
 - Generated designs use HTML and Tailwind CSS, with Alpine.js as the default minimal interaction layer.
 - A bundled compiler produces offline, self-contained or small-folder exports.
 
-The details of using installed Codex and Claude subscriptions are intentionally deferred. A reference implementation will be supplied and should inform that integration when work begins. Do not invent or commit to an authentication or installed-application integration mechanism before examining that reference.
+The installed-subscription pilot uses locally installed, already authenticated Codex and Claude Code CLIs behind a provider-neutral adapter gateway. It does not store credentials. This remains a narrow implementation pilot rather than the complete Phase 1 provider system; see `docs/PROVIDER_SUBSCRIPTION_PILOT.md` for its current scope and deferrals.
 
 ## Architectural Goals
 
@@ -270,7 +270,7 @@ The abstraction must account for:
 - Usage, error, and capability reporting.
 - Provider capability differences without reducing every provider to the lowest common denominator.
 
-The exact installed-subscription mechanism is deferred until the reference implementation is available.
+The current installed-subscription mechanism and its limitations are recorded in `docs/PROVIDER_SUBSCRIPTION_PILOT.md`. Upstream orchestration uses one normalized gateway for discovery, prompts, replies, and streamed activity; provider-specific process protocols and event parsing remain inside adapters.
 
 ## Local-First Persistence
 

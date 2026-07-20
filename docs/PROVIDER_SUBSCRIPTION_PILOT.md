@@ -6,6 +6,7 @@ This is a narrow implementation pilot. It is not the completed Phase 1 provider 
 
 ## Included
 
+- Route discovery, prompts, replies, and streamed activity through one provider-neutral adapter contract. Electron and IPC callers never branch on Codex-versus-Claude behavior; built-in adapters own those differences and future providers can join the registry through the same interface.
 - Detect the locally installed Codex and Claude Code CLIs from Electron's main process.
 - Resolve the real executable or Windows command shim before launching a provider. The Codex Desktop-bundled executable is not treated as an installed Codex CLI because it is not an externally supported app-server entry point.
 - Reuse their existing sign-in state; OmniDesign stores no API keys or credentials.
