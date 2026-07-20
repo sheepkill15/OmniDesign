@@ -92,7 +92,6 @@ The product must demonstrate the level of UI and UX quality expected from a desi
 
 Before full implementation, decide and record:
 
-- Package manager and workspace tooling.
 - Electron packaging and update tooling.
 - Application state-management approach.
 - SQLite library and migration strategy.

@@ -10,6 +10,7 @@ The following decisions are accepted:
 - The desktop shell is Electron.
 - The application UI is built with React and TypeScript.
 - Vite is used to develop and build the React renderer.
+- pnpm is the workspace package manager.
 - Privileged desktop capabilities live outside the React renderer and are exposed through narrow, typed IPC contracts.
 - The initial product is local-first and stores projects, designs, threads, and history on disk.
 - AI-generated designs are rendered in an isolated, unprivileged Chromium context.
