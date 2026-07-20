@@ -1,85 +1,208 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import {
+  ArrowRightIcon,
+  BellIcon,
+  BoltIcon,
+  ChevronDownIcon,
+  ClockIcon,
+  Cog6ToothIcon,
+  CommandLineIcon,
+  FolderIcon,
+  HomeIcon,
+  PaperClipIcon,
+  PlusIcon,
+  SparklesIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline'
+import { useEffect, useState } from 'react'
+import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
+import { Button, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 
-interface Message { readonly role: 'user' | 'assistant'; readonly text: string }
-const sharedActivityKinds: readonly ProviderActivity['kind'][] = ['status', 'text', 'tool', 'result', 'diagnostic']
+type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
-function createRequestId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+interface RecentItem {
+  readonly title: string
+  readonly project: string
+  readonly prompt: string
+  readonly time: string
+  readonly palette: 'sand' | 'mauve' | 'olive'
+}
+
+interface ProjectItem {
+  readonly name: string
+  readonly designs: number
+  readonly active?: boolean
+}
+
+const projects: readonly ProjectItem[] = [
+  { name: 'Northstar', designs: 4, active: true },
+  { name: 'Parcel', designs: 2 },
+  { name: 'Lumen', designs: 1 },
+]
+
+const recents: readonly RecentItem[] = [
+  { title: 'Analytics overview', project: 'Northstar', prompt: 'Make the trends easier to scan at a glance', time: '12 min ago', palette: 'sand' },
+  { title: 'Checkout flow', project: 'Parcel', prompt: 'Reduce friction in the delivery step', time: 'Yesterday', palette: 'mauve' },
+  { title: 'Launch page', project: 'Lumen', prompt: 'Give the hero more confidence and warmth', time: 'Friday', palette: 'olive' },
+]
+
+function IconButton({ label, icon: IconComponent }: { readonly label: string; readonly icon: Icon }) {
+  return (
+    <TooltipTrigger delay={350}>
+      <Button className="icon-button" aria-label={label}>
+        <IconComponent aria-hidden="true" />
+      </Button>
+      <Tooltip className="tooltip">{label}</Tooltip>
+    </TooltipTrigger>
+  )
+}
+
+function NavigationItem({ icon: IconComponent, label, badge, active = false }: { readonly icon: Icon; readonly label: string; readonly badge?: string; readonly active?: boolean }) {
+  return (
+    <Button className="navigation-item" data-active={active || undefined}>
+      <IconComponent aria-hidden="true" />
+      <span>{label}</span>
+      {badge && <span className="navigation-badge">{badge}</span>}
+    </Button>
+  )
+}
+
+function Sidebar() {
+  return (
+    <aside className="sidebar" aria-label="Primary navigation">
+      <div className="brand-row">
+        <span className="brand-mark" aria-hidden="true"><SparklesIcon /></span>
+        <span className="brand-name">OmniDesign</span>
+        <IconButton label="Notifications" icon={BellIcon} />
+      </div>
+
+      <nav className="global-navigation" aria-label="Application">
+        <NavigationItem icon={HomeIcon} label="Home" active />
+        <NavigationItem icon={BoltIcon} label="Generations" badge="2" />
+      </nav>
+
+      <div className="sidebar-section">
+        <div className="sidebar-heading">
+          <span>Projects</span>
+          <IconButton label="Add project" icon={PlusIcon} />
+        </div>
+        <div className="project-navigation">
+          {projects.map((project) => (
+            <Button className="project-row" data-active={project.active || undefined} key={project.name}>
+              <FolderIcon aria-hidden="true" />
+              <span>{project.name}</span>
+              <span>{project.designs}</span>
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <div className="sidebar-footer">
+        <NavigationItem icon={CommandLineIcon} label="Providers" />
+        <NavigationItem icon={TrashIcon} label="Trash" />
+        <NavigationItem icon={Cog6ToothIcon} label="Settings" />
+        <div className="account-row">
+          <span className="avatar">SI</span>
+          <span><strong>Simon</strong><small>Local workspace</small></span>
+          <ChevronDownIcon aria-hidden="true" />
+        </div>
+      </div>
+    </aside>
+  )
+}
+
+function NewDesignComposer({ providerLabel }: { readonly providerLabel: string }) {
+  const [prompt, setPrompt] = useState('')
+  const submit = () => setPrompt('')
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && prompt.trim()) {
+      event.preventDefault()
+      submit()
+    }
+  }
+
+  return (
+    <section className="new-design-composer" aria-label="Create a design">
+      <TextField className="prompt-field" aria-label="What would you like to design?">
+        <TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onKeyDown} placeholder="What would you like to design?" />
+      </TextField>
+      <div className="composer-footer">
+        <div className="composer-leading">
+          <IconButton label="Attach files or folders" icon={PaperClipIcon} />
+          <Button className="project-context"><FolderIcon aria-hidden="true" />Standalone design<ChevronDownIcon aria-hidden="true" /></Button>
+        </div>
+        <div className="composer-controls">
+          <Button className="control-button"><SparklesIcon aria-hidden="true" />{providerLabel}<ChevronDownIcon aria-hidden="true" /></Button>
+          <Button className="control-button"><CommandLineIcon aria-hidden="true" />Auto model<ChevronDownIcon aria-hidden="true" /></Button>
+        </div>
+        <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim()} onPress={submit}>
+          <ArrowRightIcon aria-hidden="true" />
+        </Button>
+      </div>
+    </section>
+  )
+}
+
+function MiniPreview({ palette }: { readonly palette: RecentItem['palette'] }) {
+  return (
+    <div className={`mini-preview preview-${palette}`} aria-hidden="true">
+      <span className="preview-rail" />
+      <span className="preview-line preview-line-long" />
+      <span className="preview-line" />
+      <span className="preview-block" />
+      <span className="preview-block preview-block-secondary" />
+    </div>
+  )
+}
+
+function RecentDesigns() {
+  return (
+    <section className="recent-section" aria-labelledby="recent-designs">
+      <div className="section-heading"><h2 id="recent-designs">Continue designing</h2><Button className="text-button">View all</Button></div>
+      <div className="recent-rows">
+        {recents.map((item) => (
+          <Button className="recent-row" key={item.title}>
+            <MiniPreview palette={item.palette} />
+            <span className="recent-copy"><strong>{item.title}</strong><small>{item.project} · {item.prompt}</small></span>
+            <span className="recent-time"><ClockIcon aria-hidden="true" />{item.time}</span>
+            <ArrowRightIcon className="row-arrow" aria-hidden="true" />
+          </Button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function useAvailableProvider(): string {
+  const [label, setLabel] = useState('Set up provider')
+
+  useEffect(() => {
+    const api = window.omnidesign?.providers
+    if (!api) return
+    void api.discover().then((providers) => {
+      const provider = providers.find((candidate) => candidate.installed && candidate.authenticated)
+      if (provider) setLabel(provider.name)
+    }).catch(() => undefined)
+  }, [])
+
+  return label
 }
 
 export function App() {
-  const [providers, setProviders] = useState<readonly ProviderStatus[]>([])
-  const [providerId, setProviderId] = useState<'codex' | 'claude'>('codex')
-  const [modelId, setModelId] = useState('')
-  const [effort, setEffort] = useState('')
-  const [prompt, setPrompt] = useState('')
-  const [messages, setMessages] = useState<readonly Message[]>([])
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [activities, setActivities] = useState<readonly ProviderActivity[]>([])
+  const providerLabel = useAvailableProvider()
 
-  const selectedProvider = useMemo(() => providers.find((provider) => provider.id === providerId), [providers, providerId])
-  const selectedModel = useMemo(() => selectedProvider?.models.find((model) => model.id === modelId), [selectedProvider, modelId])
-  const refresh = async () => {
-    setError('')
-    const providerApi = window.omnidesign?.providers
-    if (!providerApi) {
-      setError('Live provider discovery is available in the Electron test application.')
-      return
-    }
-    const next = await providerApi.discover()
-    setProviders(next)
-    const available = next.find((provider) => provider.installed && provider.authenticated)
-    if (available) { setProviderId(available.id); setModelId(available.models[0]?.id ?? '') }
-  }
-  useEffect(() => { void refresh().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Could not check providers.')) }, [])
-  useEffect(() => window.omnidesign?.providers.onActivity((activity) => setActivities((current) => [...current, activity])), [])
-  useEffect(() => setModelId(selectedProvider?.models[0]?.id ?? ''), [selectedProvider?.id])
-  useEffect(() => setEffort(selectedModel?.effortLevels.find((level) => level.isDefault)?.id ?? ''), [selectedModel?.id])
-
-  const send = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!prompt.trim() || !modelId) return
-    const outgoing = prompt.trim()
-    const requestId = createRequestId()
-    setMessages((current) => [...current, { role: 'user', text: outgoing }])
-    setPrompt(''); setBusy(true); setError('')
-    try {
-      const reply = await window.omnidesign.providers.prompt({ requestId, providerId, modelId, ...(effort ? { effort } : {}), prompt: outgoing })
-      setMessages((current) => [...current, { role: 'assistant', text: reply.text }])
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The provider could not complete this prompt.')
-    } finally { setBusy(false) }
-  }
-
-  return <main className="app-shell">
-    <header><p className="eyebrow">OmniDesign · Unified provider test</p><h1>One interface. Any installed provider.</h1><p>Codex and Claude use the same discovery, capability, prompt, activity, and reply contracts. Their local adapters handle every protocol difference.</p></header>
-    <section className="contract-panel" aria-label="Unified provider contract">
-      <div><span>1</span><strong>Discover</strong></div><i aria-hidden="true">→</i>
-      <div><span>2</span><strong>Choose model + effort</strong></div><i aria-hidden="true">→</i>
-      <div><span>3</span><strong>Send prompt</strong></div><i aria-hidden="true">→</i>
-      <div><span>4</span><strong>Stream shared events</strong></div><i aria-hidden="true">→</i>
-      <div><span>5</span><strong>Receive reply</strong></div>
-    </section>
-    <section className="provider-panel" aria-label="Available providers">
-      <div><h2>Installed providers</h2><button className="quiet" type="button" onClick={() => void refresh()} disabled={busy}>Refresh</button></div>
-      {providers.map((provider) => <button type="button" key={provider.id} className={`provider ${provider.installed && provider.authenticated ? 'ready' : ''}`} onClick={() => setProviderId(provider.id)} disabled={!provider.installed || !provider.authenticated || busy} aria-pressed={provider.id === providerId}>
-        <strong>{provider.name}</strong><span>{provider.installed && provider.authenticated ? 'Adapter ready' : 'Unavailable'}</span><p>{provider.detail}</p>
-      </button>)}
-    </section>
-    <section className="conversation" aria-label="Provider conversation">
-      <div className="messages" aria-live="polite">
-        {messages.length === 0 && activities.length === 0 ? <p className="empty">Choose an available provider and start a conversation.</p> : messages.map((message, index) => <article className={`message ${message.role}`} key={`${message.role}-${index}`}><strong>{message.role === 'user' ? 'You' : selectedProvider?.name}</strong><p>{message.text}</p></article>)}
-        {activities.length > 0 && <section className="activity-log" aria-label="Unified agent activity"><div className="activity-heading"><h2>Unified agent activity</h2><p>{sharedActivityKinds.map((kind) => <span key={kind}>{kind}</span>)}</p></div>{activities.map((activity, index) => <article className={`activity ${activity.kind}`} key={`${activity.requestId}-${index}`}><header><span>{activity.kind}</span><strong>{activity.label}</strong></header>{activity.detail && <p>{activity.detail}</p>}</article>)}</section>}
-      </div>
-      <form onSubmit={(event) => void send(event)}>
-        <fieldset><legend>Provider</legend><p>{selectedProvider?.name ?? 'No available provider'}</p></fieldset>
-        <fieldset><legend>Model</legend><div className="model-list" role="radiogroup" aria-label="Model">{selectedProvider?.models.map((model) => <button type="button" className="model" key={model.id} role="radio" aria-checked={model.id === modelId} onClick={() => setModelId(model.id)} disabled={busy}>{model.name}</button>)}</div></fieldset>
-        <fieldset><legend>Effort</legend><div className="model-list" role="radiogroup" aria-label="Effort"><button type="button" className="model" role="radio" aria-checked={effort === ''} onClick={() => setEffort('')} disabled={busy}>Provider default</button>{selectedModel?.effortLevels.map((level) => <button type="button" className="model" key={level.id} role="radio" aria-checked={effort === level.id} onClick={() => setEffort(level.id)} disabled={busy}>{level.name}</button>)}</div></fieldset>
-        <label className="prompt-label">Unified prompt<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Send the same request shape to either provider…" disabled={busy || !modelId} /></label>
-        {error && <p className="error" role="alert">{error}</p>}<button type="submit" disabled={busy || !prompt.trim() || !modelId}>{busy ? 'Waiting for provider…' : 'Send through unified interface'}</button>
-      </form>
-    </section>
-  </main>
+  return (
+    <div className="app-frame">
+      <Sidebar />
+      <main className="home-main">
+        <div className="home-content">
+          <header className="page-heading">
+            <h1>Good afternoon, Simon.</h1>
+            <p>Start with an idea. OmniDesign will turn it into something you can see, use, and refine.</p>
+          </header>
+          <NewDesignComposer providerLabel={providerLabel} />
+          <RecentDesigns />
+        </div>
+      </main>
+    </div>
+  )
 }

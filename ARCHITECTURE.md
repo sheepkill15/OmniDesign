@@ -21,6 +21,11 @@ The following decisions are accepted:
 - Application selection controls use shared, accessible custom combobox or listbox primitives; the trusted UI does not use the built-in HTML `<select>` element.
 - The trusted UI is dark-first with a complete user-selectable light theme and bundles Oak Sans v2.0 from `Walven/OakSans` as its primary interface family.
 - Phase 1 retains Electron's standard platform window frame and title bar; custom window chrome is deferred.
+- Phase 1 structured persistence uses the `node:sqlite` API embedded in Electron's Node.js runtime, with numbered SQL migrations owned by the persistence layer.
+- Zod validates privileged IPC request payloads and persisted JSON boundaries at runtime.
+- The walking skeleton uses React-owned feature state and explicit service calls; a global state-management dependency will be introduced only when cross-screen background-job coordination demonstrates the need.
+- The generated-design preview uses `WebContentsView` in a non-persistent, dedicated session partition and a session-scoped `omnidesign-preview://` protocol handler.
+- Phase 1 offline ZIP assembly uses `fflate`, while Tailwind compilation uses the pinned `tailwindcss` and `@tailwindcss/node` packages.
 
 The following generation decision is provisional and must be benchmarked before it becomes final:
 
@@ -286,6 +291,14 @@ Use a hybrid persistence model:
 
 Do not store secrets in project files or the ordinary SQLite database.
 
+### Phase 1 Persistence Implementation
+
+The initial implementation uses Electron 43's embedded Node 24 runtime and its built-in `node:sqlite` module. This avoids a separately compiled native SQLite addon while preserving the accepted SQLite data model. The persistence package owns explicit, forward-only migrations and opens databases with foreign-key enforcement and WAL journaling. Tests use temporary directories and isolated databases.
+
+Immutable revision artifacts remain ordinary files beneath OmniDesign-managed application storage. SQLite stores their metadata and paths, active and selected revision pointers, conversations, drafts, layout state, and project/design relationships. The source-project directory is never used as the design working directory.
+
+If Electron moves to a Node release where `node:sqlite` compatibility or support changes materially, re-evaluate this choice before upgrading Electron rather than silently replacing the persistence layer.
+
 ### History Model
 
 History should be append-only or revision-based from the beginning:
@@ -497,6 +510,8 @@ Every architectural layer must be testable:
 - Visual regression and accessibility tests for the OmniDesign UI and representative generated designs.
 
 Use Vitest and React Testing Library as the initial unit and component-testing direction. Evaluate Playwright for Electron end-to-end flows while accounting for the maturity of its Electron automation support at implementation time.
+
+Vitest owns domain, persistence, IPC-schema, export, provider-contract, and React component tests in the walking skeleton. Electron security policies are expressed as testable pure functions wherever practical, then covered by an Electron integration test before the walking skeleton is declared complete. React feature code does not import Electron modules; it consumes the typed preload surface.
 
 ## Mobile and Web Path
 

@@ -16,8 +16,14 @@
     "test": "vitest run --environment jsdom --exclude=dist-electron/**"
   },
   "dependencies": {
+    "@heroicons/react": "2.2.0",
+    "@tailwindcss/node": "4.3.3",
+    "fflate": "0.8.3",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-aria-components": "1.19.0",
+    "react-dom": "^19.2.7",
+    "tailwindcss": "4.3.3",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
