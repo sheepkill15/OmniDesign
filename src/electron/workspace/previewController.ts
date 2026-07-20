@@ -107,7 +107,7 @@ export class PreviewController {
     try {
       const image = await this.view.webContents.capturePage()
       if (token !== this.token || this.view.webContents.isDestroyed()) return
-      this.onThumbnail(designId, revisionId, image.resize({ width: 320, height: 200 }).toPNG())
+      this.onThumbnail(designId, revisionId, image.resize({ width: 320 }).toPNG())
     } catch {
       // A preview can be replaced or destroyed while Chromium is producing its capture.
     }

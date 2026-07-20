@@ -41,6 +41,7 @@ interface DesignRevision {
   readonly modelId: string
   readonly createdAt: string
   readonly html: string
+  readonly thumbnailDataUrl: string | null
   readonly diagnostics: readonly PreviewDiagnostic[]
 }
 

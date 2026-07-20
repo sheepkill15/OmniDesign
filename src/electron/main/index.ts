@@ -90,7 +90,6 @@ function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewCon
       window.webContents.send('preview:diagnostic', { designId, revisionId })
     },
     (designId, revisionId, png) => {
-      if (store.getDesign(designId)?.activeRevisionId !== revisionId) return
       store.saveThumbnail(designId, revisionId, png)
       window.webContents.send('preview:thumbnail', { designId, revisionId })
     },

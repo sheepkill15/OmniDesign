@@ -247,7 +247,10 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
           <strong>Revision history</strong>
           {[...design.revisions].reverse().map((revision, index) => (
             <Button className="history-row" data-active={revision.id === design.selectedRevisionId || undefined} key={revision.id} onPress={() => void selectRevision(revision.id)}>
-              <span>{index === 0 ? 'Current head' : new Date(revision.createdAt).toLocaleString()}</span><small>{revision.prompt}</small>
+              {revision.thumbnailDataUrl
+                ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
+                : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
+              <span><strong>{index === 0 ? 'Current head' : new Date(revision.createdAt).toLocaleString()}</strong><small>{revision.prompt}</small></span>
             </Button>
           ))}
         </div>}
@@ -336,7 +339,11 @@ export function App() {
     if (event.designId !== activeDesign?.id || !workspaceApi) return
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
   }), [activeDesign?.id, updateDesign, workspaceApi])
-  useEffect(() => window.omnidesign?.preview.onThumbnail(() => { void refresh() }), [refresh])
+  useEffect(() => window.omnidesign?.preview.onThumbnail((event) => {
+    void refresh()
+    if (event.designId !== activeDesign?.id || !workspaceApi) return
+    void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
+  }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
 
   const create = async (prompt: string) => {
     if (!workspaceApi) return

@@ -814,7 +814,9 @@ button:disabled,
 
 .history-row {
   display: grid;
-  gap: 3px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
   padding: 9px;
   border: 0;
   border-radius: 8px;
@@ -830,9 +832,18 @@ button:disabled,
   color: var(--text);
 }
 
-.history-row span {
+.history-row > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.history-row strong {
+  overflow: hidden;
   font-size: 12px;
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-row small {
@@ -841,6 +852,20 @@ button:disabled,
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.history-thumbnail {
+  width: 56px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-1);
+  object-fit: cover;
+}
+
+.history-thumbnail-placeholder {
+  display: block;
+  background: var(--surface-selected);
 }
 
 .workspace-split {

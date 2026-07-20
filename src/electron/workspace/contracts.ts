@@ -8,6 +8,7 @@ export const revisionSchema = z.object({
   modelId: z.string().min(1),
   createdAt: z.string().datetime(),
   html: z.string(),
+  thumbnailDataUrl: z.string().nullable(),
 })
 
 export const messageSchema = z.object({

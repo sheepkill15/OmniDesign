@@ -112,6 +112,16 @@ const migrationFour = `
 ALTER TABLE designs ADD COLUMN thumbnail_path TEXT;
 `
 
+const migrationFive = `
+CREATE TABLE revision_thumbnails (
+  revision_id TEXT PRIMARY KEY REFERENCES revisions(id) ON DELETE CASCADE,
+  thumbnail_path TEXT NOT NULL
+) STRICT;
+INSERT OR IGNORE INTO revision_thumbnails (revision_id, thumbnail_path)
+SELECT active_revision_id, thumbnail_path FROM designs
+WHERE active_revision_id IS NOT NULL AND thumbnail_path IS NOT NULL;
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -234,12 +244,18 @@ export class WorkspaceStore {
     mkdirSync(thumbnailDirectory, { recursive: true })
     const thumbnailPath = path.join(thumbnailDirectory, `${revisionId}.png`)
     writeFileSync(thumbnailPath, png)
-    this.database.prepare('UPDATE designs SET thumbnail_path = ? WHERE id = ?').run(thumbnailPath, designId)
+    this.database.prepare(`
+      INSERT INTO revision_thumbnails (revision_id, thumbnail_path) VALUES (?, ?)
+      ON CONFLICT(revision_id) DO UPDATE SET thumbnail_path = excluded.thumbnail_path
+    `).run(revisionId, thumbnailPath)
+    if (this.requireDesign(designId).activeRevisionId === revisionId) {
+      this.database.prepare('UPDATE designs SET thumbnail_path = ? WHERE id = ?').run(thumbnailPath, designId)
+    }
   }
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -280,6 +296,7 @@ export class WorkspaceStore {
         modelId: revision.model_id,
         createdAt: revision.created_at,
         html: readFileSync(revision.html_path, 'utf8'),
+        thumbnailDataUrl: this.readThumbnailDataUrl(this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(revision.id) as { thumbnail_path: string } | undefined),
         diagnostics: this.database.prepare(`
           SELECT id, kind, level, message, source, line, created_at
           FROM preview_diagnostics WHERE revision_id = ? ORDER BY created_at, rowid
@@ -295,6 +312,10 @@ export class WorkspaceStore {
     const design = this.getDesign(designId)
     if (!design) throw new Error('Design not found.')
     return design
+  }
+
+  private readThumbnailDataUrl(thumbnail: { thumbnail_path: string } | undefined): string | null {
+    return thumbnail && existsSync(thumbnail.thumbnail_path) ? `data:image/png;base64,${readFileSync(thumbnail.thumbnail_path).toString('base64')}` : null
   }
 
   private requireRevision(designId: string, revisionId: string): Revision {

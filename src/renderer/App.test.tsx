@@ -16,7 +16,7 @@ const design: OmniDesignDocument = {
   thumbnailDataUrl: null,
   layout: { conversationWidth: 43 },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
-  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', html: '<html><body>Dashboard</body></html>', diagnostics: [] }],
+  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', html: '<html><body>Dashboard</body></html>', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
 function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign: OmniDesignDocument = design) {
@@ -101,6 +101,23 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
     expect(bridge.preview.show).toHaveBeenCalled()
     expect(bridge.preview.hide).not.toHaveBeenCalled()
+  })
+
+  it('shows revision thumbnails in history', async () => {
+    const thumbnailDesign: OmniDesignDocument = {
+      ...design,
+      revisions: [{ ...design.revisions[0], thumbnailDataUrl: 'data:image/png;base64,iVBORw==' }],
+    }
+    installBridge([], thumbnailDesign)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Design conversation' })
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+
+    expect(screen.getByRole('img', { name: 'Preview of revision current head' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
   })
 
   it('shows the selected revision diagnostic count in the preview status', async () => {

@@ -86,7 +86,23 @@ describe('WorkspaceStore', () => {
     store.close()
 
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id)?.thumbnailDataUrl).toBe('data:image/png;base64,iVBORw==')
+    const recovered = reopened.getDesign(created.id)
+    expect(recovered?.thumbnailDataUrl).toBe('data:image/png;base64,iVBORw==')
+    expect(recovered?.revisions[0].thumbnailDataUrl).toBe('data:image/png;base64,iVBORw==')
     reopened.close()
+  })
+
+  it('preserves a separate thumbnail for each revision while keeping the active one on the design', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const first = store.addRevision(created.id, 'First', '<html><body>One</body></html>')
+    const second = store.addRevision(created.id, 'Second', '<html><body>Two</body></html>')
+    store.saveThumbnail(created.id, first.revisions[0].id, Uint8Array.from([1]))
+    store.saveThumbnail(created.id, second.revisions[1].id, Uint8Array.from([2]))
+
+    const recovered = store.getDesign(created.id)
+    expect(recovered?.thumbnailDataUrl).toBe('data:image/png;base64,Ag==')
+    expect(recovered?.revisions.map((revision) => revision.thumbnailDataUrl)).toEqual(['data:image/png;base64,AQ==', 'data:image/png;base64,Ag=='])
+    store.close()
   })
 })
