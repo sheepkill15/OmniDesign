@@ -1,7 +1,20 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
+import { isProviderId, ProviderService } from '../provider/providerService.js'
+import type { ProviderPrompt } from '../provider/types.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
+const providers = new ProviderService()
+
+function isProviderPrompt(value: unknown): value is ProviderPrompt {
+  if (typeof value !== 'object' || value === null) return false
+  const request = value as Record<string, unknown>
+  return isProviderId(request.providerId)
+    && typeof request.requestId === 'string' && request.requestId.length > 0 && request.requestId.length <= 100
+    && typeof request.modelId === 'string' && request.modelId.length > 0
+    && (request.effort === undefined || typeof request.effort === 'string')
+    && typeof request.prompt === 'string' && request.prompt.length <= 100_000
+}
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -15,6 +28,7 @@ function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, '../preload/index.js'),
     },
   })
 
@@ -33,6 +47,17 @@ function createMainWindow(): BrowserWindow {
 app.enableSandbox()
 
 app.whenReady().then(() => {
+  ipcMain.handle('providers:discover', (event) => {
+    if (!event.senderFrame?.url.startsWith(developmentServerUrl ?? 'file://')) throw new Error('Unauthorized sender.')
+    return providers.discover()
+  })
+  ipcMain.handle('providers:prompt', (event, request: unknown) => {
+    if (!event.senderFrame?.url.startsWith(developmentServerUrl ?? 'file://')) throw new Error('Unauthorized sender.')
+    if (!isProviderPrompt(request)) throw new Error('Invalid provider request.')
+    return providers.prompt(request, (activity) => {
+      if (!event.sender.isDestroyed()) event.sender.send('providers:activity', activity)
+    })
+  })
   createMainWindow()
 
   app.on('activate', () => {

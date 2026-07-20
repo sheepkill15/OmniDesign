@@ -13,7 +13,7 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "start": "electron .",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json",
-    "test": "vitest run --environment jsdom"
+    "test": "vitest run --environment jsdom --exclude=dist-electron/**"
   },
   "dependencies": {
     "react": "^19.2.7",
