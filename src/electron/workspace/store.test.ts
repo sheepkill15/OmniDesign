@@ -66,4 +66,27 @@ describe('WorkspaceStore', () => {
     ])
     reopened.close()
   })
+
+  it('persists the workspace divider layout across reopen', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    store.saveLayout(created.id, { conversationWidth: 57 })
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.layout).toEqual({ conversationWidth: 57 })
+    reopened.close()
+  })
+
+  it('stores a generated thumbnail outside the immutable revision snapshot', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const saved = store.addRevision(created.id, 'First', '<html><body>One</body></html>')
+    store.saveThumbnail(created.id, saved.activeRevisionId!, Uint8Array.from([137, 80, 78, 71]))
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.thumbnailDataUrl).toBe('data:image/png;base64,iVBORw==')
+    reopened.close()
+  })
 })

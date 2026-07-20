@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { designSchema } from './contracts.js'
-import type { Design, Message, PreviewDiagnostic, Revision } from './contracts.js'
+import { designSchema, layoutSchema } from './contracts.js'
+import type { Design, Layout, Message, PreviewDiagnostic, Revision } from './contracts.js'
 
 interface DesignRow {
   id: string
@@ -15,6 +15,8 @@ interface DesignRow {
   active_revision_id: string | null
   selected_revision_id: string | null
   draft: string
+  layout_json: string
+  thumbnail_path: string | null
 }
 
 interface RevisionRow {
@@ -102,6 +104,14 @@ CREATE TABLE preview_diagnostics (
 CREATE INDEX preview_diagnostics_by_revision ON preview_diagnostics(revision_id, created_at);
 `
 
+const migrationThree = `
+ALTER TABLE designs ADD COLUMN layout_json TEXT NOT NULL DEFAULT '{"conversationWidth":43}';
+`
+
+const migrationFour = `
+ALTER TABLE designs ADD COLUMN thumbnail_path TEXT;
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -122,7 +132,7 @@ export class WorkspaceStore {
   public listDesigns(): Design[] {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft
+             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path
       FROM designs d JOIN projects p ON p.id = d.project_id
       ORDER BY d.updated_at DESC
     `).all() as unknown as DesignRow[]
@@ -132,7 +142,7 @@ export class WorkspaceStore {
   public getDesign(designId: string): Design | null {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft
+             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ?
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -205,6 +215,11 @@ export class WorkspaceStore {
     if (result.changes !== 1) throw new Error('Design not found.')
   }
 
+  public saveLayout(designId: string, layout: Layout): void {
+    const result = this.database.prepare('UPDATE designs SET layout_json = ? WHERE id = ?').run(JSON.stringify(layout), designId)
+    if (result.changes !== 1) throw new Error('Design not found.')
+  }
+
   public addPreviewDiagnostic(designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
     this.requireRevision(designId, revisionId)
     this.database.prepare(`
@@ -213,9 +228,18 @@ export class WorkspaceStore {
     `).run(randomUUID(), revisionId, diagnostic.kind, diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line, new Date().toISOString())
   }
 
+  public saveThumbnail(designId: string, revisionId: string, png: Uint8Array): void {
+    this.requireRevision(designId, revisionId)
+    const thumbnailDirectory = path.join(this.artifactsDirectory, designId, 'thumbnails')
+    mkdirSync(thumbnailDirectory, { recursive: true })
+    const thumbnailPath = path.join(thumbnailDirectory, `${revisionId}.png`)
+    writeFileSync(thumbnailPath, png)
+    this.database.prepare('UPDATE designs SET thumbnail_path = ? WHERE id = ?').run(thumbnailPath, designId)
+  }
+
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -245,6 +269,8 @@ export class WorkspaceStore {
       activeRevisionId: row.active_revision_id,
       selectedRevisionId: row.selected_revision_id,
       draft: row.draft,
+      thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
+      layout: layoutSchema.parse(JSON.parse(row.layout_json)),
       messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, createdAt: message.created_at })),
       revisions: revisionRows.map((revision): Revision => ({
         id: revision.id,

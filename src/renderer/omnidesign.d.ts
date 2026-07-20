@@ -71,6 +71,8 @@ interface OmniDesignDocument {
   readonly activeRevisionId: string | null
   readonly selectedRevisionId: string | null
   readonly draft: string
+  readonly thumbnailDataUrl: string | null
+  readonly layout: { readonly conversationWidth: number }
   readonly messages: readonly DesignMessage[]
   readonly revisions: readonly DesignRevision[]
 }
@@ -103,6 +105,7 @@ interface Window {
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string): Promise<void>
+      saveLayout(designId: string, layout: { readonly conversationWidth: number }): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
     }
@@ -111,6 +114,7 @@ interface Window {
       resize(bounds: PreviewBounds): Promise<void>
       hide(): Promise<void>
       onDiagnostic(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
+      onThumbnail(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
     }
   }
 }

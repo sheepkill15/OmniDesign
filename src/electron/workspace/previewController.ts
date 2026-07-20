@@ -13,8 +13,13 @@ export class PreviewController {
   private attached = false
   private designId: string | null = null
   private revisionId: string | null = null
+  private token: string | null = null
 
-  public constructor(private readonly window: BrowserWindow, private readonly onDiagnostic: (designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>) => void) {
+  public constructor(
+    private readonly window: BrowserWindow,
+    private readonly onDiagnostic: (designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>) => void,
+    private readonly onThumbnail: (designId: string, revisionId: string, png: Uint8Array) => void,
+  ) {
     const previewSession = session.fromPartition(partition)
     previewSession.setPermissionCheckHandler(() => false)
     previewSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
@@ -42,6 +47,7 @@ export class PreviewController {
     this.view.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
       if (isMainFrame && errorCode !== -3) this.recordDiagnostic(captureLoadDiagnostic(errorCode, errorDescription, validatedUrl))
     })
+    this.view.webContents.on('did-finish-load', () => { void this.captureThumbnail() })
   }
 
   public show(designId: string, revisionId: string, html: string, bounds: Rectangle): void {
@@ -49,6 +55,7 @@ export class PreviewController {
     const token = randomUUID()
     this.documents.clear()
     this.documents.set(token, html)
+    this.token = token
     this.designId = designId
     this.revisionId = revisionId
     if (!this.attached) {
@@ -90,5 +97,19 @@ export class PreviewController {
 
   private recordDiagnostic(diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
     if (this.designId && this.revisionId) this.onDiagnostic(this.designId, this.revisionId, diagnostic)
+  }
+
+  private async captureThumbnail(): Promise<void> {
+    if (!this.designId || !this.revisionId || !this.token || this.view.webContents.isDestroyed()) return
+    const token = this.token
+    const designId = this.designId
+    const revisionId = this.revisionId
+    try {
+      const image = await this.view.webContents.capturePage()
+      if (token !== this.token || this.view.webContents.isDestroyed()) return
+      this.onThumbnail(designId, revisionId, image.resize({ width: 320, height: 200 }).toPNG())
+    } catch {
+      // A preview can be replaced or destroyed while Chromium is producing its capture.
+    }
   }
 }

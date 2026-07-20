@@ -13,6 +13,8 @@ const design: OmniDesignDocument = {
   activeRevisionId: 'revision-1',
   selectedRevisionId: 'revision-1',
   draft: '',
+  thumbnailDataUrl: null,
+  layout: { conversationWidth: 43 },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', html: '<html><body>Dashboard</body></html>', diagnostics: [] }],
 }
@@ -33,6 +35,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       selectRevision: vi.fn().mockResolvedValue(design),
       restoreRevision: vi.fn().mockResolvedValue(design),
       saveDraft: vi.fn().mockResolvedValue(undefined),
+      saveLayout: vi.fn().mockResolvedValue(undefined),
       exportRevision: vi.fn().mockResolvedValue({ canceled: true }),
       onActivity: vi.fn((listener: (activity: GenerationActivity) => void) => { listeners.push(listener); return () => undefined }),
     },
@@ -41,6 +44,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       resize: vi.fn().mockResolvedValue(undefined),
       hide: vi.fn().mockResolvedValue(undefined),
       onDiagnostic: vi.fn().mockReturnValue(() => undefined),
+      onThumbnail: vi.fn().mockReturnValue(() => undefined),
     },
   } as unknown as Window['omnidesign']
   Object.defineProperty(window, 'omnidesign', { value: bridge, configurable: true })
@@ -116,11 +120,32 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText('1 diagnostic captured')).toBeInTheDocument()
   })
 
+  it('resizes the workspace with its keyboard-operable divider', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    const divider = await screen.findByRole('separator', { name: 'Resize conversation and preview panels' })
+    fireEvent.keyDown(divider, { key: 'ArrowRight' })
+    expect(divider).toHaveAttribute('aria-valuenow', '45')
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', { conversationWidth: 45 }))
+  })
+
   it('recovers saved designs into the home list', async () => {
     installBridge([design])
     render(<App />)
 
     expect(await screen.findAllByText('Calm dashboard')).not.toHaveLength(0)
     expect(screen.getByText(/A calm dashboard/)).toBeInTheDocument()
+  })
+
+  it('uses the persisted thumbnail in the recent-design row', async () => {
+    installBridge([{ ...design, thumbnailDataUrl: 'data:image/png;base64,iVBORw==' }])
+    render(<App />)
+
+    expect(await screen.findByRole('img', { name: 'Preview of Calm dashboard' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
   })
 })

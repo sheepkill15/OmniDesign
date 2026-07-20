@@ -27,6 +27,10 @@ export const previewDiagnosticSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const layoutSchema = z.object({
+  conversationWidth: z.number().min(35).max(65),
+})
+
 export const designSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -37,6 +41,8 @@ export const designSchema = z.object({
   activeRevisionId: z.string().nullable(),
   selectedRevisionId: z.string().nullable(),
   draft: z.string(),
+  thumbnailDataUrl: z.string().nullable(),
+  layout: layoutSchema,
   messages: z.array(messageSchema),
   revisions: z.array(revisionSchema.extend({ diagnostics: z.array(previewDiagnosticSchema) })),
 })
@@ -61,6 +67,10 @@ export const saveDraftRequestSchema = designIdRequestSchema.extend({
   draft: z.string().max(100_000),
 })
 
+export const saveLayoutRequestSchema = designIdRequestSchema.extend({
+  layout: layoutSchema,
+})
+
 export const previewRequestSchema = selectRevisionRequestSchema.extend({
   bounds: z.object({
     x: z.number().int().nonnegative(),
@@ -80,6 +90,8 @@ export type CreateDesignRequest = z.infer<typeof createDesignRequestSchema>
 export type GenerateRequest = z.infer<typeof generateRequestSchema>
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
+export type Layout = z.infer<typeof layoutSchema>
+export type SaveLayoutRequest = z.infer<typeof saveLayoutRequestSchema>
 export type PreviewRequest = z.infer<typeof previewRequestSchema>
 export type ExportRequest = z.infer<typeof exportRequestSchema>
 

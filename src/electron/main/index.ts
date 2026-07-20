@@ -9,6 +9,7 @@ import {
   generateRequestSchema,
   previewRequestSchema,
   saveDraftRequestSchema,
+  saveLayoutRequestSchema,
   selectRevisionRequestSchema,
 } from '../workspace/contracts.js'
 import type { GenerationActivity } from '../workspace/contracts.js'
@@ -81,6 +82,21 @@ function sendGenerationActivity(activity: GenerationActivity): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:activity', activity)
 }
 
+function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewController {
+  return new PreviewController(
+    window,
+    (designId, revisionId, diagnostic) => {
+      store.addPreviewDiagnostic(designId, revisionId, diagnostic)
+      window.webContents.send('preview:diagnostic', { designId, revisionId })
+    },
+    (designId, revisionId, png) => {
+      if (store.getDesign(designId)?.activeRevisionId !== revisionId) return
+      store.saveThumbnail(designId, revisionId, png)
+      window.webContents.send('preview:thumbnail', { designId, revisionId })
+    },
+  )
+}
+
 function registerIpc(): void {
   ipcMain.handle('providers:discover', (event) => {
     authorize(event)
@@ -126,6 +142,11 @@ function registerIpc(): void {
     const request = saveDraftRequestSchema.parse(value)
     requireWorkspace().saveDraft(request.designId, request.draft)
   })
+  ipcMain.handle('workspace:save-layout', (event, value: unknown) => {
+    authorize(event)
+    const request = saveLayoutRequestSchema.parse(value)
+    requireWorkspace().saveLayout(request.designId, request.layout)
+  })
   ipcMain.handle('preview:show', (event, value: unknown) => {
     authorize(event)
     const request = previewRequestSchema.parse(value)
@@ -165,10 +186,7 @@ app.whenReady().then(() => {
   const store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace'))
   workspace = new WorkspaceService(store)
   mainWindow = createMainWindow()
-  preview = new PreviewController(mainWindow, (designId, revisionId, diagnostic) => {
-    store.addPreviewDiagnostic(designId, revisionId, diagnostic)
-    mainWindow?.webContents.send('preview:diagnostic', { designId, revisionId })
-  })
+  preview = createPreview(mainWindow, store)
   registerIpc()
 
   mainWindow.on('closed', () => {
@@ -180,10 +198,7 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createMainWindow()
-      preview = new PreviewController(mainWindow, (designId, revisionId, diagnostic) => {
-        store.addPreviewDiagnostic(designId, revisionId, diagnostic)
-        mainWindow?.webContents.send('preview:diagnostic', { designId, revisionId })
-      })
+      preview = createPreview(mainWindow, store)
     }
   })
 })

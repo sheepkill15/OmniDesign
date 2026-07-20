@@ -138,7 +138,9 @@ function Home({ designs, providerLabel, busy, activity, onCreate, onOpen }: {
           <div className="recent-rows">
             {designs.slice(0, 3).map((design) => (
               <Button className="recent-row" key={design.id} onPress={() => onOpen(design)}>
-                <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>
+                {design.thumbnailDataUrl
+                  ? <img alt={`Preview of ${design.title}`} className="mini-preview-image" src={design.thumbnailDataUrl} />
+                  : <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>}
                 <span className="recent-copy"><strong>{design.title}</strong><small>{design.projectName} · {design.revisions.at(-1)?.prompt ?? 'Ready for a first direction'}</small></span>
                 <span className="recent-time"><ClockIcon aria-hidden="true" />{new Date(design.updatedAt).toLocaleDateString()}</span>
                 <ArrowRightIcon className="row-arrow" aria-hidden="true" />
@@ -189,16 +191,30 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
+  const split = useRef<HTMLDivElement>(null)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const api = window.omnidesign?.workspace
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
+  useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => {
     if (!api) return
     const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft) }, 300)
     return () => window.clearTimeout(timer)
   }, [api, design.id, draft])
+  useEffect(() => {
+    if (!api) return
+    const timer = window.setTimeout(() => { void api.saveLayout(design.id, { conversationWidth }) }, 250)
+    return () => window.clearTimeout(timer)
+  }, [api, conversationWidth, design.id])
+
+  const updateConversationWidth = (clientX: number) => {
+    const bounds = split.current?.getBoundingClientRect()
+    if (!bounds || bounds.width <= 0) return
+    setConversationWidth(Math.min(65, Math.max(35, ((clientX - bounds.left) / bounds.width) * 100)))
+  }
 
   const submit = async () => {
     if (!api || !draft.trim() || busy || !selectedIsHead) return
@@ -236,7 +252,7 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
           ))}
         </div>}
       </header>
-      <div className="workspace-split">
+      <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
         <section className="conversation-pane" aria-label="Design conversation">
           <div className="conversation-feed">
             {design.messages.map((message) => <article className={`conversation-message message-${message.role}`} key={message.id}><span>{message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{message.text}</p></article>)}
@@ -250,6 +266,27 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
             <div className="workspace-composer-footer"><span><SparklesIcon aria-hidden="true" />Development provider · Mock model</span><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
           </div>
         </section>
+        <div
+          aria-label="Resize conversation and preview panels"
+          aria-orientation="vertical"
+          aria-valuemax={65}
+          aria-valuemin={35}
+          aria-valuenow={Math.round(conversationWidth)}
+          className="workspace-divider"
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') { event.preventDefault(); setConversationWidth((current) => Math.max(35, current - 2)) }
+            if (event.key === 'ArrowRight') { event.preventDefault(); setConversationWidth((current) => Math.min(65, current + 2)) }
+            if (event.key === 'Home') { event.preventDefault(); setConversationWidth(35) }
+            if (event.key === 'End') { event.preventDefault(); setConversationWidth(65) }
+          }}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId)
+            updateConversationWidth(event.clientX)
+          }}
+          onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) updateConversationWidth(event.clientX) }}
+          role="separator"
+          tabIndex={0}
+        />
         <section className="preview-pane" aria-label="Generated design preview">
           <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{selectedRevision ? selectedRevision.diagnostics.length ? `${selectedRevision.diagnostics.length} diagnostic${selectedRevision.diagnostics.length === 1 ? '' : 's'} captured` : 'Offline · validated' : 'Waiting for revision'}</small></div>
           <PreviewSurface design={design} />
@@ -299,6 +336,7 @@ export function App() {
     if (event.designId !== activeDesign?.id || !workspaceApi) return
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
   }), [activeDesign?.id, updateDesign, workspaceApi])
+  useEffect(() => window.omnidesign?.preview.onThumbnail(() => { void refresh() }), [refresh])
 
   const create = async (prompt: string) => {
     if (!workspaceApi) return

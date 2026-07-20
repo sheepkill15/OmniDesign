@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ProviderActivity, ProviderPrompt } from '../provider/types.js'
-import type { GenerationActivity, PreviewRequest } from '../workspace/contracts.js'
+import type { GenerationActivity, Layout, PreviewRequest } from '../workspace/contracts.js'
 
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),
     restoreRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:restore-revision', { designId, revisionId }),
     saveDraft: (designId: string, draft: string) => ipcRenderer.invoke('workspace:save-draft', { designId, draft }),
+    saveLayout: (designId: string, layout: Layout) => ipcRenderer.invoke('workspace:save-layout', { designId, layout }),
     exportRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:export', { designId, revisionId }),
     onActivity: (listener: (activity: GenerationActivity) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, activity: GenerationActivity) => listener(activity)
@@ -35,6 +36,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
       const handler = (_event: Electron.IpcRendererEvent, diagnostic: { designId: string; revisionId: string }) => listener(diagnostic)
       ipcRenderer.on('preview:diagnostic', handler)
       return () => ipcRenderer.removeListener('preview:diagnostic', handler)
+    },
+    onThumbnail: (listener: (event: { designId: string; revisionId: string }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, thumbnail: { designId: string; revisionId: string }) => listener(thumbnail)
+      ipcRenderer.on('preview:thumbnail', handler)
+      return () => ipcRenderer.removeListener('preview:thumbnail', handler)
     },
   },
 })
