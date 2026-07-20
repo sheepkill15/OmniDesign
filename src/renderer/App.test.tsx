@@ -83,7 +83,7 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
   })
 
-  it('hides the native preview while revision history is open so the menu remains usable', async () => {
+  it('keeps the native preview visible while revision history stays in the conversation-side toolbar', async () => {
     const bridge = installBridge()
     render(<App />)
 
@@ -94,8 +94,8 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
     expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
-    await waitFor(() => expect(bridge.preview.hide).toHaveBeenCalled())
-    expect(screen.getByText('Preview is temporarily hidden while history is open.')).toBeInTheDocument()
+    expect(bridge.preview.show).toHaveBeenCalled()
+    expect(bridge.preview.hide).not.toHaveBeenCalled()
   })
 
   it('recovers saved designs into the home list', async () => {

@@ -786,7 +786,7 @@ button:disabled,
 .history-popover {
   position: absolute;
   top: 42px;
-  right: 88px;
+  left: 52px;
   width: 320px;
   display: grid;
   gap: 4px;

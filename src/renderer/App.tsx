@@ -251,7 +251,7 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
         </section>
         <section className="preview-pane" aria-label="Generated design preview">
           <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{design.selectedRevisionId ? 'Offline · validated' : 'Waiting for revision'}</small></div>
-          {historyOpen ? <div className="preview-surface"><p>Preview is temporarily hidden while history is open.</p></div> : <PreviewSurface design={design} />}
+          <PreviewSurface design={design} />
         </section>
       </div>
     </main>
