@@ -926,14 +926,14 @@ button:disabled,
   font-size: 14px;
 }
 
-.workspace-composer > div {
+.workspace-composer-footer {
   height: 46px;
   display: flex;
   align-items: center;
   padding: 0 8px 8px 14px;
 }
 
-.workspace-composer > div > span {
+.workspace-composer-footer > span {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -941,7 +941,7 @@ button:disabled,
   font-size: 11px;
 }
 
-.workspace-composer > div > span svg {
+.workspace-composer-footer > span svg {
   width: 14px;
 }
 

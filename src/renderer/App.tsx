@@ -246,12 +246,12 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
             <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
             }} /></TextField>
-            <div><span><SparklesIcon aria-hidden="true" />Development provider · Mock model</span><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+            <div className="workspace-composer-footer"><span><SparklesIcon aria-hidden="true" />Development provider · Mock model</span><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
           </div>
         </section>
         <section className="preview-pane" aria-label="Generated design preview">
           <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{design.selectedRevisionId ? 'Offline · validated' : 'Waiting for revision'}</small></div>
-          <PreviewSurface design={design} />
+          {historyOpen ? <div className="preview-surface"><p>Preview is temporarily hidden while history is open.</p></div> : <PreviewSurface design={design} />}
         </section>
       </div>
     </main>

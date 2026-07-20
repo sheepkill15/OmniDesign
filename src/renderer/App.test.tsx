@@ -83,6 +83,21 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
   })
 
+  it('hides the native preview while revision history is open so the menu remains usable', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Design conversation' })
+
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+    expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.preview.hide).toHaveBeenCalled())
+    expect(screen.getByText('Preview is temporarily hidden while history is open.')).toBeInTheDocument()
+  })
+
   it('recovers saved designs into the home list', async () => {
     installBridge([design])
     render(<App />)
