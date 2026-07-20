@@ -4,7 +4,7 @@
 
 This document is the authoritative visual and interaction baseline for OmniDesign's trusted application UI. It applies to the Electron and React interface, not automatically to AI-generated designs, which must follow the design language of their associated project or establish an appropriate language of their own.
 
-The principles and explicit rules in this document are accepted. Items labeled **Open decision** are intentionally unresolved and must not be silently treated as settled. Component specifications and tokens should become more exact as the walking skeleton makes them testable.
+The principles and explicit rules in this document are accepted. The high-level visual direction is ratified; remaining work is limited to selecting the exact bundled font family and defining and testing exact tokens and component specifications as the walking skeleton makes them concrete.
 
 ## Product Character
 
@@ -18,7 +18,7 @@ The visual language is:
 - Quiet and low-chrome, with hierarchy created primarily by composition, spacing, typography, solid color, and restrained separators.
 - Icon-forward without becoming cryptic or visually busy.
 - Muted and tactile rather than glossy, translucent, or ornamental.
-- Dense enough for sustained desktop work, but never cramped.
+- Spacious and calm, with enough working density for sustained desktop use but no pressure to compress the interface at the expense of satisfaction.
 
 ## Core Visual Rules
 
@@ -29,6 +29,13 @@ The visual language is:
 - No application surface should look like an unstyled webpage or stock browser form.
 - Custom styling must not remove semantics, keyboard behavior, accessible names, or visible focus.
 - Native HTML elements remain preferred when their semantics and behavior fit and their appearance can be controlled to the required quality. The `<select>` element is the explicit exception described below.
+
+### Phase 1 Window Frame
+
+- Phase 1 retains Electron's standard platform window frame and title bar.
+- Do not create, restyle, replace, overlay, or visually merge application UI into the title bar during Phase 1.
+- Application-owned custom styling begins inside the window content area. The operating system remains responsible for the title bar, window controls, dragging, system menu, and frame behavior.
+- A custom integrated title bar may be reconsidered after Phase 1 only as an explicit product and accessibility decision.
 
 ### No Gradients
 
@@ -68,11 +75,28 @@ The palette is intentionally low-saturation. It contains strong accessible pairs
 
 Status and validation communication must always combine color with an icon and clear wording. Provider, generation, history, warning, success, and error states may never rely on hue alone.
 
-**Open decisions:** whether light or dark is the primary theme, whether both themes ship in Phase 1, and whether accessible semantic status colors may extend the five-color brand palette.
+### Theme Policy
+
+- OmniDesign is dark-first. The dark theme is the default and the primary context for design review and visual-quality decisions.
+- Phase 1 also ships a complete light theme that the user can select in general settings.
+- The selected application theme persists across restarts and must be applied early enough during startup to avoid a visible flash of the wrong theme.
+- Both themes are first-class supported contexts. All reusable components, states, overlays, and Phase 1 screens must be verified in both, even though dark is the default.
+- Changing the OmniDesign application theme changes only the trusted application interface. It must not restyle, mutate, or imply a theme change in the generated design preview.
+- Following the operating-system theme automatically is not a Phase 1 requirement. The explicit in-application choice remains authoritative.
+
+### Palette Extension
+
+- The five supplied colors are the immutable brand foundation, not the complete set of usable UI colors.
+- The design system may add neutral tonal steps needed for surface hierarchy, text, borders, disabled states, and contrast in both themes.
+- It may add restrained semantic colors for success, warning, danger, information, and focus when the brand primitives cannot communicate those states accessibly.
+- Extensions must harmonize with the muted brand palette, remain subordinate to it, and be introduced as named primitive or semantic tokens rather than one-off values.
+- Every foreground/background and control-state pairing must be contrast-tested in both themes.
 
 ## Typography
 
 Typography should feel like application interface typography, not editorial web typography.
+
+OmniDesign uses a bundled cross-platform interface font rather than the operating-system UI stack. This gives the application a consistent voice and layout across Windows, macOS, and Linux.
 
 - Use a compact, deliberate type scale with a limited number of roles: display only where truly needed, page title, section title, body, compact UI label, and metadata.
 - Use weight, size, spacing, and tone to establish hierarchy. Do not create hierarchy by placing every heading in a separate container.
@@ -80,8 +104,10 @@ Typography should feel like application interface typography, not editorial web 
 - Use tabular numerals for elapsed time, usage, cost, dimensions, and other rapidly changing numeric UI where alignment matters.
 - Code, paths, model identifiers, and technical diagnostics use a dedicated monospace role.
 - Truncation must preserve access to the full value through an appropriate tooltip, expandable region, or detail view.
+- The selected font files must be bundled locally, version-pinned, licensed for redistribution in an open-source desktop application, and usable without network access.
+- Bundle only the weights and styles the interface actually uses. Font loading must not block the interface indefinitely or cause disruptive layout shifts.
 
-**Open decision:** use the operating-system UI font stack for the strongest native feel, or bundle a cross-platform interface family for a more consistent OmniDesign identity.
+The exact interface family and monospace companion remain to be selected through visual comparison in representative shell, conversation, composer, and diagnostics screens. Do not choose them implicitly during scaffolding.
 
 ## Layout, Spacing, and Shape
 
@@ -91,9 +117,11 @@ Typography should feel like application interface typography, not editorial web 
 - Use responsive constraints for smaller windows, not mobile-web transformations. Collapse secondary labels or regions deliberately while preserving the primary workflow.
 - Dividers and resize handles are functional elements. They require clear hover, active, keyboard-focus, and enlarged pointer-target behavior even when their visible line is thin.
 - Radii should communicate component type and containment. Do not apply the same large radius to every surface.
-- Favor a compact desktop control density with sufficiently large interaction targets and breathing room around high-consequence actions.
+- Favor a moderately spacious and calm desktop density. Give controls comfortable targets, labels room to breathe, and high-consequence actions clear separation.
+- Maximum user satisfaction takes priority over maximizing the number of controls visible at once. Reduce secondary information or adapt layout before compressing primary controls into a cramped presentation.
+- Spaciousness must remain purposeful: protect conversation and preview working area, and avoid oversized decorative whitespace that makes routine actions slower.
 
-**Open decision:** exact spacing, control-height, radius, and density scales.
+Exact spacing, control-height, radius, and density tokens remain to be specified and visually tested within this accepted direction.
 
 ## Controls and Interaction Primitives
 
@@ -221,17 +249,17 @@ Custom styling is never a reason to reimplement native text editing, remove focu
 - Exercise components at normal and smaller desktop windows, increased text/zoom, keyboard-only use, and Windows high contrast.
 - Document exceptions. If a feature must diverge from a system rule, record why and decide whether the system itself needs a new supported variant.
 
-## Decisions Needed From the Product Owner
+## Ratified Direction and Next Design Deliverable
 
-Before finalizing semantic tokens and representative screens, decide:
+The product owner has ratified:
 
-1. Whether Phase 1 is light-first, dark-first, or ships both themes.
-2. Whether the five supplied colors are the complete allowed palette or a brand foundation that may be extended with accessible semantic status colors and neutral tonal steps.
-3. Whether typography should use the operating-system UI font stack or a bundled cross-platform interface font.
-4. Whether the interface should lean compact and technical or moderately spacious and calm; this determines control heights, spacing, and radius scale.
-5. Whether OmniDesign should use a custom integrated title bar or retain each platform's native window frame for the first milestone.
+1. A dark-first application with a user-selectable light theme in Phase 1.
+2. The supplied palette as an extensible brand foundation rather than an exclusive set of colors.
+3. A bundled cross-platform interface font, with the exact family still to be selected.
+4. A spacious and calm density optimized for maximum user satisfaction.
+5. The standard platform window frame and title bar remaining untouched in Phase 1.
 
-After these answers, the next design-system deliverable should define semantic color mappings, typography, spacing, sizing, radius, border, shadow, icon-size, and motion tokens, followed by representative shell, composer, combobox, conversation, status, and preview-toolbar specifications.
+The next design-system deliverable should compare suitable bundled font candidates; define semantic color mappings for both themes; define spacing, sizing, radius, border, shadow, icon-size, and motion tokens; and specify representative shell, composer, combobox, conversation, status, and preview-toolbar states.
 
 ## References
 

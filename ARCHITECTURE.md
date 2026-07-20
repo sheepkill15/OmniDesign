@@ -17,6 +17,8 @@ The following decisions are accepted:
 - The trusted application UI follows the visual, interaction, component, and accessibility rules in `DESIGN_SYSTEM.md`.
 - Heroicons is the default icon family for the trusted React UI.
 - Application selection controls use shared, accessible custom combobox or listbox primitives; the trusted UI does not use the built-in HTML `<select>` element.
+- The trusted UI is dark-first with a complete user-selectable light theme and a bundled cross-platform interface font.
+- Phase 1 retains Electron's standard platform window frame and title bar; custom window chrome is deferred.
 
 The following generation decision is provisional and must be benchmarked before it becomes final:
 

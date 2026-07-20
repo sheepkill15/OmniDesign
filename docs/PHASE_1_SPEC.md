@@ -70,6 +70,7 @@ Phase 1 supports basic multiple-design organization within a project. Multiple c
 - Progressive preview updates while a revision is being generated.
 - macOS and Linux packaging and release qualification.
 - Automatic application updates.
+- Custom or integrated application title-bar chrome.
 - Telemetry and crash reporting.
 - Hosted collaboration and cloud-only features.
 
@@ -143,6 +144,8 @@ The Phase 1 shell contains:
 - A main content area for home, project grids, and design workspaces.
 - Global navigation for Home, active generations, provider settings, general settings, trash, and diagnostics.
 - An active-generation badge showing the number of currently running jobs.
+
+The application starts in its dark theme by default. General settings provide an explicit light-theme option, and the selected theme persists across restarts. Theme changes affect only the trusted OmniDesign interface and never restyle a generated design preview.
 
 Provider settings must be functional. General settings, trash, and diagnostics expose the behavior required by this specification; unrelated settings may remain clearly labeled stubs during Phase 1.
 
@@ -637,6 +640,7 @@ OmniDesign persists locally:
 - Provider configuration metadata, excluding ordinary secret storage.
 - Trash timestamps and restoration metadata.
 - Notification and generation-detail preferences.
+- Application theme preference.
 
 Application restart must deterministically recover all completed data and safely mark in-flight work as interrupted.
 
@@ -725,6 +729,7 @@ Phase 1 is complete only when all of the following are true.
 - The primary end-to-end journey passes in packaged or package-equivalent Windows testing.
 - Domain behavior, IPC contracts, provider adapters, persistence, preview isolation, export, and critical React interactions have automated coverage.
 - The application UI meets the defined accessibility and keyboard requirements.
+- All reusable trusted-UI components and primary Phase 1 screens are verified in both the default dark theme and selectable light theme.
 - Representative generated designs receive automated console, responsive, and accessibility checks.
 - No known critical security, data-loss, or unrecoverable-history defects remain.
 
