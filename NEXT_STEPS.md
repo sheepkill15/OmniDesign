@@ -64,9 +64,9 @@ The provider authentication mechanism remains deferred until the planned referen
 
 ### 2. Establish OmniDesign's Visual Language
 
-The accepted and ratified baseline is now recorded in `DESIGN_SYSTEM.md`. It defines the native-desktop character, custom control requirement, no-`<select>` rule, no-gradient rule, fluid low-card composition, restricted blur and elevation, supplied brand palette, dark-first and user-selectable light themes, bundled typography direction, spacious and calm density, icon direction, accessibility baseline, standard Phase 1 window frame, and Phase 1 composition guidance.
+The accepted and ratified baseline is now recorded in `DESIGN_SYSTEM.md`. It defines the native-desktop character, custom control requirement, no-`<select>` rule, no-gradient rule, fluid low-card composition, restricted blur and elevation, supplied brand palette, dark-first and user-selectable light themes, Oak Sans v2.0 as the bundled interface family, spacious and calm density, icon direction, accessibility baseline, standard Phase 1 window frame, and Phase 1 composition guidance.
 
-Select the exact bundled font family and convert the baseline into exact semantic and component tokens before UI implementation spreads across the application.
+Select a monospace companion, pin and integrate Oak Sans from its official repository with the required license notice, and convert the baseline into exact semantic and component tokens before UI implementation spreads across the application.
 
 Cover:
 
@@ -84,7 +84,7 @@ Cover:
 - Keyboard navigation, focus, contrast, and accessibility expectations.
 - Responsive and smaller-window behavior.
 
-The remaining design work is font-family selection, exact dark and light semantic color mappings, final token scales, and representative component and screen specifications. `DESIGN_SYSTEM.md` records proportional starting ranges for spacing and sizing; these are ergonomic ranges to prototype rather than final tokens.
+The remaining design work is monospace selection, Oak Sans metric validation, exact dark and light semantic color mappings, final token scales, and representative component and screen specifications. `DESIGN_SYSTEM.md` records proportional starting ranges for spacing and sizing; these are ergonomic ranges to prototype rather than final tokens.
 
 The product must demonstrate the level of UI and UX quality expected from a design tool.
 
@@ -171,7 +171,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - The generated-design stack requires a benchmark before final acceptance.
 - Provider subscription integration awaits the reference implementation.
 - The initial Phase 1 product specification is recorded in `docs/PHASE_1_SPEC.md` and awaits review and ratification.
-- The trusted-UI design language in `DESIGN_SYSTEM.md` is ratified: dark-first with a selectable light theme, extensible semantic colors, bundled typography, spacious and calm density, and the standard platform title bar in Phase 1.
+- The trusted-UI design language in `DESIGN_SYSTEM.md` is ratified: dark-first with a selectable light theme, extensible semantic colors, Oak Sans v2.0 as the bundled interface family, spacious and calm density, and the standard platform title bar in Phase 1.
 - Basic multiple-design support is now included in Phase 1; multiple conversations and visible branching remain deferred.
 - Phase 1 is qualified on Windows first while preserving the accepted cross-platform architecture.
 - Persistent AI-extracted project profiles are deferred; Phase 1 uses read-only project context on demand during generation.

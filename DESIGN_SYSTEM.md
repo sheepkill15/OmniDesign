@@ -4,7 +4,7 @@
 
 This document is the authoritative visual and interaction baseline for OmniDesign's trusted application UI. It applies to the Electron and React interface, not automatically to AI-generated designs, which must follow the design language of their associated project or establish an appropriate language of their own.
 
-The principles and explicit rules in this document are accepted. The high-level visual direction is ratified; remaining work is limited to selecting the exact bundled font family and defining and testing exact tokens and component specifications as the walking skeleton makes them concrete.
+The principles and explicit rules in this document are accepted. The high-level visual direction and primary interface family are ratified; remaining work is limited to selecting a monospace companion and defining and testing exact tokens and component specifications as the walking skeleton makes them concrete.
 
 ## Product Character
 
@@ -108,7 +108,9 @@ Status and validation communication must always combine color with an icon and c
 
 Typography should feel like application interface typography, not editorial web typography.
 
-OmniDesign uses a bundled cross-platform interface font rather than the operating-system UI stack. This gives the application a consistent voice and layout across Windows, macOS, and Linux.
+OmniDesign uses Oak Sans as its bundled cross-platform interface family rather than the operating-system UI stack. This gives the application a consistent voice and layout across Windows, macOS, and Linux.
+
+The authoritative source is [Walven/OakSans](https://github.com/Walven/OakSans). Phase 1 targets the official Oak Sans v2.0 release and must pin the integrated files to that release or its immutable commit rather than downloading the moving default branch during builds.
 
 - Use a compact, deliberate type scale with a limited number of roles: display only where truly needed, page title, section title, body, compact UI label, and metadata.
 - Use weight, size, spacing, and tone to establish hierarchy. Do not create hierarchy by placing every heading in a separate container.
@@ -116,10 +118,13 @@ OmniDesign uses a bundled cross-platform interface font rather than the operatin
 - Use tabular numerals for elapsed time, usage, cost, dimensions, and other rapidly changing numeric UI where alignment matters.
 - Code, paths, model identifiers, and technical diagnostics use a dedicated monospace role.
 - Truncation must preserve access to the full value through an appropriate tooltip, expandable region, or detail view.
-- The selected font files must be bundled locally, version-pinned, licensed for redistribution in an open-source desktop application, and usable without network access.
+- Oak Sans files must be bundled locally and usable without network access. Do not load application typography from a CDN or another remote service.
+- Prefer the official WOFF2 assets for the trusted web-based renderer. The repository provides both static styles and variable roman and italic WOFF2 files; choose the smallest set that covers the accepted type roles during implementation.
+- Begin token evaluation with Regular `400` for body copy, Medium `500` for controls and labels, and Semibold `600` for headings and stronger emphasis. Add other weights only when a demonstrated hierarchy need justifies their cost.
 - Bundle only the weights and styles the interface actually uses. Font loading must not block the interface indefinitely or cause disruptive layout shifts.
+- Oak Sans is distributed under the SIL Open Font License 1.1. Preserve its copyright and license text alongside redistributed font files and in the application's third-party notices.
 
-The exact interface family and monospace companion remain to be selected through visual comparison in representative shell, conversation, composer, and diagnostics screens. Do not choose them implicitly during scaffolding.
+The monospace companion remains to be selected through visual comparison in representative code, path, usage, and diagnostics content. Do not choose it implicitly during scaffolding.
 
 ## Layout, Spacing, and Shape
 
@@ -298,13 +303,14 @@ The product owner has ratified:
 
 1. A dark-first application with a user-selectable light theme in Phase 1.
 2. The supplied palette as an extensible brand foundation rather than an exclusive set of colors.
-3. A bundled cross-platform interface font, with the exact family still to be selected.
+3. Oak Sans v2.0 from the official Walven repository as the bundled cross-platform interface family.
 4. A spacious and calm density optimized for maximum user satisfaction.
 5. The standard platform window frame and title bar remaining untouched in Phase 1.
 
-The next design-system deliverable should compare suitable bundled font candidates; define semantic color mappings for both themes; define spacing, sizing, radius, border, shadow, icon-size, and motion tokens; and specify representative shell, composer, combobox, conversation, status, and preview-toolbar states.
+The next design-system deliverable should select a monospace companion; validate Oak Sans sizes, weights, and metrics in representative UI; define semantic color mappings for both themes; define spacing, sizing, radius, border, shadow, icon-size, and motion tokens; and specify representative shell, composer, combobox, conversation, status, and preview-toolbar states.
 
 ## References
 
 - [Heroicons](https://github.com/tailwindlabs/heroicons)
+- [Oak Sans](https://github.com/Walven/OakSans)
 - [WAI-ARIA Authoring Practices: Combobox Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/)

@@ -17,7 +17,7 @@ The following decisions are accepted:
 - The trusted application UI follows the visual, interaction, component, and accessibility rules in `DESIGN_SYSTEM.md`.
 - Heroicons is the default icon family for the trusted React UI.
 - Application selection controls use shared, accessible custom combobox or listbox primitives; the trusted UI does not use the built-in HTML `<select>` element.
-- The trusted UI is dark-first with a complete user-selectable light theme and a bundled cross-platform interface font.
+- The trusted UI is dark-first with a complete user-selectable light theme and bundles Oak Sans v2.0 from `Walven/OakSans` as its primary interface family.
 - Phase 1 retains Electron's standard platform window frame and title bar; custom window chrome is deferred.
 
 The following generation decision is provisional and must be benchmarked before it becomes final:
@@ -507,6 +507,7 @@ Verify current documentation again before implementation because APIs and platfo
 - [Electron introduction](https://www.electronjs.org/docs/latest/)
 - [Electron process model](https://www.electronjs.org/docs/latest/tutorial/process-model)
 - [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security)
+- [Oak Sans](https://github.com/Walven/OakSans)
 - [Vite guide](https://vite.dev/guide/)
 - [Tailwind CLI](https://tailwindcss.com/docs/installation/tailwind-cli)
 - [Tailwind Play CDN](https://tailwindcss.com/docs/installation/play-cdn)
