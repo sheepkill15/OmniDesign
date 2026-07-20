@@ -31,5 +31,10 @@ contextBridge.exposeInMainWorld('omnidesign', {
     show: (request: PreviewRequest) => ipcRenderer.invoke('preview:show', request),
     resize: (bounds: PreviewRequest['bounds']) => ipcRenderer.invoke('preview:resize', bounds),
     hide: () => ipcRenderer.invoke('preview:hide'),
+    onDiagnostic: (listener: (event: { designId: string; revisionId: string }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, diagnostic: { designId: string; revisionId: string }) => listener(diagnostic)
+      ipcRenderer.on('preview:diagnostic', handler)
+      return () => ipcRenderer.removeListener('preview:diagnostic', handler)
+    },
   },
 })

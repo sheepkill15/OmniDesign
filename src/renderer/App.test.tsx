@@ -14,10 +14,10 @@ const design: OmniDesignDocument = {
   selectedRevisionId: 'revision-1',
   draft: '',
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
-  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', html: '<html><body>Dashboard</body></html>' }],
+  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', html: '<html><body>Dashboard</body></html>', diagnostics: [] }],
 }
 
-function installBridge(initialDesigns: OmniDesignDocument[] = []) {
+function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign: OmniDesignDocument = design) {
   const listeners: Array<(activity: GenerationActivity) => void> = []
   const bridge = {
     providers: {
@@ -28,7 +28,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = []) {
     workspace: {
       list: vi.fn().mockResolvedValue(initialDesigns),
       get: vi.fn().mockResolvedValue(design),
-      create: vi.fn().mockResolvedValue(design),
+      create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
       selectRevision: vi.fn().mockResolvedValue(design),
       restoreRevision: vi.fn().mockResolvedValue(design),
@@ -40,6 +40,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = []) {
       show: vi.fn().mockResolvedValue(undefined),
       resize: vi.fn().mockResolvedValue(undefined),
       hide: vi.fn().mockResolvedValue(undefined),
+      onDiagnostic: vi.fn().mockReturnValue(() => undefined),
     },
   } as unknown as Window['omnidesign']
   Object.defineProperty(window, 'omnidesign', { value: bridge, configurable: true })
@@ -96,6 +97,23 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
     expect(bridge.preview.show).toHaveBeenCalled()
     expect(bridge.preview.hide).not.toHaveBeenCalled()
+  })
+
+  it('shows the selected revision diagnostic count in the preview status', async () => {
+    const diagnosticDesign: OmniDesignDocument = {
+      ...design,
+      revisions: [{ ...design.revisions[0], diagnostics: [{
+        id: 'diagnostic-1', kind: 'runtime', level: 'error', message: 'Uncaught TypeError', source: null, line: 8, createdAt: '2026-07-20T10:01:00.000Z',
+      }] }],
+    }
+    installBridge([], diagnosticDesign)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    expect(await screen.findByText('1 diagnostic captured')).toBeInTheDocument()
   })
 
   it('recovers saved designs into the home list', async () => {

@@ -137,7 +137,7 @@ Implementation is now underway on `feature/phase-1-core`. The current slice exer
 - Draft persistence, restart recovery, and selected-revision offline ZIP export.
 - Automated coverage for persistence/recovery, restoration, compilation/validation, preview policy, export contents, and critical React interactions.
 
-The walking skeleton is not yet complete. Next, add browser-console and runtime-error capture, thumbnail generation, persisted layout/divider state, explicit invalid-candidate records, and package-equivalent Electron end-to-end automation. The current development provider is not a substitute for connecting the real Codex and Claude adapters to structured design generation.
+The walking skeleton is not yet complete. Browser-console, runtime, and preview-load diagnostics are now captured, persisted with their revision metadata, and surfaced through the trusted UI. Next, add thumbnail generation, persisted layout/divider state, explicit invalid-candidate records, and package-equivalent Electron end-to-end automation. The current development provider is not a substitute for connecting the real Codex and Claude adapters to structured design generation.
 
 ### 5. Complete the Provider Integration
 
@@ -179,7 +179,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 - Phase 1 implementation has begun on `feature/phase-1-core`. A working development-provider slice can create, iterate, preview, persist, reopen, select/restore history, and export a standalone design.
 - Runtime verification on Windows created two revisions in Electron, rendered the generated result through the isolated `WebContentsView`, restarted the application, and recovered both revisions from local storage.
-- The walking skeleton still needs browser/runtime diagnostic capture, thumbnails, layout persistence, invalid-candidate persistence, and Electron end-to-end automation before the milestone can be called complete.
+- The walking skeleton captures and persists preview console, runtime, and load diagnostics. It still needs thumbnails, layout persistence, invalid-candidate persistence, and Electron end-to-end automation before the milestone can be called complete.
 - The product owner accepted the Quiet Studio home direction. The consolidated implementation and its future-screen rules are documented in `docs/HOME_DESIGN_BASELINE.md` and `DESIGN_SYSTEM.md`.
 - The temporary concept switcher and rejected Visual Gallery and Project Workbench implementations have been removed. Representative project/design data remains non-functional placeholder content until persistence is connected.
 - The project charter and roadmap are recorded in `AGENTS.md`.

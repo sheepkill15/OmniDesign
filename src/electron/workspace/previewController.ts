@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { BrowserWindow, session, WebContentsView } from 'electron'
 import type { Rectangle } from 'electron'
 import { isAllowedPreviewUrl, previewContentSecurityPolicy } from './previewPolicy.js'
+import { captureConsoleDiagnostic, captureLoadDiagnostic } from './previewDiagnostics.js'
+import type { PreviewDiagnostic } from './contracts.js'
 
 const partition = 'omnidesign-preview'
 
@@ -9,8 +11,10 @@ export class PreviewController {
   private readonly documents = new Map<string, string>()
   private readonly view: WebContentsView
   private attached = false
+  private designId: string | null = null
+  private revisionId: string | null = null
 
-  public constructor(private readonly window: BrowserWindow) {
+  public constructor(private readonly window: BrowserWindow, private readonly onDiagnostic: (designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>) => void) {
     const previewSession = session.fromPartition(partition)
     previewSession.setPermissionCheckHandler(() => false)
     previewSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
@@ -31,12 +35,21 @@ export class PreviewController {
     this.view.webContents.on('will-navigate', (event, url) => {
       if (!isAllowedPreviewUrl(url)) event.preventDefault()
     })
+    this.view.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      const diagnostic = captureConsoleDiagnostic(level, message, line, sourceId)
+      if (diagnostic) this.recordDiagnostic(diagnostic)
+    })
+    this.view.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+      if (isMainFrame && errorCode !== -3) this.recordDiagnostic(captureLoadDiagnostic(errorCode, errorDescription, validatedUrl))
+    })
   }
 
-  public show(html: string, bounds: Rectangle): void {
+  public show(designId: string, revisionId: string, html: string, bounds: Rectangle): void {
     const token = randomUUID()
     this.documents.clear()
     this.documents.set(token, html)
+    this.designId = designId
+    this.revisionId = revisionId
     if (!this.attached) {
       this.window.contentView.addChildView(this.view)
       this.attached = true
@@ -72,5 +85,9 @@ export class PreviewController {
         'X-Content-Type-Options': 'nosniff',
       },
     })
+  }
+
+  private recordDiagnostic(diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
+    if (this.designId && this.revisionId) this.onDiagnostic(this.designId, this.revisionId, diagnostic)
   }
 }

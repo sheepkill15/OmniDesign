@@ -17,6 +17,16 @@ export const messageSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const previewDiagnosticSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['console', 'runtime', 'load']),
+  level: z.enum(['warning', 'error']),
+  message: z.string().min(1),
+  source: z.string().nullable(),
+  line: z.number().int().nullable(),
+  createdAt: z.string().datetime(),
+})
+
 export const designSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -28,7 +38,7 @@ export const designSchema = z.object({
   selectedRevisionId: z.string().nullable(),
   draft: z.string(),
   messages: z.array(messageSchema),
-  revisions: z.array(revisionSchema),
+  revisions: z.array(revisionSchema.extend({ diagnostics: z.array(previewDiagnosticSchema) })),
 })
 
 export const createDesignRequestSchema = z.object({
@@ -63,8 +73,9 @@ export const previewRequestSchema = selectRevisionRequestSchema.extend({
 export const exportRequestSchema = selectRevisionRequestSchema
 
 export type Design = z.infer<typeof designSchema>
-export type Revision = z.infer<typeof revisionSchema>
+export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
 export type Message = z.infer<typeof messageSchema>
+export type PreviewDiagnostic = z.infer<typeof previewDiagnosticSchema>
 export type CreateDesignRequest = z.infer<typeof createDesignRequestSchema>
 export type GenerateRequest = z.infer<typeof generateRequestSchema>
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>

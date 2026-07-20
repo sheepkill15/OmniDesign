@@ -49,4 +49,21 @@ describe('WorkspaceStore', () => {
     expect(restored.activeRevisionId).toBe(restored.revisions[2].id)
     store.close()
   })
+
+  it('persists preview diagnostics with the immutable revision that produced them', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const saved = store.addRevision(created.id, 'First', '<html><body>One</body></html>')
+    const revisionId = saved.activeRevisionId!
+    store.addPreviewDiagnostic(created.id, revisionId, {
+      kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', source: 'omnidesign-preview://revision/token', line: 12,
+    })
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.revisions[0].diagnostics).toMatchObject([
+      { kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', line: 12 },
+    ])
+    reopened.close()
+  })
 })

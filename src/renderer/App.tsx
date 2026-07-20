@@ -190,6 +190,7 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
   const [draft, setDraft] = useState(design.draft)
   const [historyOpen, setHistoryOpen] = useState(false)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
+  const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const api = window.omnidesign?.workspace
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
@@ -250,7 +251,7 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
           </div>
         </section>
         <section className="preview-pane" aria-label="Generated design preview">
-          <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{design.selectedRevisionId ? 'Offline · validated' : 'Waiting for revision'}</small></div>
+          <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{selectedRevision ? selectedRevision.diagnostics.length ? `${selectedRevision.diagnostics.length} diagnostic${selectedRevision.diagnostics.length === 1 ? '' : 's'} captured` : 'Offline · validated' : 'Waiting for revision'}</small></div>
           <PreviewSurface design={design} />
         </section>
       </div>
@@ -279,6 +280,11 @@ export function App() {
   const providerLabel = useAvailableProvider()
   const workspaceApi = window.omnidesign?.workspace
 
+  const updateDesign = useCallback((design: OmniDesignDocument) => {
+    setActiveDesign(design)
+    setDesigns((current) => current.map((candidate) => candidate.id === design.id ? design : candidate))
+  }, [])
+
   const refresh = useCallback(async () => {
     if (!workspaceApi) return
     setDesigns(await workspaceApi.list())
@@ -289,6 +295,10 @@ export function App() {
     setActivity(next)
     setBusy(!['complete', 'failed'].includes(next.stage))
   }), [workspaceApi])
+  useEffect(() => window.omnidesign?.preview.onDiagnostic((event) => {
+    if (event.designId !== activeDesign?.id || !workspaceApi) return
+    void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
+  }), [activeDesign?.id, updateDesign, workspaceApi])
 
   const create = async (prompt: string) => {
     if (!workspaceApi) return
@@ -300,10 +310,6 @@ export function App() {
     } finally {
       setBusy(false)
     }
-  }
-  const updateDesign = (design: OmniDesignDocument) => {
-    setActiveDesign(design)
-    setDesigns((current) => current.map((candidate) => candidate.id === design.id ? design : candidate))
   }
   const home = () => { void window.omnidesign?.preview.hide(); setActiveDesign(null); setActivity(null); void refresh() }
 

@@ -132,7 +132,7 @@ function registerIpc(): void {
     const design = requireWorkspace().getDesign(request.designId)
     const revision = design?.revisions.find((candidate) => candidate.id === request.revisionId)
     if (!revision) throw new Error('Revision not found.')
-    preview?.show(revision.html, request.bounds)
+    preview?.show(request.designId, request.revisionId, revision.html, request.bounds)
   })
   ipcMain.handle('preview:resize', (event, value: unknown) => {
     authorize(event)
@@ -165,7 +165,10 @@ app.whenReady().then(() => {
   const store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace'))
   workspace = new WorkspaceService(store)
   mainWindow = createMainWindow()
-  preview = new PreviewController(mainWindow)
+  preview = new PreviewController(mainWindow, (designId, revisionId, diagnostic) => {
+    store.addPreviewDiagnostic(designId, revisionId, diagnostic)
+    mainWindow?.webContents.send('preview:diagnostic', { designId, revisionId })
+  })
   registerIpc()
 
   mainWindow.on('closed', () => {
@@ -177,7 +180,10 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createMainWindow()
-      preview = new PreviewController(mainWindow)
+      preview = new PreviewController(mainWindow, (designId, revisionId, diagnostic) => {
+        store.addPreviewDiagnostic(designId, revisionId, diagnostic)
+        mainWindow?.webContents.send('preview:diagnostic', { designId, revisionId })
+      })
     }
   })
 })

@@ -41,6 +41,17 @@ interface DesignRevision {
   readonly modelId: string
   readonly createdAt: string
   readonly html: string
+  readonly diagnostics: readonly PreviewDiagnostic[]
+}
+
+interface PreviewDiagnostic {
+  readonly id: string
+  readonly kind: 'console' | 'runtime' | 'load'
+  readonly level: 'warning' | 'error'
+  readonly message: string
+  readonly source: string | null
+  readonly line: number | null
+  readonly createdAt: string
 }
 
 interface DesignMessage {
@@ -99,6 +110,7 @@ interface Window {
       show(request: { readonly designId: string; readonly revisionId: string; readonly bounds: PreviewBounds }): Promise<void>
       resize(bounds: PreviewBounds): Promise<void>
       hide(): Promise<void>
+      onDiagnostic(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
     }
   }
 }

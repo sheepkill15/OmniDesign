@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { designSchema } from './contracts.js'
-import type { Design, Message, Revision } from './contracts.js'
+import type { Design, Message, PreviewDiagnostic, Revision } from './contracts.js'
 
 interface DesignRow {
   id: string
@@ -31,6 +31,16 @@ interface MessageRow {
   id: string
   role: Message['role']
   text: string
+  created_at: string
+}
+
+interface PreviewDiagnosticRow {
+  id: string
+  kind: PreviewDiagnostic['kind']
+  level: PreviewDiagnostic['level']
+  message: string
+  source: string | null
+  line: number | null
   created_at: string
 }
 
@@ -76,6 +86,20 @@ CREATE TABLE revisions (
 CREATE INDEX designs_by_activity ON designs(updated_at DESC);
 CREATE INDEX messages_by_design ON messages(design_id, created_at);
 CREATE INDEX revisions_by_design ON revisions(design_id, created_at);
+`
+
+const migrationTwo = `
+CREATE TABLE preview_diagnostics (
+  id TEXT PRIMARY KEY,
+  revision_id TEXT NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('console', 'runtime', 'load')),
+  level TEXT NOT NULL CHECK (level IN ('warning', 'error')),
+  message TEXT NOT NULL,
+  source TEXT,
+  line INTEGER,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX preview_diagnostics_by_revision ON preview_diagnostics(revision_id, created_at);
 `
 
 export class WorkspaceStore {
@@ -181,14 +205,26 @@ export class WorkspaceStore {
     if (result.changes !== 1) throw new Error('Design not found.')
   }
 
+  public addPreviewDiagnostic(designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
+    this.requireRevision(designId, revisionId)
+    this.database.prepare(`
+      INSERT INTO preview_diagnostics (id, revision_id, kind, level, message, source, line, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(randomUUID(), revisionId, diagnostic.kind, diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line, new Date().toISOString())
+  }
+
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = 1').get()
-    if (applied) return
-    this.transaction(() => {
-      this.database.exec(migrationOne)
-      this.database.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(1, new Date().toISOString())
-    })
+    const migrations = [migrationOne, migrationTwo]
+    for (const [index, migration] of migrations.entries()) {
+      const version = index + 1
+      const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
+      if (applied) continue
+      this.transaction(() => {
+        this.database.exec(migration)
+        this.database.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(version, new Date().toISOString())
+      })
+    }
   }
 
   private hydrateDesign(row: DesignRow): Design {
@@ -218,6 +254,13 @@ export class WorkspaceStore {
         modelId: revision.model_id,
         createdAt: revision.created_at,
         html: readFileSync(revision.html_path, 'utf8'),
+        diagnostics: this.database.prepare(`
+          SELECT id, kind, level, message, source, line, created_at
+          FROM preview_diagnostics WHERE revision_id = ? ORDER BY created_at, rowid
+        `).all(revision.id).map((diagnostic) => {
+          const row = diagnostic as unknown as PreviewDiagnosticRow
+          return { id: row.id, kind: row.kind, level: row.level, message: row.message, source: row.source, line: row.line, createdAt: row.created_at }
+        }),
       })),
     })
   }
