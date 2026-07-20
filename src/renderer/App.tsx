@@ -1,11 +1,15 @@
 import {
+  ArrowDownTrayIcon,
+  ArrowLeftIcon,
+  ArrowPathIcon,
   ArrowRightIcon,
   BellIcon,
   BoltIcon,
-  ChevronDownIcon,
+  CheckCircleIcon,
   ClockIcon,
   Cog6ToothIcon,
   CommandLineIcon,
+  DocumentDuplicateIcon,
   FolderIcon,
   HomeIcon,
   PaperClipIcon,
@@ -13,42 +17,16 @@ import {
   SparklesIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
 import { Button, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
-interface RecentItem {
-  readonly title: string
-  readonly project: string
-  readonly prompt: string
-  readonly time: string
-  readonly palette: 'sand' | 'mauve' | 'olive'
-}
-
-interface ProjectItem {
-  readonly name: string
-  readonly designs: number
-  readonly active?: boolean
-}
-
-const projects: readonly ProjectItem[] = [
-  { name: 'Northstar', designs: 4, active: true },
-  { name: 'Parcel', designs: 2 },
-  { name: 'Lumen', designs: 1 },
-]
-
-const recents: readonly RecentItem[] = [
-  { title: 'Analytics overview', project: 'Northstar', prompt: 'Make the trends easier to scan at a glance', time: '12 min ago', palette: 'sand' },
-  { title: 'Checkout flow', project: 'Parcel', prompt: 'Reduce friction in the delivery step', time: 'Yesterday', palette: 'mauve' },
-  { title: 'Launch page', project: 'Lumen', prompt: 'Give the hero more confidence and warmth', time: 'Friday', palette: 'olive' },
-]
-
-function IconButton({ label, icon: IconComponent }: { readonly label: string; readonly icon: Icon }) {
+function IconButton({ label, icon: IconComponent, onPress }: { readonly label: string; readonly icon: Icon; readonly onPress?: () => void }) {
   return (
     <TooltipTrigger delay={350}>
-      <Button className="icon-button" aria-label={label}>
+      <Button className="icon-button" aria-label={label} onPress={onPress}>
         <IconComponent aria-hidden="true" />
       </Button>
       <Tooltip className="tooltip">{label}</Tooltip>
@@ -56,9 +34,9 @@ function IconButton({ label, icon: IconComponent }: { readonly label: string; re
   )
 }
 
-function NavigationItem({ icon: IconComponent, label, badge, active = false }: { readonly icon: Icon; readonly label: string; readonly badge?: string; readonly active?: boolean }) {
+function NavigationItem({ icon: IconComponent, label, badge, active = false, onPress }: { readonly icon: Icon; readonly label: string; readonly badge?: string; readonly active?: boolean; readonly onPress?: () => void }) {
   return (
-    <Button className="navigation-item" data-active={active || undefined}>
+    <Button className="navigation-item" data-active={active || undefined} onPress={onPress}>
       <IconComponent aria-hidden="true" />
       <span>{label}</span>
       {badge && <span className="navigation-badge">{badge}</span>}
@@ -66,7 +44,12 @@ function NavigationItem({ icon: IconComponent, label, badge, active = false }: {
   )
 }
 
-function Sidebar() {
+function Sidebar({ designs, activeDesignId, onHome, onOpen }: {
+  readonly designs: readonly OmniDesignDocument[]
+  readonly activeDesignId: string | null
+  readonly onHome: () => void
+  readonly onOpen: (design: OmniDesignDocument) => void
+}) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
       <div className="brand-row">
@@ -74,49 +57,49 @@ function Sidebar() {
         <span className="brand-name">OmniDesign</span>
         <IconButton label="Notifications" icon={BellIcon} />
       </div>
-
       <nav className="global-navigation" aria-label="Application">
-        <NavigationItem icon={HomeIcon} label="Home" active />
-        <NavigationItem icon={BoltIcon} label="Generations" badge="2" />
+        <NavigationItem icon={HomeIcon} label="Home" active={!activeDesignId} onPress={onHome} />
+        <NavigationItem icon={BoltIcon} label="Generations" />
       </nav>
-
       <div className="sidebar-section">
-        <div className="sidebar-heading">
-          <span>Projects</span>
-          <IconButton label="Add project" icon={PlusIcon} />
-        </div>
+        <div className="sidebar-heading"><span>Designs</span><IconButton label="Add design" icon={PlusIcon} onPress={onHome} /></div>
         <div className="project-navigation">
-          {projects.map((project) => (
-            <Button className="project-row" data-active={project.active || undefined} key={project.name}>
+          {designs.map((design) => (
+            <Button className="project-row" data-active={design.id === activeDesignId || undefined} key={design.id} onPress={() => onOpen(design)}>
               <FolderIcon aria-hidden="true" />
-              <span>{project.name}</span>
-              <span>{project.designs}</span>
+              <span>{design.title}</span>
+              <span>{design.revisions.length}</span>
             </Button>
           ))}
+          {!designs.length && <p className="sidebar-empty">Your local designs will appear here.</p>}
         </div>
       </div>
-
       <div className="sidebar-footer">
         <NavigationItem icon={CommandLineIcon} label="Providers" />
         <NavigationItem icon={TrashIcon} label="Trash" />
         <NavigationItem icon={Cog6ToothIcon} label="Settings" />
-        <div className="account-row">
-          <span className="avatar">SI</span>
-          <span><strong>Simon</strong><small>Local workspace</small></span>
-          <ChevronDownIcon aria-hidden="true" />
-        </div>
+        <div className="account-row"><span className="avatar">OD</span><span><strong>Local workspace</strong><small>Stored on this device</small></span></div>
       </div>
     </aside>
   )
 }
 
-function NewDesignComposer({ providerLabel }: { readonly providerLabel: string }) {
+function NewDesignComposer({ providerLabel, busy, onCreate }: {
+  readonly providerLabel: string
+  readonly busy: boolean
+  readonly onCreate: (prompt: string) => Promise<void>
+}) {
   const [prompt, setPrompt] = useState('')
-  const submit = () => setPrompt('')
+  const submit = async () => {
+    const value = prompt.trim()
+    if (!value || busy) return
+    await onCreate(value)
+    setPrompt('')
+  }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && prompt.trim()) {
       event.preventDefault()
-      submit()
+      void submit()
     }
   }
 
@@ -126,83 +109,210 @@ function NewDesignComposer({ providerLabel }: { readonly providerLabel: string }
         <TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onKeyDown} placeholder="What would you like to design?" />
       </TextField>
       <div className="composer-footer">
-        <div className="composer-leading">
-          <IconButton label="Attach files or folders" icon={PaperClipIcon} />
-          <Button className="project-context"><FolderIcon aria-hidden="true" />Standalone design<ChevronDownIcon aria-hidden="true" /></Button>
-        </div>
-        <div className="composer-controls">
-          <Button className="control-button"><SparklesIcon aria-hidden="true" />{providerLabel}<ChevronDownIcon aria-hidden="true" /></Button>
-          <Button className="control-button"><CommandLineIcon aria-hidden="true" />Auto model<ChevronDownIcon aria-hidden="true" /></Button>
-        </div>
-        <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim()} onPress={submit}>
-          <ArrowRightIcon aria-hidden="true" />
+        <div className="composer-leading"><IconButton label="Attach files or folders" icon={PaperClipIcon} /><span className="project-context"><FolderIcon aria-hidden="true" />Standalone design</span></div>
+        <div className="composer-controls"><span className="control-button"><SparklesIcon aria-hidden="true" />{providerLabel}</span><span className="control-button"><CommandLineIcon aria-hidden="true" />Mock model</span></div>
+        <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy} onPress={() => void submit()}>
+          {busy ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}
         </Button>
       </div>
     </section>
   )
 }
 
-function MiniPreview({ palette }: { readonly palette: RecentItem['palette'] }) {
+function Home({ designs, providerLabel, busy, activity, onCreate, onOpen }: {
+  readonly designs: readonly OmniDesignDocument[]
+  readonly providerLabel: string
+  readonly busy: boolean
+  readonly activity: GenerationActivity | null
+  readonly onCreate: (prompt: string) => Promise<void>
+  readonly onOpen: (design: OmniDesignDocument) => void
+}) {
   return (
-    <div className={`mini-preview preview-${palette}`} aria-hidden="true">
-      <span className="preview-rail" />
-      <span className="preview-line preview-line-long" />
-      <span className="preview-line" />
-      <span className="preview-block" />
-      <span className="preview-block preview-block-secondary" />
-    </div>
+    <main className="home-main">
+      <div className="home-content">
+        <header className="page-heading"><h1>Start with an idea.</h1><p>Turn it into something you can see, use, and refine—without leaving your local workspace.</p></header>
+        <NewDesignComposer providerLabel={providerLabel} busy={busy} onCreate={onCreate} />
+        {activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
+        <section className="recent-section" aria-labelledby="recent-designs">
+          <div className="section-heading"><h2 id="recent-designs">Continue designing</h2><span>{designs.length ? `${designs.length} local` : 'Nothing here yet'}</span></div>
+          <div className="recent-rows">
+            {designs.slice(0, 3).map((design) => (
+              <Button className="recent-row" key={design.id} onPress={() => onOpen(design)}>
+                <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>
+                <span className="recent-copy"><strong>{design.title}</strong><small>{design.projectName} · {design.revisions.at(-1)?.prompt ?? 'Ready for a first direction'}</small></span>
+                <span className="recent-time"><ClockIcon aria-hidden="true" />{new Date(design.updatedAt).toLocaleDateString()}</span>
+                <ArrowRightIcon className="row-arrow" aria-hidden="true" />
+              </Button>
+            ))}
+            {!designs.length && <div className="empty-designs"><DocumentDuplicateIcon aria-hidden="true" /><strong>Your first design starts above</strong><p>The development provider will generate, compile, validate, and save it locally.</p></div>}
+          </div>
+        </section>
+      </div>
+    </main>
   )
 }
 
-function RecentDesigns() {
+function PreviewSurface({ design }: { readonly design: OmniDesignDocument }) {
+  const surface = useRef<HTMLDivElement>(null)
+  const revisionId = design.selectedRevisionId
+
+  useEffect(() => {
+    const element = surface.current
+    const api = window.omnidesign?.preview
+    if (!element || !api || !revisionId) return
+    const readBounds = () => {
+      const rectangle = element.getBoundingClientRect()
+      return { x: Math.round(rectangle.x), y: Math.round(rectangle.y), width: Math.max(1, Math.round(rectangle.width)), height: Math.max(1, Math.round(rectangle.height)) }
+    }
+    void api.show({ designId: design.id, revisionId, bounds: readBounds() })
+    if (typeof ResizeObserver === 'undefined') return () => { void api.hide() }
+    const resize = () => { void api.resize(readBounds()) }
+    const observer = new ResizeObserver(resize)
+    observer.observe(element)
+    window.addEventListener('resize', resize)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', resize)
+      void api.hide()
+    }
+  }, [design.id, revisionId])
+
+  return <div className="preview-surface" ref={surface}>{!revisionId && <p>Preview appears after the first valid revision.</p>}</div>
+}
+
+function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
+  readonly design: OmniDesignDocument
+  readonly activity: GenerationActivity | null
+  readonly busy: boolean
+  readonly onBack: () => void
+  readonly onChange: (design: OmniDesignDocument) => void
+}) {
+  const [draft, setDraft] = useState(design.draft)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
+  const api = window.omnidesign?.workspace
+
+  useEffect(() => setDraft(design.draft), [design.id, design.draft])
+  useEffect(() => {
+    if (!api) return
+    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft) }, 300)
+    return () => window.clearTimeout(timer)
+  }, [api, design.id, draft])
+
+  const submit = async () => {
+    if (!api || !draft.trim() || busy || !selectedIsHead) return
+    onChange(await api.generate(design.id, draft.trim()))
+    setDraft('')
+  }
+  const selectRevision = async (revisionId: string) => {
+    if (!api) return
+    onChange(await api.selectRevision(design.id, revisionId))
+    setHistoryOpen(false)
+  }
+  const restore = async () => {
+    if (!api || !design.selectedRevisionId) return
+    onChange(await api.restoreRevision(design.id, design.selectedRevisionId))
+  }
+  const exportRevision = async () => {
+    if (api && design.selectedRevisionId) await api.exportRevision(design.id, design.selectedRevisionId)
+  }
+
   return (
-    <section className="recent-section" aria-labelledby="recent-designs">
-      <div className="section-heading"><h2 id="recent-designs">Continue designing</h2><Button className="text-button">View all</Button></div>
-      <div className="recent-rows">
-        {recents.map((item) => (
-          <Button className="recent-row" key={item.title}>
-            <MiniPreview palette={item.palette} />
-            <span className="recent-copy"><strong>{item.title}</strong><small>{item.project} · {item.prompt}</small></span>
-            <span className="recent-time"><ClockIcon aria-hidden="true" />{item.time}</span>
-            <ArrowRightIcon className="row-arrow" aria-hidden="true" />
-          </Button>
-        ))}
+    <main className="workspace-main">
+      <header className="workspace-toolbar">
+        <IconButton label="Back to home" icon={ArrowLeftIcon} onPress={onBack} />
+        <span className="workspace-title"><strong>{design.title}</strong><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
+        <div className="toolbar-actions">
+          <Button className="toolbar-button" onPress={() => setHistoryOpen(!historyOpen)}><ClockIcon aria-hidden="true" />History · {design.revisions.length}</Button>
+          <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
+        </div>
+        {historyOpen && <div className="history-popover" aria-label="Revision history">
+          <strong>Revision history</strong>
+          {[...design.revisions].reverse().map((revision, index) => (
+            <Button className="history-row" data-active={revision.id === design.selectedRevisionId || undefined} key={revision.id} onPress={() => void selectRevision(revision.id)}>
+              <span>{index === 0 ? 'Current head' : new Date(revision.createdAt).toLocaleString()}</span><small>{revision.prompt}</small>
+            </Button>
+          ))}
+        </div>}
+      </header>
+      <div className="workspace-split">
+        <section className="conversation-pane" aria-label="Design conversation">
+          <div className="conversation-feed">
+            {design.messages.map((message) => <article className={`conversation-message message-${message.role}`} key={message.id}><span>{message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{message.text}</p></article>)}
+            {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
+          </div>
+          {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
+          <div className="workspace-composer">
+            <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
+            }} /></TextField>
+            <div><span><SparklesIcon aria-hidden="true" />Development provider · Mock model</span><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+          </div>
+        </section>
+        <section className="preview-pane" aria-label="Generated design preview">
+          <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{design.selectedRevisionId ? 'Offline · validated' : 'Waiting for revision'}</small></div>
+          <PreviewSurface design={design} />
+        </section>
       </div>
-    </section>
+    </main>
   )
 }
 
 function useAvailableProvider(): string {
-  const [label, setLabel] = useState('Set up provider')
-
+  const [label, setLabel] = useState('Development provider')
   useEffect(() => {
     const api = window.omnidesign?.providers
     if (!api) return
     void api.discover().then((providers) => {
       const provider = providers.find((candidate) => candidate.installed && candidate.authenticated)
-      if (provider) setLabel(provider.name)
+      if (provider) setLabel(`${provider.name} available · Development provider active`)
     }).catch(() => undefined)
   }, [])
-
   return label
 }
 
 export function App() {
+  const [designs, setDesigns] = useState<OmniDesignDocument[]>([])
+  const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
+  const [activity, setActivity] = useState<GenerationActivity | null>(null)
+  const [busy, setBusy] = useState(false)
   const providerLabel = useAvailableProvider()
+  const workspaceApi = window.omnidesign?.workspace
+
+  const refresh = useCallback(async () => {
+    if (!workspaceApi) return
+    setDesigns(await workspaceApi.list())
+  }, [workspaceApi])
+
+  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => workspaceApi?.onActivity((next) => {
+    setActivity(next)
+    setBusy(!['complete', 'failed'].includes(next.stage))
+  }), [workspaceApi])
+
+  const create = async (prompt: string) => {
+    if (!workspaceApi) return
+    setBusy(true)
+    try {
+      const design = await workspaceApi.create(prompt)
+      setActiveDesign(design)
+      await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+  const updateDesign = (design: OmniDesignDocument) => {
+    setActiveDesign(design)
+    setDesigns((current) => current.map((candidate) => candidate.id === design.id ? design : candidate))
+  }
+  const home = () => { void window.omnidesign?.preview.hide(); setActiveDesign(null); setActivity(null); void refresh() }
 
   return (
     <div className="app-frame">
-      <Sidebar />
-      <main className="home-main">
-        <div className="home-content">
-          <header className="page-heading">
-            <h1>Good afternoon, Simon.</h1>
-            <p>Start with an idea. OmniDesign will turn it into something you can see, use, and refine.</p>
-          </header>
-          <NewDesignComposer providerLabel={providerLabel} />
-          <RecentDesigns />
-        </div>
-      </main>
+      <Sidebar designs={designs} activeDesignId={activeDesign?.id ?? null} onHome={home} onOpen={setActiveDesign} />
+      {activeDesign
+        ? <DesignWorkspace design={activeDesign} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy} onBack={home} onChange={updateDesign} />
+        : <Home designs={designs} providerLabel={providerLabel} busy={busy} activity={activity} onCreate={create} onOpen={setActiveDesign} />}
     </div>
   )
 }
