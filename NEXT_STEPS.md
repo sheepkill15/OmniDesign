@@ -84,7 +84,7 @@ Cover:
 - Keyboard navigation, focus, contrast, and accessibility expectations.
 - Responsive and smaller-window behavior.
 
-The remaining design work is font-family selection, exact dark and light semantic color mappings, token scales, and representative component and screen specifications.
+The remaining design work is font-family selection, exact dark and light semantic color mappings, final token scales, and representative component and screen specifications. `DESIGN_SYSTEM.md` records proportional starting ranges for spacing and sizing; these are ergonomic ranges to prototype rather than final tokens.
 
 The product must demonstrate the level of UI and UX quality expected from a design tool.
 

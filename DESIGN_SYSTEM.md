@@ -20,6 +20,18 @@ The visual language is:
 - Muted and tactile rather than glossy, translucent, or ornamental.
 - Spacious and calm, with enough working density for sustained desktop use but no pressure to compress the interface at the expense of satisfaction.
 
+## Spatial Composition Principles
+
+The interface should use:
+
+- Compact controls arranged within a spacious overall composition.
+- A quiet, persistent navigation rail with low-height rows and clear selected state.
+- Generous outer gutters around a narrower readable content column.
+- Strong alignment between the conversation column, response content, activity regions, and composer.
+- Restrained borders and tonal changes instead of heavy elevation.
+- Icon-led navigation and actions with labels where recognition alone is insufficient.
+- A multiline composer that feels anchored and substantial without dominating the workspace.
+
 ## Core Visual Rules
 
 ### Custom Application Styling
@@ -122,6 +134,37 @@ The exact interface family and monospace companion remain to be selected through
 - Spaciousness must remain purposeful: protect conversation and preview working area, and avoid oversized decorative whitespace that makes routine actions slower.
 
 Exact spacing, control-height, radius, and density tokens remain to be specified and visually tested within this accepted direction.
+
+### Initial Spatial Reference Ranges
+
+Use the following starting ranges for OmniDesign prototypes. They are proportional guardrails, not final tokens, and must be evaluated with the bundled font, both themes, Windows display scaling, smaller windows, and real Phase 1 content.
+
+| Element | Initial range | Intent |
+| --- | --- | --- |
+| Base spacing unit | `4px` | Supports a coherent scale without forcing every distance to be equally tight. |
+| Small internal gaps | `4–8px` | Icon-to-label, compact metadata, and tightly related controls. |
+| Ordinary control gaps | `8–12px` | Related toolbar actions and form-control internals. |
+| Component padding | `12–16px` | Calm controls and bounded work surfaces without excessive bulk. |
+| Region gutters | `16–24px` | Separation around toolbars, panes, conversation content, and sidebars. |
+| Major section rhythm | `24–32px` | Distinguishes meaningful content groups without card wrappers. |
+| Persistent sidebar width | `248–280px` | Enough room for icons and useful project names while protecting workspace width. |
+| Top workspace toolbar | `44–48px` | Compact desktop chrome with comfortable alignment and targets. |
+| Navigation and compact rows | `32–36px` | Efficient repeated scanning inside the more spacious shell. |
+| Standard controls | `36–40px` | Comfortable default for inputs, buttons, and combobox triggers. |
+| Primary reading column | `720–800px` maximum | Keeps long conversation and diagnostic text readable on wide windows. |
+| Multiline composer | Approximately `96–120px` minimum at rest | Makes prompting feel central while leaving most height for conversation and preview. |
+
+Use the lower end of a range for repeated dense structures such as navigation and tool activity, and the upper end for primary actions and creation surfaces. These values must not be applied mechanically: preview-led layouts, split panes, empty states, and smaller windows require fluid sizing and content-aware constraints.
+
+### Shape and Alignment Reference
+
+- Align major content, activity regions, and composer edges to a shared column wherever the layout mode permits.
+- Use negative space around a readable column on wide windows rather than stretching prose edge to edge.
+- Use approximately `8–10px` radii for compact selected rows and ordinary controls as an initial prototype range.
+- Reserve approximately `16–20px` radii for substantial bounded surfaces such as the multiline composer or temporary panels. Do not spread this larger treatment across every section.
+- Prefer one subtle separator or tonal boundary between persistent regions. Avoid multiple nested outlines.
+- A visible icon may be `16–20px` while its interactive target remains at least the full control height.
+- Keep compact metadata around `12–13px` and ordinary interface copy around `14–15px` as initial optical targets; finalize sizes only after the bundled font is chosen.
 
 ## Controls and Interaction Primitives
 
