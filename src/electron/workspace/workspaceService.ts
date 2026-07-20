@@ -1,5 +1,5 @@
 import { compileDesignHtml, validateCompiledDesign } from './compiler.js'
-import type { Design, GenerationActivity, Layout } from './contracts.js'
+import type { Design, GenerationActivity, Layout, Theme } from './contracts.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 
@@ -62,5 +62,13 @@ export class WorkspaceService {
 
   public saveLayout(designId: string, layout: Layout): void {
     this.store.saveLayout(designId, layout)
+  }
+
+  public getTheme(): Theme {
+    return this.store.getTheme()
+  }
+
+  public saveTheme(theme: Theme): void {
+    this.store.saveTheme(theme)
   }
 }

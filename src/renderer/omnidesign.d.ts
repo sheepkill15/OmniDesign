@@ -119,6 +119,10 @@ interface Window {
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
     }
+    readonly settings: {
+      getTheme(): Promise<'dark' | 'light'>
+      saveTheme(theme: 'dark' | 'light'): Promise<void>
+    }
     readonly preview: {
       show(request: { readonly designId: string; readonly revisionId: string; readonly bounds: PreviewBounds }): Promise<void>
       resize(bounds: PreviewBounds): Promise<void>

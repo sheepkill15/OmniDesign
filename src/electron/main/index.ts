@@ -11,6 +11,7 @@ import {
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
+  themeSchema,
 } from '../workspace/contracts.js'
 import type { GenerationActivity } from '../workspace/contracts.js'
 import { writeOfflineZip } from '../workspace/exportService.js'
@@ -148,6 +149,14 @@ function registerIpc(): void {
     authorize(event)
     const request = saveLayoutRequestSchema.parse(value)
     requireWorkspace().saveLayout(request.designId, request.layout)
+  })
+  ipcMain.handle('settings:get-theme', (event) => {
+    authorize(event)
+    return requireWorkspace().getTheme()
+  })
+  ipcMain.handle('settings:save-theme', (event, value: unknown) => {
+    authorize(event)
+    requireWorkspace().saveTheme(themeSchema.parse(value))
   })
   ipcMain.handle('preview:show', (event, value: unknown) => {
     authorize(event)

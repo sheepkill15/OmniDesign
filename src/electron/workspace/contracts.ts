@@ -40,6 +40,8 @@ export const layoutSchema = z.object({
   conversationWidth: z.number().min(35).max(65),
 })
 
+export const themeSchema = z.enum(['dark', 'light'])
+
 export const designSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -103,6 +105,7 @@ export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>
 export type SaveLayoutRequest = z.infer<typeof saveLayoutRequestSchema>
+export type Theme = z.infer<typeof themeSchema>
 export type PreviewRequest = z.infer<typeof previewRequestSchema>
 export type ExportRequest = z.infer<typeof exportRequestSchema>
 

@@ -47,6 +47,10 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       onDiagnostic: vi.fn().mockReturnValue(() => undefined),
       onThumbnail: vi.fn().mockReturnValue(() => undefined),
     },
+    settings: {
+      getTheme: vi.fn().mockResolvedValue('dark'),
+      saveTheme: vi.fn().mockResolvedValue(undefined),
+    },
   } as unknown as Window['omnidesign']
   Object.defineProperty(window, 'omnidesign', { value: bridge, configurable: true })
   return bridge
@@ -181,5 +185,17 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     expect(await screen.findByRole('img', { name: 'Preview of Calm dashboard' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
+  })
+
+  it('lets the user choose and persist the trusted application theme', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: /Light/ }))
+
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+    expect(bridge.settings.saveTheme).toHaveBeenCalledWith('light')
   })
 })

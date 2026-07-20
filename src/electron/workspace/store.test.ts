@@ -119,4 +119,15 @@ describe('WorkspaceStore', () => {
     expect(recovered?.messages.at(-1)?.role).toBe('system')
     reopened.close()
   })
+
+  it('persists the selected application theme across reopen', () => {
+    const { directory, store } = createStore()
+    expect(store.getTheme()).toBe('dark')
+    store.saveTheme('light')
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getTheme()).toBe('light')
+    reopened.close()
+  })
 })

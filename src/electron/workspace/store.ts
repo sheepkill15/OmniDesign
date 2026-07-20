@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { designSchema, layoutSchema } from './contracts.js'
-import type { Design, InvalidCandidate, Layout, Message, PreviewDiagnostic, Revision } from './contracts.js'
+import { designSchema, layoutSchema, themeSchema } from './contracts.js'
+import type { Design, InvalidCandidate, Layout, Message, PreviewDiagnostic, Revision, Theme } from './contracts.js'
 
 interface DesignRow {
   id: string
@@ -142,6 +142,13 @@ CREATE TABLE invalid_candidates (
 CREATE INDEX invalid_candidates_by_design ON invalid_candidates(design_id, created_at);
 `
 
+const migrationSeven = `
+CREATE TABLE settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+) STRICT;
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -250,6 +257,18 @@ export class WorkspaceStore {
     if (result.changes !== 1) throw new Error('Design not found.')
   }
 
+  public getTheme(): Theme {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'theme'").get() as { value: string } | undefined
+    return themeSchema.catch('dark').parse(setting?.value)
+  }
+
+  public saveTheme(theme: Theme): void {
+    this.database.prepare(`
+      INSERT INTO settings (key, value) VALUES ('theme', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(theme)
+  }
+
   public addPreviewDiagnostic(designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
     this.requireRevision(designId, revisionId)
     this.database.prepare(`
@@ -297,7 +316,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)

@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('omnidesign', {
       return () => ipcRenderer.removeListener('workspace:activity', handler)
     },
   },
+  settings: {
+    getTheme: () => ipcRenderer.invoke('settings:get-theme'),
+    saveTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('settings:save-theme', theme),
+  },
   preview: {
     show: (request: PreviewRequest) => ipcRenderer.invoke('preview:show', request),
     resize: (bounds: PreviewRequest['bounds']) => ipcRenderer.invoke('preview:resize', bounds),

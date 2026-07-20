@@ -19,7 +19,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Radio, RadioGroup, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -44,11 +44,13 @@ function NavigationItem({ icon: IconComponent, label, badge, active = false, onP
   )
 }
 
-function Sidebar({ designs, activeDesignId, onHome, onOpen }: {
+function Sidebar({ designs, activeDesignId, settingsOpen, onHome, onOpen, onSettings }: {
   readonly designs: readonly OmniDesignDocument[]
   readonly activeDesignId: string | null
+  readonly settingsOpen: boolean
   readonly onHome: () => void
   readonly onOpen: (design: OmniDesignDocument) => void
+  readonly onSettings: () => void
 }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
@@ -58,7 +60,7 @@ function Sidebar({ designs, activeDesignId, onHome, onOpen }: {
         <IconButton label="Notifications" icon={BellIcon} />
       </div>
       <nav className="global-navigation" aria-label="Application">
-        <NavigationItem icon={HomeIcon} label="Home" active={!activeDesignId} onPress={onHome} />
+        <NavigationItem icon={HomeIcon} label="Home" active={!activeDesignId && !settingsOpen} onPress={onHome} />
         <NavigationItem icon={BoltIcon} label="Generations" />
       </nav>
       <div className="sidebar-section">
@@ -77,10 +79,27 @@ function Sidebar({ designs, activeDesignId, onHome, onOpen }: {
       <div className="sidebar-footer">
         <NavigationItem icon={CommandLineIcon} label="Providers" />
         <NavigationItem icon={TrashIcon} label="Trash" />
-        <NavigationItem icon={Cog6ToothIcon} label="Settings" />
+        <NavigationItem icon={Cog6ToothIcon} label="Settings" active={settingsOpen} onPress={onSettings} />
         <div className="account-row"><span className="avatar">OD</span><span><strong>Local workspace</strong><small>Stored on this device</small></span></div>
       </div>
     </aside>
+  )
+}
+
+function Settings({ theme, onThemeChange }: { readonly theme: 'dark' | 'light'; readonly onThemeChange: (theme: 'dark' | 'light') => void }) {
+  return (
+    <main className="settings-main">
+      <div className="settings-content">
+        <header className="page-heading"><h1>Settings</h1><p>Choose how OmniDesign’s trusted workspace appears on this device.</p></header>
+        <section className="settings-section" aria-labelledby="appearance-heading">
+          <div className="section-heading"><h2 id="appearance-heading">Appearance</h2><span>Saved locally</span></div>
+          <RadioGroup aria-label="Application theme" className="theme-options" value={theme} onChange={(value) => onThemeChange(value as 'dark' | 'light')}>
+            <Radio className="theme-option" value="dark"><span className="theme-swatch theme-swatch-dark" aria-hidden="true" /><span><strong>Dark</strong><small>Default for focused design work</small></span></Radio>
+            <Radio className="theme-option" value="light"><span className="theme-swatch theme-swatch-light" aria-hidden="true" /><span><strong>Light</strong><small>A bright, low-glare workspace</small></span></Radio>
+          </RadioGroup>
+        </section>
+      </div>
+    </main>
   )
 }
 
@@ -323,6 +342,8 @@ export function App() {
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
   const [activity, setActivity] = useState<GenerationActivity | null>(null)
   const [busy, setBusy] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const providerLabel = useAvailableProvider()
   const workspaceApi = window.omnidesign?.workspace
 
@@ -337,6 +358,14 @@ export function App() {
   }, [workspaceApi])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    const api = window.omnidesign?.settings
+    if (!api) return
+    void api.getTheme().then((savedTheme) => {
+      setTheme(savedTheme)
+      document.documentElement.dataset.theme = savedTheme
+    })
+  }, [])
   useEffect(() => workspaceApi?.onActivity((next) => {
     setActivity(next)
     setBusy(!['complete', 'failed'].includes(next.stage))
@@ -362,14 +391,23 @@ export function App() {
       setBusy(false)
     }
   }
-  const home = () => { void window.omnidesign?.preview.hide(); setActiveDesign(null); setActivity(null); void refresh() }
+  const changeTheme = (nextTheme: 'dark' | 'light') => {
+    setTheme(nextTheme)
+    document.documentElement.dataset.theme = nextTheme
+    void window.omnidesign?.settings.saveTheme(nextTheme)
+  }
+  const home = () => { void window.omnidesign?.preview.hide(); setSettingsOpen(false); setActiveDesign(null); setActivity(null); void refresh() }
+  const openSettings = () => { void window.omnidesign?.preview.hide(); setActiveDesign(null); setSettingsOpen(true) }
+  const openDesign = (design: OmniDesignDocument) => { setSettingsOpen(false); setActiveDesign(design) }
 
   return (
     <div className="app-frame">
-      <Sidebar designs={designs} activeDesignId={activeDesign?.id ?? null} onHome={home} onOpen={setActiveDesign} />
-      {activeDesign
+      <Sidebar designs={designs} activeDesignId={activeDesign?.id ?? null} settingsOpen={settingsOpen} onHome={home} onOpen={openDesign} onSettings={openSettings} />
+      {settingsOpen
+        ? <Settings theme={theme} onThemeChange={changeTheme} />
+        : activeDesign
         ? <DesignWorkspace design={activeDesign} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy} onBack={home} onChange={updateDesign} />
-        : <Home designs={designs} providerLabel={providerLabel} busy={busy} activity={activity} onCreate={create} onOpen={setActiveDesign} />}
+        : <Home designs={designs} providerLabel={providerLabel} busy={busy} activity={activity} onCreate={create} onOpen={openDesign} />}
     </div>
   )
 }
