@@ -4,6 +4,8 @@
 
 This document defines the intended Phase 1 product behavior for OmniDesign. It is subordinate to the product principles in `AGENTS.md` and the accepted technical decisions in `ARCHITECTURE.md`. Where this document describes a user-visible outcome without prescribing an implementation, the implementation must preserve the architecture's security, local-first, portability, and testing requirements.
 
+The trusted application UI must also follow `DESIGN_SYSTEM.md`, including its custom-control, visual-composition, iconography, and accessibility rules. Those rules do not automatically constrain the visual language of AI-generated designs.
+
 Phase 1 is complete only when the full acceptance criteria in this document are met. The walking skeleton is an earlier engineering milestone and is not itself Phase 1 completion.
 
 ## Phase 1 Outcome

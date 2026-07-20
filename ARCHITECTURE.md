@@ -14,6 +14,9 @@ The following decisions are accepted:
 - The initial product is local-first and stores projects, designs, threads, and history on disk.
 - AI-generated designs are rendered in an isolated, unprivileged Chromium context.
 - The codebase is organized as a modular monorepo with portable domain and UI packages where practical.
+- The trusted application UI follows the visual, interaction, component, and accessibility rules in `DESIGN_SYSTEM.md`.
+- Heroicons is the default icon family for the trusted React UI.
+- Application selection controls use shared, accessible custom combobox or listbox primitives; the trusted UI does not use the built-in HTML `<select>` element.
 
 The following generation decision is provisional and must be benchmarked before it becomes final:
 

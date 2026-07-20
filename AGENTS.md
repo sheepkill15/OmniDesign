@@ -1,6 +1,6 @@
 # OmniDesign Project Charter
 
-This file is the authoritative product and working baseline for agents and contributors working on OmniDesign. `ARCHITECTURE.md` is the authoritative source for accepted and proposed technical decisions. `NEXT_STEPS.md` preserves the current working sequence and handoff state while the Phase 1 specification is being developed. Preserve all three when making plans, architectural decisions, designs, and code changes. If a future request conflicts with these documents, surface the conflict explicitly rather than silently changing the project's direction.
+This file is the authoritative product and working baseline for agents and contributors working on OmniDesign. `ARCHITECTURE.md` is the authoritative source for accepted and proposed technical decisions. `DESIGN_SYSTEM.md` is the authoritative baseline for the trusted application's visual and interaction language. `NEXT_STEPS.md` preserves the current working sequence and handoff state while the Phase 1 specification is being developed. Preserve all four when making plans, architectural decisions, designs, and code changes. If a future request conflicts with these documents, surface the conflict explicitly rather than silently changing the project's direction.
 
 ## Product Vision
 
@@ -142,10 +142,11 @@ Before making changes:
 
 1. Read this file completely.
 2. Read `ARCHITECTURE.md` completely.
-3. Read `NEXT_STEPS.md` completely.
-4. Inspect the repository and any more narrowly scoped `AGENTS.md` files.
-5. Identify the current roadmap phase and keep the work within its intended scope.
-6. Confirm that proposed frameworks or APIs are based on current official documentation.
-7. Plan for tests, UI/UX quality, modularity, and an appropriate Git Flow branch before implementation.
+3. Read `DESIGN_SYSTEM.md` completely.
+4. Read `NEXT_STEPS.md` completely.
+5. Inspect the repository and any more narrowly scoped `AGENTS.md` files.
+6. Identify the current roadmap phase and keep the work within its intended scope.
+7. Confirm that proposed frameworks or APIs are based on current official documentation.
+8. Plan for tests, UI/UX quality, modularity, and an appropriate Git Flow branch before implementation.
 
 When completing changes, verify the relevant behavior, keep documentation aligned with important decisions, and leave the codebase in a testable state.

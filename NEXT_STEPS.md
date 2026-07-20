@@ -64,7 +64,9 @@ The provider authentication mechanism remains deferred until the planned referen
 
 ### 2. Establish OmniDesign's Visual Language
 
-Define the design language before UI implementation spreads across the application.
+The accepted baseline is now recorded in `DESIGN_SYSTEM.md`. It defines the native-desktop character, custom control requirement, no-`<select>` rule, no-gradient rule, fluid low-card composition, restricted blur and elevation, supplied brand palette, icon direction, accessibility baseline, and Phase 1 composition guidance.
+
+Resolve the remaining owner decisions and then convert the baseline into exact semantic and component tokens before UI implementation spreads across the application.
 
 Cover:
 
@@ -81,6 +83,8 @@ Cover:
 - Motion and reduced-motion behavior.
 - Keyboard navigation, focus, contrast, and accessibility expectations.
 - Responsive and smaller-window behavior.
+
+The remaining product-owner choices are theme priority, allowed palette extensions, typography source, density, and native versus integrated window chrome.
 
 The product must demonstrate the level of UI and UX quality expected from a design tool.
 
@@ -167,6 +171,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - The generated-design stack requires a benchmark before final acceptance.
 - Provider subscription integration awaits the reference implementation.
 - The initial Phase 1 product specification is recorded in `docs/PHASE_1_SPEC.md` and awaits review and ratification.
+- The initial trusted-UI design language is recorded in `DESIGN_SYSTEM.md`; its core rules are accepted and five token-level direction choices remain open.
 - Basic multiple-design support is now included in Phase 1; multiple conversations and visible branching remain deferred.
 - Phase 1 is qualified on Windows first while preserving the accepted cross-platform architecture.
 - Persistent AI-extracted project profiles are deferred; Phase 1 uses read-only project context on demand during generation.
