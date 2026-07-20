@@ -26,6 +26,7 @@ The following decisions are accepted:
 - The walking skeleton uses React-owned feature state and explicit service calls; a global state-management dependency will be introduced only when cross-screen background-job coordination demonstrates the need.
 - The generated-design preview uses `WebContentsView` in a non-persistent, dedicated session partition and a session-scoped `omnidesign-preview://` protocol handler.
 - Phase 1 offline ZIP assembly uses `fflate`, while Tailwind compilation uses the pinned `tailwindcss` and `@tailwindcss/node` packages.
+- Completed design history uses immutable file snapshots plus SQLite metadata and pointers; hidden per-design Git repositories are not used in the Phase 1 walking skeleton.
 
 The following generation decision is provisional and must be benchmarked before it becomes final:
 
@@ -296,6 +297,20 @@ Do not store secrets in project files or the ordinary SQLite database.
 The initial implementation uses Electron 43's embedded Node 24 runtime and its built-in `node:sqlite` module. This avoids a separately compiled native SQLite addon while preserving the accepted SQLite data model. The persistence package owns explicit, forward-only migrations and opens databases with foreign-key enforcement and WAL journaling. Tests use temporary directories and isolated databases.
 
 Immutable revision artifacts remain ordinary files beneath OmniDesign-managed application storage. SQLite stores their metadata and paths, active and selected revision pointers, conversations, drafts, layout state, and project/design relationships. The source-project directory is never used as the design working directory.
+
+The walking skeleton makes this concrete beneath Electron's application data directory:
+
+```text
+workspace/
+  omnidesign.sqlite
+  designs/
+    <design-id>/
+      revisions/
+        <revision-id>/
+          index.html
+```
+
+Revision directories are append-only. Restoration copies the selected snapshot into a new revision whose parent is the previous head. SQLite retains the active and selected pointers, so later history is never deleted or rewritten. A hidden Git repository would duplicate this accepted history model without adding user-visible Phase 1 value and is therefore not part of the walking skeleton.
 
 If Electron moves to a Node release where `node:sqlite` compatibility or support changes materially, re-evaluate this choice before upgrading Electron rather than silently replacing the persistence layer.
 

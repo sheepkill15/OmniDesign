@@ -745,8 +745,7 @@ These implementation decisions must be resolved and recorded before or during th
 - Logging, diagnostics, and error-boundary approach.
 - Test runner responsibilities and Windows CI.
 - Development, preview, and production Content Security Policies.
-- Exact design working-directory shape.
-- Whether hidden per-design Git repositories add sufficient value over immutable snapshots and SQLite history.
+- Extensions to the accepted immutable snapshot directory shape needed for assets, invalid candidates, and thumbnails.
 - Exact Codex and Claude installed-subscription and API-key integration after examining the reference implementation.
 - How providers receive read-only project context without weakening isolation.
 
