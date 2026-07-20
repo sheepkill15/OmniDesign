@@ -1,6 +1,6 @@
 # OmniDesign
 
-The desktop application currently presents three runnable Phase 1 home-page concepts for visual-direction review. Use the review bar to compare the Quiet Studio, Visual Gallery, and Project Workbench compositions in dark and light themes. See `docs/HOME_CONCEPT_REVIEW.md` for their intent and review questions.
+The desktop application currently implements the accepted Phase 1 home design baseline. See `docs/HOME_DESIGN_BASELINE.md` for the composition and interaction rules that subsequent screens must follow.
 
 ## Development
 

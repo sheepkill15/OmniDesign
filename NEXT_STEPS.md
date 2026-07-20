@@ -162,8 +162,8 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 ## Current Handoff State
 
-- Phase 1 implementation is intentionally paused at the first-screen visual review. Three runnable home-page directions are implemented on `feature/phase-1-walking-skeleton` and documented in `docs/HOME_CONCEPT_REVIEW.md`; the product owner must select and refine a direction before other application screens are built.
-- The temporary concept switcher and representative project/design data exist only for this review. Remove unused concepts and review chrome after selection rather than carrying them into the product.
+- The product owner accepted the Quiet Studio home direction. The consolidated implementation and its future-screen rules are documented in `docs/HOME_DESIGN_BASELINE.md` and `DESIGN_SYSTEM.md`.
+- The temporary concept switcher and rejected Visual Gallery and Project Workbench implementations have been removed. Representative project/design data remains non-functional placeholder content until persistence is connected.
 - The project charter and roadmap are recorded in `AGENTS.md`.
 - Accepted and proposed technical direction is recorded in `ARCHITECTURE.md`.
 - Electron, React, TypeScript, Vite, local-first persistence, and isolated previews are accepted directions.

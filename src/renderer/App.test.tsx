@@ -3,39 +3,23 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 
-afterEach(() => {
-  cleanup()
-  document.documentElement.removeAttribute('data-theme')
-})
+afterEach(cleanup)
 
-describe('Phase 1 home concepts', () => {
-  it('shows the quiet studio concept by default with the required home actions', () => {
+describe('Phase 1 home', () => {
+  it('renders the accepted home composition and required actions', () => {
     Object.defineProperty(window, 'omnidesign', { value: undefined, configurable: true })
     render(<App />)
 
     expect(screen.getByRole('heading', { name: 'Good afternoon, Simon.' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toHaveAttribute('data-variant', 'standard')
+    expect(screen.getByRole('navigation', { name: 'Application' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Create a design' })).toBeInTheDocument()
-    expect(screen.getAllByText('Set up provider').length).toBeGreaterThan(0)
+    expect(screen.getByRole('region', { name: 'Continue designing' })).toBeInTheDocument()
     expect(screen.getByText('Analytics overview')).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Home page concept' })).not.toBeInTheDocument()
   })
 
-  it('switches between all three review concepts', () => {
-    Object.defineProperty(window, 'omnidesign', { value: undefined, configurable: true })
-    render(<App />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'B · Visual gallery' }))
-    expect(screen.getByRole('heading', { name: 'Make the next version visible.' })).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toHaveAttribute('data-variant', 'gallery')
-
-    fireEvent.click(screen.getByRole('button', { name: 'C · Project workbench' }))
-    expect(screen.getByRole('heading', { name: 'What are we building?' })).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toHaveAttribute('data-variant', 'workbench')
-    expect(screen.getByRole('complementary', { name: 'Workspace activity' })).toBeInTheDocument()
-  })
-
-  it('discovers an installed provider and toggles the review theme', async () => {
+  it('discovers an installed provider through the existing bridge', async () => {
     Object.defineProperty(window, 'omnidesign', { value: { providers: {
       discover: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] }]),
       prompt: vi.fn(),
@@ -44,17 +28,20 @@ describe('Phase 1 home concepts', () => {
     render(<App />)
 
     await waitFor(() => expect(screen.getByText('Codex')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: 'Use light theme' }))
-    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
   })
 
-  it('enables the submit control only after the user enters a prompt', () => {
+  it('enables submission after prompt entry and supports Enter to submit', () => {
     Object.defineProperty(window, 'omnidesign', { value: undefined, configurable: true })
     render(<App />)
 
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     const submit = screen.getByRole('button', { name: 'Create design' })
     expect(submit).toBeDisabled()
-    fireEvent.change(screen.getByRole('textbox', { name: 'What would you like to design?' }), { target: { value: 'A calm dashboard' } })
+
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     expect(submit).toBeEnabled()
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    expect(prompt).toHaveValue('')
+    expect(submit).toBeDisabled()
   })
 })
