@@ -23,13 +23,14 @@ export class WorkspaceService {
   }
 
   public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true): Promise<Design> {
+    let candidate: string | null = null
     try {
       if (savePrompt) this.store.addPrompt(designId, prompt)
       onActivity({ designId, stage: 'generating', detail: 'Mock provider is shaping the requested direction.' })
       const current = this.store.getDesign(designId)
       if (!current) throw new Error('Design not found.')
       const previous = current.revisions.find((revision) => revision.id === current.activeRevisionId)?.html
-      const candidate = generatedHtml ?? generateMockDesign(prompt, previous).html
+      candidate = generatedHtml ?? generateMockDesign(prompt, previous).html
       onActivity({ designId, stage: 'compiling', detail: 'Compiling the generated Tailwind classes.' })
       const compiled = await compileDesignHtml(candidate)
       onActivity({ designId, stage: 'validating', detail: 'Checking document structure and preview security.' })
@@ -39,7 +40,10 @@ export class WorkspaceService {
       onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
       return saved
     } catch (error) {
-      onActivity({ designId, stage: 'failed', detail: error instanceof Error ? error.message : 'Generation failed.' })
+      const diagnostic = error instanceof Error ? error.message : 'Generation failed.'
+      const rejected = candidate ? this.store.addInvalidCandidate(designId, prompt, candidate, diagnostic) : null
+      onActivity({ designId, stage: 'failed', detail: diagnostic })
+      if (rejected) return rejected
       throw error
     }
   }

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { designSchema, layoutSchema } from './contracts.js'
-import type { Design, Layout, Message, PreviewDiagnostic, Revision } from './contracts.js'
+import type { Design, InvalidCandidate, Layout, Message, PreviewDiagnostic, Revision } from './contracts.js'
 
 interface DesignRow {
   id: string
@@ -43,6 +43,14 @@ interface PreviewDiagnosticRow {
   message: string
   source: string | null
   line: number | null
+  created_at: string
+}
+
+interface InvalidCandidateRow {
+  id: string
+  prompt: string
+  candidate_path: string
+  diagnostic: string
   created_at: string
 }
 
@@ -120,6 +128,18 @@ CREATE TABLE revision_thumbnails (
 INSERT OR IGNORE INTO revision_thumbnails (revision_id, thumbnail_path)
 SELECT active_revision_id, thumbnail_path FROM designs
 WHERE active_revision_id IS NOT NULL AND thumbnail_path IS NOT NULL;
+`
+
+const migrationSix = `
+CREATE TABLE invalid_candidates (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  prompt TEXT NOT NULL,
+  candidate_path TEXT NOT NULL UNIQUE,
+  diagnostic TEXT NOT NULL,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX invalid_candidates_by_design ON invalid_candidates(design_id, created_at);
 `
 
 export class WorkspaceStore {
@@ -253,9 +273,31 @@ export class WorkspaceStore {
     }
   }
 
+  public addInvalidCandidate(designId: string, prompt: string, html: string, diagnostic: string): Design {
+    this.requireDesign(designId)
+    const candidateId = randomUUID()
+    const now = new Date().toISOString()
+    const candidateDirectory = path.join(this.artifactsDirectory, designId, 'candidates', candidateId)
+    mkdirSync(candidateDirectory, { recursive: true })
+    const candidatePath = path.join(candidateDirectory, 'index.html')
+    writeFileSync(candidatePath, html, { encoding: 'utf8', flag: 'wx' })
+
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO invalid_candidates (id, design_id, prompt, candidate_path, diagnostic, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(candidateId, designId, prompt, candidatePath, diagnostic, now)
+      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(randomUUID(), designId, 'system', `Candidate rejected: ${diagnostic}`, now)
+      this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
+    })
+
+    return this.requireDesign(designId)
+  }
+
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -274,6 +316,10 @@ export class WorkspaceStore {
       SELECT id, parent_revision_id, prompt, provider_id, model_id, created_at, html_path
       FROM revisions WHERE design_id = ? ORDER BY created_at, rowid
     `).all(row.id) as unknown as RevisionRow[]
+    const invalidCandidateRows = this.database.prepare(`
+      SELECT id, prompt, candidate_path, diagnostic, created_at
+      FROM invalid_candidates WHERE design_id = ? ORDER BY created_at, rowid
+    `).all(row.id) as unknown as InvalidCandidateRow[]
 
     return designSchema.parse({
       id: row.id,
@@ -288,6 +334,13 @@ export class WorkspaceStore {
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
       layout: layoutSchema.parse(JSON.parse(row.layout_json)),
       messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, createdAt: message.created_at })),
+      invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
+        id: candidate.id,
+        prompt: candidate.prompt,
+        html: readFileSync(candidate.candidate_path, 'utf8'),
+        diagnostic: candidate.diagnostic,
+        createdAt: candidate.created_at,
+      })),
       revisions: revisionRows.map((revision): Revision => ({
         id: revision.id,
         parentRevisionId: revision.parent_revision_id,

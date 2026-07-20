@@ -16,6 +16,7 @@ const design: OmniDesignDocument = {
   thumbnailDataUrl: null,
   layout: { conversationWidth: 43 },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
+  invalidCandidates: [],
   revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', html: '<html><body>Dashboard</body></html>', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
@@ -135,6 +136,22 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
     expect(await screen.findByText('1 diagnostic captured')).toBeInTheDocument()
+  })
+
+  it('keeps an invalid candidate inspectable in the conversation', async () => {
+    const failedDesign: OmniDesignDocument = {
+      ...design,
+      invalidCandidates: [{ id: 'candidate-1', prompt: 'Unsafe change', html: '<script>bad()</script>', diagnostic: 'Generated design contains unsafe code.', createdAt: '2026-07-20T10:01:00.000Z' }],
+    }
+    installBridge([], failedDesign)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Latest candidate was not activated')
+    expect(screen.getByText('Technical details')).toBeInTheDocument()
   })
 
   it('resizes the workspace with its keyboard-operable divider', async () => {

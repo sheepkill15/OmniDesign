@@ -195,6 +195,7 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
   const split = useRef<HTMLDivElement>(null)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
+  const latestInvalidCandidate = design.invalidCandidates.at(-1)
   const api = window.omnidesign?.workspace
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
@@ -260,6 +261,11 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
           <div className="conversation-feed">
             {design.messages.map((message) => <article className={`conversation-message message-${message.role}`} key={message.id}><span>{message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{message.text}</p></article>)}
             {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
+            {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
+              <strong>Latest candidate was not activated</strong>
+              <p>{latestInvalidCandidate.diagnostic}</p>
+              <details><summary>Technical details</summary><pre>{latestInvalidCandidate.html}</pre></details>
+            </section>}
           </div>
           {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
           <div className="workspace-composer">

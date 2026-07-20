@@ -105,4 +105,18 @@ describe('WorkspaceStore', () => {
     expect(recovered?.revisions.map((revision) => revision.thumbnailDataUrl)).toEqual(['data:image/png;base64,AQ==', 'data:image/png;base64,Ag=='])
     store.close()
   })
+
+  it('persists invalid candidates outside completed revisions', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    store.addInvalidCandidate(created.id, 'Unsafe change', '<html><body><script>bad()</script></body></html>', 'Unsafe script.')
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    const recovered = reopened.getDesign(created.id)
+    expect(recovered?.revisions).toHaveLength(0)
+    expect(recovered?.invalidCandidates).toMatchObject([{ prompt: 'Unsafe change', diagnostic: 'Unsafe script.' }])
+    expect(recovered?.messages.at(-1)?.role).toBe('system')
+    reopened.close()
+  })
 })

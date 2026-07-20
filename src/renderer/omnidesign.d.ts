@@ -62,6 +62,14 @@ interface DesignMessage {
   readonly createdAt: string
 }
 
+interface InvalidCandidate {
+  readonly id: string
+  readonly prompt: string
+  readonly html: string
+  readonly diagnostic: string
+  readonly createdAt: string
+}
+
 interface OmniDesignDocument {
   readonly id: string
   readonly projectId: string
@@ -75,6 +83,7 @@ interface OmniDesignDocument {
   readonly thumbnailDataUrl: string | null
   readonly layout: { readonly conversationWidth: number }
   readonly messages: readonly DesignMessage[]
+  readonly invalidCandidates: readonly InvalidCandidate[]
   readonly revisions: readonly DesignRevision[]
 }
 

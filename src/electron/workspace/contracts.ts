@@ -28,6 +28,14 @@ export const previewDiagnosticSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const invalidCandidateSchema = z.object({
+  id: z.string().min(1),
+  prompt: z.string(),
+  html: z.string(),
+  diagnostic: z.string().min(1),
+  createdAt: z.string().datetime(),
+})
+
 export const layoutSchema = z.object({
   conversationWidth: z.number().min(35).max(65),
 })
@@ -45,6 +53,7 @@ export const designSchema = z.object({
   thumbnailDataUrl: z.string().nullable(),
   layout: layoutSchema,
   messages: z.array(messageSchema),
+  invalidCandidates: z.array(invalidCandidateSchema),
   revisions: z.array(revisionSchema.extend({ diagnostics: z.array(previewDiagnosticSchema) })),
 })
 
@@ -87,6 +96,7 @@ export type Design = z.infer<typeof designSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
 export type Message = z.infer<typeof messageSchema>
 export type PreviewDiagnostic = z.infer<typeof previewDiagnosticSchema>
+export type InvalidCandidate = z.infer<typeof invalidCandidateSchema>
 export type CreateDesignRequest = z.infer<typeof createDesignRequestSchema>
 export type GenerateRequest = z.infer<typeof generateRequestSchema>
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>

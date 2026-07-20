@@ -33,4 +33,19 @@ describe('WorkspaceService', () => {
     ])
     store.close()
   })
+
+  it('retains invalid candidates without replacing the last valid revision', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const failed = await service.generate(first.id, 'Add unsafe behavior', () => undefined, '<html><body><script>alert(1)</script></body></html>')
+
+    expect(failed.activeRevisionId).toBe(first.activeRevisionId)
+    expect(failed.revisions).toHaveLength(1)
+    expect(failed.invalidCandidates).toMatchObject([{ prompt: 'Add unsafe behavior', diagnostic: expect.stringMatching(/unsafe/) }])
+    expect(failed.invalidCandidates[0].html).toContain('<script>')
+    store.close()
+  })
 })
