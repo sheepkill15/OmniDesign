@@ -289,6 +289,12 @@ Custom styling is never a reason to reimplement native text editing, remove focu
 
 ## Component-System Requirements
 
+- Use React Aria Components as the accepted headless behavior and accessibility foundation for the trusted application UI.
+- Install it through the `react-aria-components` package. Do not adopt styled React Spectrum or Spectrum 2 components, tokens, icons, or visual conventions.
+- Start with React Aria's component API. Drop to its lower-level hooks only for a documented interaction requirement that the component API cannot satisfy cleanly.
+- Wrap React Aria primitives in OmniDesign-owned components. Feature code consumes the stable OmniDesign API and must not become coupled to vendor-specific composition details without a clear reason.
+- Preserve the semantic structure, state attributes, focus behavior, keyboard interaction, and accessible naming supplied by the primitive when applying custom styling.
+- React Aria supplies behavior, not visual acceptance. Every wrapped primitive still requires complete OmniDesign styling, both themes, all interaction states, and product-specific usability review.
 - Build trusted UI components in the planned portable `packages/design-system` and `packages/ui` boundaries when those boundaries become meaningful.
 - Separate primitive tokens, semantic tokens, component tokens, and component implementation.
 - Feature code consumes reusable components and semantic variants instead of copying styles or importing palette literals.
@@ -313,4 +319,5 @@ The next design-system deliverable should select a monospace companion; validate
 
 - [Heroicons](https://github.com/tailwindlabs/heroicons)
 - [Oak Sans](https://github.com/Walven/OakSans)
+- [React Aria](https://react-aria.adobe.com/)
 - [WAI-ARIA Authoring Practices: Combobox Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/)

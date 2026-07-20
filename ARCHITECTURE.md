@@ -15,6 +15,7 @@ The following decisions are accepted:
 - AI-generated designs are rendered in an isolated, unprivileged Chromium context.
 - The codebase is organized as a modular monorepo with portable domain and UI packages where practical.
 - The trusted application UI follows the visual, interaction, component, and accessibility rules in `DESIGN_SYSTEM.md`.
+- React Aria Components, installed through `react-aria-components`, is the headless accessibility and interaction foundation for the trusted React UI.
 - Heroicons is the default icon family for the trusted React UI.
 - Application selection controls use shared, accessible custom combobox or listbox primitives; the trusted UI does not use the built-in HTML `<select>` element.
 - The trusted UI is dark-first with a complete user-selectable light theme and bundles Oak Sans v2.0 from `Walven/OakSans` as its primary interface family.
@@ -98,6 +99,20 @@ Flutter offers polished cross-platform applications and mobile support, but its 
 The trusted OmniDesign interface is written with React and TypeScript. React is the application UI framework; TypeScript is used across the renderer, desktop contracts, domain logic, and Node.js infrastructure wherever practical.
 
 Generated designs do not automatically use React. The framework used to build OmniDesign and the framework used in generated artifacts are separate decisions.
+
+### React Aria Components
+
+The trusted application UI uses React Aria Components as the behavior layer beneath OmniDesign's own design-system components.
+
+- Install the style-free `react-aria-components` package, not the styled React Spectrum or Spectrum 2 component packages.
+- Begin with its high-level components and use lower-level React Aria hooks only when an OmniDesign interaction cannot be expressed cleanly through the component API.
+- Wrap third-party primitives behind components owned by `packages/design-system` or `packages/ui`; feature code should normally consume OmniDesign components rather than importing React Aria directly.
+- OmniDesign owns all visual styling, semantic tokens, variants, composition rules, icons, and product-specific behavior.
+- Use React Aria for complex interaction foundations including comboboxes, listboxes, menus, dialogs, popovers, tooltips, tabs, toolbars, selectable collections, form controls, drag and drop, and focus management.
+- Do not combine overlapping headless primitive libraries without an explicit architecture change. A single behavior foundation avoids inconsistent focus, overlay, keyboard, and state conventions.
+- This dependency applies only to the trusted React renderer. It must not be injected into or required by AI-generated designs and does not alter the isolated-preview boundary.
+
+Pin the dependency version when the workspace is scaffolded and verify its documented behavior with the Electron-bundled Chromium version, Windows keyboard conventions, screen readers, forced-colors mode, and automated component tests.
 
 ### Vite
 
@@ -508,6 +523,7 @@ Verify current documentation again before implementation because APIs and platfo
 - [Electron process model](https://www.electronjs.org/docs/latest/tutorial/process-model)
 - [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security)
 - [Oak Sans](https://github.com/Walven/OakSans)
+- [React Aria](https://react-aria.adobe.com/)
 - [Vite guide](https://vite.dev/guide/)
 - [Tailwind CLI](https://tailwindcss.com/docs/installation/tailwind-cli)
 - [Tailwind Play CDN](https://tailwindcss.com/docs/installation/play-cdn)

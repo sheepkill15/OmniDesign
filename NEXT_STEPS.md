@@ -64,7 +64,7 @@ The provider authentication mechanism remains deferred until the planned referen
 
 ### 2. Establish OmniDesign's Visual Language
 
-The accepted and ratified baseline is now recorded in `DESIGN_SYSTEM.md`. It defines the native-desktop character, custom control requirement, no-`<select>` rule, no-gradient rule, fluid low-card composition, restricted blur and elevation, supplied brand palette, dark-first and user-selectable light themes, Oak Sans v2.0 as the bundled interface family, spacious and calm density, icon direction, accessibility baseline, standard Phase 1 window frame, and Phase 1 composition guidance.
+The accepted and ratified baseline is now recorded in `DESIGN_SYSTEM.md`. It defines the native-desktop character, React Aria Components as the headless interaction foundation, custom control requirement, no-`<select>` rule, no-gradient rule, fluid low-card composition, restricted blur and elevation, supplied brand palette, dark-first and user-selectable light themes, Oak Sans v2.0 as the bundled interface family, spacious and calm density, icon direction, accessibility baseline, standard Phase 1 window frame, and Phase 1 composition guidance.
 
 Select a monospace companion, pin and integrate Oak Sans from its official repository with the required license notice, and convert the baseline into exact semantic and component tokens before UI implementation spreads across the application.
 
@@ -167,6 +167,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - The project charter and roadmap are recorded in `AGENTS.md`.
 - Accepted and proposed technical direction is recorded in `ARCHITECTURE.md`.
 - Electron, React, TypeScript, Vite, local-first persistence, and isolated previews are accepted directions.
+- React Aria Components is the accepted headless behavior and accessibility foundation for the trusted UI; OmniDesign retains full ownership of styling and product components.
 - Tailwind CSS with Alpine.js is the provisional generated-design stack.
 - The generated-design stack requires a benchmark before final acceptance.
 - Provider subscription integration awaits the reference implementation.
