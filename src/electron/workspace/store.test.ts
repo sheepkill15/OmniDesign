@@ -68,11 +68,11 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
-  it('keeps linked source metadata separate from managed design artifacts', () => {
+  it('names a linked project after its source folder while keeping metadata separate from artifacts', () => {
     const { store } = createStore()
-    const linked = store.createLinkedDesign('First', 'Existing app', 'C:\\projects\\existing-app')
+    const linked = store.createLinkedDesign('First', 'A calm dashboard', 'C:\\projects\\existing-app')
 
-    expect(linked).toMatchObject({ projectName: 'Existing app', sourceProjectPath: 'C:\\projects\\existing-app' })
+    expect(linked).toMatchObject({ title: 'A calm dashboard', projectName: 'existing-app', sourceProjectPath: 'C:\\projects\\existing-app' })
     store.close()
   })
 

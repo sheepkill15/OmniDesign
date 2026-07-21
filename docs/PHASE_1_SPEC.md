@@ -42,9 +42,8 @@ Phase 1 supports basic multiple-design organization within a project. Multiple c
 ### Included in Phase 1
 
 - Windows application packaging and testing.
-- Real Codex and Claude integrations, informed by the supplied reference implementation.
+- Real Codex and Claude integrations, informed by the supplied reference implementation, reached through the installed-CLI discovery pilot.
 - A mock provider for development and automated testing.
-- Multiple configured providers and multiple configurations of the same provider.
 - Provider and model selection on every composer.
 - Standalone project containers and linked local-folder projects.
 - Cloning a remote Git repository through the installed `git` command.
@@ -58,6 +57,7 @@ Phase 1 supports basic multiple-design organization within a project. Multiple c
 
 ### Deferred Beyond Phase 1
 
+- API-key provider configuration, the provider setup and configuration UI, multiple configurations per provider, and automatic configuration testing. Phase 1 reaches providers through the installed-CLI discovery pilot; full provider configuration moves to Phase 3 (product-owner decision, 2026-07-21).
 - Multiple conversations per design.
 - Visible branching, merging, branch comparison, and running one prompt through multiple providers or models.
 - Editing or resubmitting an earlier prompt.
@@ -332,12 +332,9 @@ Attachments are referenced in place and are not copied into OmniDesign storage. 
 
 ### Setup
 
-- Provider setup supports multiple providers and multiple configurations for the same provider.
-- OmniDesign automatically tests a configuration during setup.
-- A failed test produces a warning and clear diagnostic information.
+- Phase 1 reaches Codex and Claude through the installed-CLI discovery pilot, reusing each tool's existing sign-in state without storing credentials.
 - Availability and capability reporting come from provider adapters rather than provider-specific UI assumptions.
-
-The precise installed-subscription, discovery, authentication, and API-key mechanisms remain deferred until the reference implementation is examined.
+- API-key provider configuration, the multi-configuration setup UI, and automatic configuration testing are deferred to Phase 3 (product-owner decision, 2026-07-21). When built, secrets must use operating-system credential storage and a failed configuration test must produce a warning with clear diagnostics.
 
 ### Removing or Losing a Provider
 
@@ -683,11 +680,11 @@ Phase 1 is complete only when all of the following are true.
 
 ### Providers
 
-- Codex and Claude both work through real provider adapters based on the reference implementation.
+- Codex and Claude both work through real provider adapters based on the reference implementation, reached through the installed-CLI discovery pilot.
 - The mock provider remains available for automated tests and development.
-- Multiple configurations per provider work.
-- Setup testing, availability reporting, removal, switching, retry, cancellation, streaming, usage, and error reporting behave as specified.
+- Availability reporting, removal, switching, retry, cancellation, streaming, usage, and error reporting behave as specified.
 - Provider contract tests cover both real adapters' supported capabilities.
+- API-key configuration, multiple configurations per provider, and configuration setup testing are deferred to Phase 3.
 
 ### Home, Projects, and Designs
 

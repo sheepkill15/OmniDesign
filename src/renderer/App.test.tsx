@@ -210,18 +210,23 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A linked dashboard', 'mock', 'mock-v1', undefined, { sourceProjectPath: 'C:\\Projects\\Aurora' }))
   })
 
-  it('targets an existing project chosen from the composer selector', async () => {
-    const bridge = installBridge([design])
+  it('offers only linked projects as reuse targets in the composer selector', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([
+      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' },
+      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea' },
+    ])
     render(<App />)
 
-    await screen.findAllByText('Calm dashboard')
-    fireEvent.click(screen.getByRole('button', { name: /Standalone design/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Calm dashboard' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Standalone design/ }))
+    expect(screen.getByRole('menuitem', { name: 'Aurora' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Solo idea' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Aurora' }))
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A companion settings screen' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
-    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A companion settings screen', 'mock', 'mock-v1', undefined, { projectId: 'project-1' }))
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A companion settings screen', 'mock', 'mock-v1', undefined, { projectId: 'aurora' }))
   })
 
   it('keeps the native preview visible while revision history stays in the conversation-side toolbar', async () => {

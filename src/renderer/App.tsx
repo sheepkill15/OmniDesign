@@ -292,6 +292,9 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], onCre
   const [selection, setSelection] = useState<GenerationSelection>({ providerId: 'mock', modelId: 'mock-v1', effort: null })
   const [sourceProjectPath, setSourceProjectPath] = useState<string | null>(null)
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null)
+  // Only linked (folder-backed) projects are meaningful reuse targets; standalone projects stay the
+  // private container of their single design.
+  const linkedProjects = projects.filter((project) => project.kind === 'linked')
   useEffect(() => {
     const pending = window.omnidesign?.settings.getGenerationDefaults?.()
     if (!pending) return
@@ -344,9 +347,9 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], onCre
                   <Menu aria-label="Design project" onAction={(key) => chooseTarget(String(key))}>
                     <MenuItem id="standalone">Standalone design</MenuItem>
                     <MenuItem id="folder">Choose local project folder…</MenuItem>
-                    {projects.length > 0 && <MenuSection className="project-popover-section">
+                    {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
                       <Header className="project-popover-header">Add to a project</Header>
-                      {projects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
+                      {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
                     </MenuSection>}
                   </Menu>
                 </Popover>

@@ -5,6 +5,12 @@ import { DatabaseSync } from 'node:sqlite'
 import { designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
 import type { Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme } from './contracts.js'
 
+// The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
+// regardless of the host the store runs on.
+function folderName(sourcePath: string): string {
+  return sourcePath.split(/[\\/]/).filter(Boolean).at(-1) ?? sourcePath
+}
+
 function safeParseJson(value: string): unknown {
   try {
     return JSON.parse(value)
@@ -385,14 +391,15 @@ export class WorkspaceStore {
   }
 
   // Linking a folder that OmniDesign already tracks reuses that project instead of registering a
-  // duplicate, so opening the same folder twice adds a design rather than a second project.
+  // duplicate, so opening the same folder twice adds a design rather than a second project. A linked
+  // project is named after its source folder, not the design generated inside it.
   public createLinkedDesign(prompt: string, title: string, sourcePath: string): Design {
     const existingProjectId = this.findProjectBySourcePath(sourcePath)
     if (existingProjectId) return this.createDesignInProject(existingProjectId, prompt, title)
     const projectId = randomUUID()
     const now = new Date().toISOString()
     this.database.prepare('INSERT INTO projects (id, name, kind, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(projectId, title, 'linked', sourcePath, now, now)
+      .run(projectId, folderName(sourcePath), 'linked', sourcePath, now, now)
     return this.createDesignInProject(projectId, prompt, title)
   }
 
