@@ -40,6 +40,26 @@ export const layoutSchema = z.object({
   conversationWidth: z.number().min(35).max(65),
 })
 
+export const projectKindSchema = z.enum(['standalone', 'linked'])
+
+export const projectSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: projectKindSchema,
+  sourceProjectPath: z.string().nullable(),
+  sourceAvailable: z.boolean(),
+  designCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  thumbnailDataUrl: z.string().nullable(),
+  latestDesignTitle: z.string().nullable(),
+  latestPrompt: z.string().nullable(),
+})
+
+export const projectIdRequestSchema = z.object({
+  projectId: z.string().min(1).max(100),
+})
+
 export const themeSchema = z.enum(['dark', 'light'])
 
 export const generationSelectionSchema = z.object({
@@ -100,6 +120,7 @@ export const createDesignRequestSchema = z.object({
   modelId: z.string().trim().min(1).max(200).default('mock-v1'),
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   sourceProjectPath: z.string().min(1).max(32_000).nullable().optional(),
+  projectId: z.string().min(1).max(100).nullable().optional(),
 })
 
 export const designIdRequestSchema = z.object({
@@ -144,6 +165,8 @@ export const previewRequestSchema = selectRevisionRequestSchema.extend({
 
 export const exportRequestSchema = selectRevisionRequestSchema
 
+export type ProjectSummary = z.infer<typeof projectSummarySchema>
+export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
 export type Design = z.infer<typeof designSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
 export type Message = z.infer<typeof messageSchema>
