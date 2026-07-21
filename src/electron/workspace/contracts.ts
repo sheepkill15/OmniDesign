@@ -79,6 +79,8 @@ export const designSchema = z.object({
 
 export const createDesignRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(100_000),
+  providerId: z.enum(['mock', 'codex', 'claude']).default('mock'),
+  modelId: z.string().trim().min(1).max(200).default('mock-v1'),
 })
 
 export const designIdRequestSchema = z.object({

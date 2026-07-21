@@ -262,8 +262,10 @@ export class WorkspaceStore {
         .run(projectId, title, 'standalone', now, now)
       this.database.prepare('INSERT INTO designs (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run(designId, projectId, title, now, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(messageId, designId, 'user', prompt, now)
+      if (prompt) {
+        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(messageId, designId, 'user', prompt, now)
+      }
     })
 
     return this.requireDesign(designId)

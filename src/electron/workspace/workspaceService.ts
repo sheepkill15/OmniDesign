@@ -33,6 +33,13 @@ export class WorkspaceService {
     return this.generate(design.id, prompt, onActivity, generated.html, false)
   }
 
+  public createAgentDesignShell(prompt: string): Design {
+    const generated = generateMockDesign(prompt)
+    const design = this.store.createStandaloneDesign('', generated.title)
+    this.repositories.initialize(design.id)
+    return design
+  }
+
   public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0): Promise<Design> {
     this.throwIfCancelled(signal)
     if (savePrompt) this.store.addPrompt(designId, prompt)

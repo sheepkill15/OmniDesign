@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
   workspace: {
     list: () => ipcRenderer.invoke('workspace:list'),
     get: (designId: string) => ipcRenderer.invoke('workspace:get', { designId }),
-    create: (prompt: string) => ipcRenderer.invoke('workspace:create', { prompt }),
+    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1') => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId }),
     generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1') => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId }),
     cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),
     retryGeneration: (jobId: string) => ipcRenderer.invoke('workspace:retry-generation', { jobId }),

@@ -125,7 +125,7 @@ interface Window {
     readonly workspace: {
       list(): Promise<OmniDesignDocument[]>
       get(designId: string): Promise<OmniDesignDocument | null>
-      create(prompt: string): Promise<OmniDesignDocument>
+      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string): Promise<OmniDesignDocument>
       generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string): Promise<OmniDesignDocument>
       cancelGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>

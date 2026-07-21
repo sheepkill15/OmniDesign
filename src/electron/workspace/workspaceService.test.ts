@@ -110,6 +110,20 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it("prepares an empty managed workspace before an agent's initial prompt is queued", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+
+    const design = service.createAgentDesignShell('A calm analytics dashboard')
+
+    expect(design.revisions).toHaveLength(0)
+    expect(design.messages).toHaveLength(0)
+    expect(existsSync(path.join(directory, 'designs', design.id, 'repository', '.git'))).toBe(true)
+    store.close()
+  })
+
   it('validates and saves a changed agent workspace while retaining its conversational response', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

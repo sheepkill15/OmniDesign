@@ -131,7 +131,10 @@ function registerIpc(): void {
   ipcMain.handle('workspace:create', (event, value: unknown) => {
     authorize(event)
     const request = createDesignRequestSchema.parse(value)
-    return requireWorkspace().createDesign(request.prompt, sendGenerationActivity)
+    if (request.providerId === 'mock') return requireWorkspace().createDesign(request.prompt, sendGenerationActivity)
+    const design = requireWorkspace().createAgentDesignShell(request.prompt)
+    requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId)
+    return design
   })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
