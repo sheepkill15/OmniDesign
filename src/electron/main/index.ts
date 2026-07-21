@@ -136,7 +136,7 @@ function registerIpc(): void {
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
-    requireGenerationQueue().enqueue(request.designId, request.prompt)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId)
     return requireWorkspace().getDesign(request.designId)
   })
   ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
@@ -215,7 +215,25 @@ void app.whenReady().then(() => {
   workspace = new WorkspaceService(store)
   generationQueue = new GenerationQueue(
     store,
-    async (job, signal, onActivity) => { await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3) },
+    async (job, signal, onActivity) => {
+      if (job.providerId === 'mock') {
+        await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3)
+        return
+      }
+      if (signal.aborted) throw new Error('Generation was cancelled.')
+      onActivity({ designId: job.designId, stage: 'generating', detail: `Starting ${job.providerId} in the managed design workspace.` })
+      const reply = await providers.runDesignAgent({
+        requestId: job.id,
+        providerId: job.providerId,
+        modelId: job.modelId,
+        prompt: job.prompt,
+        workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
+      }, (activity) => {
+        onActivity({ designId: job.designId, stage: 'generating', detail: activity.detail ?? activity.label })
+      })
+      if (signal.aborted) throw new Error('Generation was cancelled.')
+      await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity)
+    },
     sendGenerationActivity,
   )
   generationQueue.recoverAfterRestart()

@@ -20,8 +20,8 @@ export class GenerationQueue {
     if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Generation queue concurrency must be at least one.')
   }
 
-  public enqueue(designId: string, prompt: string): GenerationJob {
-    const job = this.store.enqueueGenerationJob(designId, prompt)
+  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1'): GenerationJob {
+    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId)
     this.onActivity({ designId, stage: 'queued', detail: 'Generation is queued.' })
     void this.drain()
     return job

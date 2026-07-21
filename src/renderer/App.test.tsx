@@ -100,7 +100,7 @@ describe('Phase 1 walking skeleton UI', () => {
       ...design,
       queuePaused: true,
       generationJobs: [{
-        id: '7e3670bd-2f6c-444d-afd0-a26e17839964', designId: 'design-1', prompt: 'Try a warmer direction', state: 'queued',
+        id: '7e3670bd-2f6c-444d-afd0-a26e17839964', designId: 'design-1', prompt: 'Try a warmer direction', providerId: 'mock', modelId: 'mock-v1', state: 'queued',
         createdAt: '2026-07-20T10:01:00.000Z', startedAt: null, completedAt: null, error: null,
       }],
     }
@@ -241,7 +241,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const interruptedDesign: OmniDesignDocument = {
       ...design,
       generationJobs: [{
-        id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Try again', state: 'interrupted',
+        id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Try again', providerId: 'mock', modelId: 'mock-v1', state: 'interrupted',
         createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'OmniDesign closed before this generation completed.',
       }],
     }

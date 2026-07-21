@@ -80,6 +80,19 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
+  it('persists provider and model selection through queueing and retry', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const queue = new GenerationQueue(store, async () => { throw new Error('Unavailable') }, () => undefined)
+    const queued = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6')
+
+    await waitFor(() => store.getGenerationJob(queued.id)?.state === 'failed')
+    const retried = queue.retry(queued.id)
+    expect(retried).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6' })
+    await waitFor(() => store.getGenerationJob(retried.id)?.state === 'failed')
+    store.close()
+  })
+
   it('cancels queued work and retries interrupted work as a new queued job', async () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')

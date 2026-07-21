@@ -21,6 +21,11 @@ export class WorkspaceService {
     return this.store.getDesign(designId)
   }
 
+  public getDesignRepositoryPath(designId: string): string {
+    if (!this.store.getDesign(designId)) throw new Error('Design not found.')
+    return this.repositories.getPath(designId)
+  }
+
   public async createDesign(prompt: string, onActivity: ActivityListener): Promise<Design> {
     const generated = generateMockDesign(prompt)
     const design = this.store.createStandaloneDesign(prompt, generated.title)

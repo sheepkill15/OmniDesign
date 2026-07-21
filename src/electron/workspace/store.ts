@@ -60,6 +60,8 @@ interface GenerationJobRow {
   id: string
   design_id: string
   prompt: string
+  provider_id: 'mock' | 'codex' | 'claude'
+  model_id: string
   state: GenerationJobState
   created_at: string
   started_at: string | null
@@ -202,6 +204,11 @@ ALTER TABLE designs ADD COLUMN queue_paused INTEGER NOT NULL DEFAULT 0 CHECK (qu
 
 const migrationEleven = `
 ALTER TABLE revisions ADD COLUMN git_commit TEXT;
+`
+
+const migrationTwelve = `
+ALTER TABLE generation_jobs ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'mock' CHECK (provider_id IN ('mock', 'codex', 'claude'));
+ALTER TABLE generation_jobs ADD COLUMN model_id TEXT NOT NULL DEFAULT 'mock-v1';
 `
 
 export class WorkspaceStore {
@@ -347,15 +354,15 @@ export class WorkspaceStore {
     `).run(theme)
   }
 
-  public enqueueGenerationJob(designId: string, prompt: string): GenerationJob {
+  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1'): GenerationJob {
     this.requireDesign(designId)
     const id = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO generation_jobs (id, design_id, prompt, state, created_at, started_at, completed_at, error)
-        VALUES (?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-      `).run(id, designId, prompt, now)
+        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, prompt, providerId, modelId, now)
       this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
         .run(randomUUID(), designId, 'user', prompt, now)
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
@@ -367,7 +374,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -375,7 +382,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, prompt, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -403,9 +410,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.prompt, previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -477,7 +484,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -568,7 +575,7 @@ export class WorkspaceStore {
 
   private listGenerationJobsForDesign(designId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
     `).all(designId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -579,6 +586,8 @@ export class WorkspaceStore {
       id: row.id,
       designId: row.design_id,
       prompt: row.prompt,
+      providerId: row.provider_id,
+      modelId: row.model_id,
       state: row.state,
       createdAt: row.created_at,
       startedAt: row.started_at,

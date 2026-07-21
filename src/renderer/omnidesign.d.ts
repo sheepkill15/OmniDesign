@@ -74,6 +74,8 @@ interface GenerationJob {
   readonly id: string
   readonly designId: string
   readonly prompt: string
+  readonly providerId: 'mock' | 'codex' | 'claude'
+  readonly modelId: string
   readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   readonly createdAt: string
   readonly startedAt: string | null
@@ -124,7 +126,7 @@ interface Window {
       list(): Promise<OmniDesignDocument[]>
       get(designId: string): Promise<OmniDesignDocument | null>
       create(prompt: string): Promise<OmniDesignDocument>
-      generate(designId: string, prompt: string): Promise<OmniDesignDocument>
+      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string): Promise<OmniDesignDocument>
       cancelGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>

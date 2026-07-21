@@ -49,6 +49,8 @@ export const generationJobSchema = z.object({
   id: z.string().min(1),
   designId: z.string().min(1),
   prompt: z.string(),
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().min(1),
   state: generationJobStateSchema,
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),
@@ -89,6 +91,8 @@ export const generationJobIdRequestSchema = z.object({
 
 export const generateRequestSchema = designIdRequestSchema.extend({
   prompt: z.string().trim().min(1).max(100_000),
+  providerId: z.enum(['mock', 'codex', 'claude']).default('mock'),
+  modelId: z.string().trim().min(1).max(200).default('mock-v1'),
 })
 
 export const selectRevisionRequestSchema = designIdRequestSchema.extend({
