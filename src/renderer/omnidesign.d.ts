@@ -118,6 +118,30 @@ interface OmniDesignDocument {
   readonly revisions: readonly DesignRevision[]
 }
 
+interface ProjectSummary {
+  readonly id: string
+  readonly name: string
+  readonly kind: 'standalone' | 'linked'
+  readonly sourceProjectPath: string | null
+  readonly sourceAvailable: boolean
+  readonly designCount: number
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly thumbnailDataUrl: string | null
+  readonly latestDesignTitle: string | null
+  readonly latestPrompt: string | null
+}
+
+interface ProjectDetail {
+  readonly project: ProjectSummary
+  readonly designs: readonly OmniDesignDocument[]
+}
+
+interface CreateDesignTarget {
+  readonly sourceProjectPath?: string | null
+  readonly projectId?: string | null
+}
+
 interface GenerationActivity {
   readonly designId: string
   readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'repairing' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
@@ -140,8 +164,10 @@ interface Window {
     }
     readonly workspace: {
       list(): Promise<OmniDesignDocument[]>
+      listProjects(): Promise<ProjectSummary[]>
+      getProject(projectId: string): Promise<ProjectDetail | null>
       get(designId: string): Promise<OmniDesignDocument | null>
-      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, sourceProjectPath?: string | null): Promise<OmniDesignDocument>
+      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null): Promise<OmniDesignDocument>
       generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>
       cancelGeneration(jobId: string): Promise<GenerationJob>

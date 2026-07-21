@@ -146,6 +146,40 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('groups designs under first-class projects and aggregates their activity', () => {
+    const { store } = createStore()
+    const first = store.createStandaloneDesign('A calm dashboard', 'Calm dashboard')
+    store.createDesignInProject(first.projectId, 'A settings screen', 'Settings screen')
+
+    const projects = store.listProjects()
+    const project = projects.find((candidate) => candidate.id === first.projectId)
+    expect(project).toMatchObject({ name: 'Calm dashboard', kind: 'standalone', designCount: 2 })
+    expect(store.listDesignsByProject(first.projectId).map((design) => design.title)).toEqual(expect.arrayContaining(['Calm dashboard', 'Settings screen']))
+    store.close()
+  })
+
+  it('reuses an existing linked project when the same folder is opened again', () => {
+    const { store } = createStore()
+    const first = store.createLinkedDesign('First', 'Existing app', 'C:\\projects\\existing-app')
+    const second = store.createLinkedDesign('Second', 'Existing app', 'C:\\projects\\existing-app')
+
+    expect(second.projectId).toBe(first.projectId)
+    const projects = store.listProjects()
+    expect(projects.filter((candidate) => candidate.sourceProjectPath === 'C:\\projects\\existing-app')).toHaveLength(1)
+    expect(projects.find((candidate) => candidate.id === first.projectId)?.designCount).toBe(2)
+    store.close()
+  })
+
+  it('reports the summary for a single project with its most recent design', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('A calm dashboard', 'Calm dashboard')
+
+    const summary = store.getProjectSummary(created.projectId)
+    expect(summary).toMatchObject({ id: created.projectId, name: 'Calm dashboard', designCount: 1, latestDesignTitle: 'Calm dashboard', latestPrompt: 'A calm dashboard' })
+    expect(store.getProjectSummary('missing-project')).toBeNull()
+    store.close()
+  })
+
   it('persists the selected application theme across reopen', () => {
     const { directory, store } = createStore()
     expect(store.getTheme()).toBe('dark')

@@ -11,6 +11,7 @@ import {
   generationSelectionSchema,
   generationStageLabel,
   previewRequestSchema,
+  projectIdRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
@@ -159,15 +160,24 @@ function registerIpc(): void {
     authorize(event)
     const request = createDesignRequestSchema.parse(value)
     const selection = { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null }
+    const target = { projectId: request.projectId ?? null, sourceProjectPath: request.sourceProjectPath ?? null }
     if (request.providerId === 'mock') {
-      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, request.sourceProjectPath)
+      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, target)
       requireWorkspace().rememberSelection(design.id, selection)
       return requireWorkspace().getDesign(design.id) ?? design
     }
-    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, request.sourceProjectPath)
+    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target)
     requireWorkspace().rememberSelection(design.id, selection)
     requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort)
     return requireWorkspace().getDesign(design.id) ?? design
+  })
+  ipcMain.handle('workspace:list-projects', (event) => {
+    authorize(event)
+    return requireWorkspace().listProjects()
+  })
+  ipcMain.handle('workspace:get-project', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().getProject(projectIdRequestSchema.parse(value).projectId)
   })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)

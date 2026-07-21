@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, themeSchema } from './contracts.js'
-import type { Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, Revision, Theme } from './contracts.js'
+import { designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
+import type { Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme } from './contracts.js'
 
 function safeParseJson(value: string): unknown {
   try {
@@ -30,6 +30,17 @@ interface DesignRow {
   last_provider_id: string
   last_model_id: string
   last_effort: string | null
+}
+
+interface ProjectRow {
+  id: string
+  name: string
+  kind: 'standalone' | 'linked'
+  source_path: string | null
+  created_at: string
+  updated_at: string
+  design_count: number
+  last_design_activity: string | null
 }
 
 interface GenerationStepRow {
@@ -322,36 +333,82 @@ export class WorkspaceStore {
     return row ? this.hydrateDesign(row) : null
   }
 
+  public listProjects(): ProjectSummary[] {
+    const rows = this.database.prepare(`
+      SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at,
+             COUNT(d.id) AS design_count,
+             MAX(d.updated_at) AS last_design_activity
+      FROM projects p
+      LEFT JOIN designs d ON d.project_id = p.id
+      GROUP BY p.id
+      ORDER BY COALESCE(MAX(d.updated_at), p.updated_at) DESC, p.rowid DESC
+    `).all() as unknown as ProjectRow[]
+    return rows.map((row) => this.hydrateProject(row))
+  }
+
+  public getProjectSummary(projectId: string): ProjectSummary | null {
+    const row = this.database.prepare(`
+      SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at,
+             COUNT(d.id) AS design_count,
+             MAX(d.updated_at) AS last_design_activity
+      FROM projects p
+      LEFT JOIN designs d ON d.project_id = p.id
+      WHERE p.id = ?
+      GROUP BY p.id
+    `).get(projectId) as unknown as ProjectRow | undefined
+    return row ? this.hydrateProject(row) : null
+  }
+
+  public listDesignsByProject(projectId: string): Design[] {
+    const rows = this.database.prepare(`
+      SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
+             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.last_provider_id, d.last_model_id, d.last_effort
+      FROM designs d JOIN projects p ON p.id = d.project_id
+      WHERE d.project_id = ?
+      ORDER BY d.updated_at DESC, d.rowid DESC
+    `).all(projectId) as unknown as DesignRow[]
+    return rows.map((row) => this.hydrateDesign(row))
+  }
+
+  public findProjectBySourcePath(sourcePath: string): string | null {
+    const row = this.database.prepare('SELECT id FROM projects WHERE source_path = ?').get(sourcePath) as { id: string } | undefined
+    return row?.id ?? null
+  }
+
   public createStandaloneDesign(prompt: string, title: string): Design {
     const projectId = randomUUID()
-    const designId = randomUUID()
-    const messageId = randomUUID()
     const now = new Date().toISOString()
+    this.database.prepare('INSERT INTO projects (id, name, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run(projectId, title, 'standalone', now, now)
+    return this.createDesignInProject(projectId, prompt, title)
+  }
 
+  // Linking a folder that OmniDesign already tracks reuses that project instead of registering a
+  // duplicate, so opening the same folder twice adds a design rather than a second project.
+  public createLinkedDesign(prompt: string, title: string, sourcePath: string): Design {
+    const existingProjectId = this.findProjectBySourcePath(sourcePath)
+    if (existingProjectId) return this.createDesignInProject(existingProjectId, prompt, title)
+    const projectId = randomUUID()
+    const now = new Date().toISOString()
+    this.database.prepare('INSERT INTO projects (id, name, kind, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(projectId, title, 'linked', sourcePath, now, now)
+    return this.createDesignInProject(projectId, prompt, title)
+  }
+
+  public createDesignInProject(projectId: string, prompt: string, title: string): Design {
+    const designId = randomUUID()
+    const now = new Date().toISOString()
     this.transaction(() => {
-      this.database.prepare('INSERT INTO projects (id, name, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-        .run(projectId, title, 'standalone', now, now)
+      const project = this.database.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
+      if (!project) throw new Error('Project not found.')
       this.database.prepare('INSERT INTO designs (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run(designId, projectId, title, now, now)
       if (prompt) {
         this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-          .run(messageId, designId, 'user', prompt, now)
+          .run(randomUUID(), designId, 'user', prompt, now)
       }
-    })
-
-    return this.requireDesign(designId)
-  }
-
-  public createLinkedDesign(prompt: string, title: string, sourcePath: string): Design {
-    const projectId = randomUUID()
-    const designId = randomUUID()
-    const now = new Date().toISOString()
-    this.transaction(() => {
-      this.database.prepare('INSERT INTO projects (id, name, kind, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(projectId, title, 'linked', sourcePath, now, now)
-      this.database.prepare('INSERT INTO designs (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-        .run(designId, projectId, title, now, now)
-      if (prompt) this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)').run(randomUUID(), designId, 'user', prompt, now)
+      this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, projectId)
     })
     return this.requireDesign(designId)
   }
@@ -671,6 +728,27 @@ export class WorkspaceStore {
           return { id: row.id, kind: row.kind, level: row.level, message: row.message, source: row.source, line: row.line, createdAt: row.created_at }
         }),
       })),
+    })
+  }
+
+  private hydrateProject(row: ProjectRow): ProjectSummary {
+    const latest = this.database.prepare(`
+      SELECT d.title, d.thumbnail_path,
+             (SELECT m.text FROM messages m WHERE m.design_id = d.id AND m.role = 'user' ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) AS latest_prompt
+      FROM designs d WHERE d.project_id = ? ORDER BY d.updated_at DESC, d.rowid DESC LIMIT 1
+    `).get(row.id) as { title: string; thumbnail_path: string | null; latest_prompt: string | null } | undefined
+    return projectSummarySchema.parse({
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      sourceProjectPath: row.source_path,
+      sourceAvailable: row.kind === 'linked' ? row.source_path !== null && existsSync(row.source_path) : true,
+      designCount: row.design_count,
+      createdAt: row.created_at,
+      updatedAt: row.last_design_activity ?? row.updated_at,
+      thumbnailDataUrl: latest?.thumbnail_path && existsSync(latest.thumbnail_path) ? `data:image/png;base64,${readFileSync(latest.thumbnail_path).toString('base64')}` : null,
+      latestDesignTitle: latest?.title ?? null,
+      latestPrompt: latest?.latest_prompt ?? null,
     })
   }
 

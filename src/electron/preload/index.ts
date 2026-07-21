@@ -14,8 +14,10 @@ contextBridge.exposeInMainWorld('omnidesign', {
   },
   workspace: {
     list: () => ipcRenderer.invoke('workspace:list'),
+    listProjects: () => ipcRenderer.invoke('workspace:list-projects'),
+    getProject: (projectId: string) => ipcRenderer.invoke('workspace:get-project', { projectId }),
     get: (designId: string) => ipcRenderer.invoke('workspace:get', { designId }),
-    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, sourceProjectPath?: string | null) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: sourceProjectPath ?? null }),
+    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, target?: { sourceProjectPath?: string | null; projectId?: string | null } | null) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: target?.sourceProjectPath ?? null, projectId: target?.projectId ?? null }),
     generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null }),
     chooseProjectFolder: () => ipcRenderer.invoke('workspace:choose-project-folder'),
     cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),

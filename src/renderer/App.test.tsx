@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
@@ -24,8 +24,30 @@ const design: OmniDesignDocument = {
   revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
+function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
+  return {
+    id: candidate.projectId,
+    name: candidate.projectName,
+    kind: 'standalone',
+    sourceProjectPath: null,
+    sourceAvailable: true,
+    designCount: 1,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+    thumbnailDataUrl: candidate.thumbnailDataUrl,
+    latestDesignTitle: candidate.title,
+    latestPrompt: candidate.messages.find((message) => message.role === 'user')?.text ?? null,
+  }
+}
+
 function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign: OmniDesignDocument = design) {
   const listeners: Array<(activity: GenerationActivity) => void> = []
+  const projectMap = new Map<string, ProjectSummary>()
+  for (const candidate of initialDesigns) {
+    const existing = projectMap.get(candidate.projectId)
+    projectMap.set(candidate.projectId, existing ? { ...existing, designCount: existing.designCount + 1 } : projectFromDesign(candidate))
+  }
+  const projects = [...projectMap.values()]
   const bridge = {
     providers: {
       discover: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] }]),
@@ -34,6 +56,11 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     },
     workspace: {
       list: vi.fn().mockResolvedValue(initialDesigns),
+      listProjects: vi.fn().mockResolvedValue(projects),
+      getProject: vi.fn(async (projectId: string) => {
+        const project = projects.find((candidate) => candidate.id === projectId)
+        return project ? { project, designs: initialDesigns.filter((candidate) => candidate.projectId === projectId) } : null
+      }),
       get: vi.fn().mockResolvedValue(createdDesign),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
@@ -180,7 +207,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A linked dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
-    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A linked dashboard', 'mock', 'mock-v1', undefined, 'C:\\Projects\\Aurora'))
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A linked dashboard', 'mock', 'mock-v1', undefined, { sourceProjectPath: 'C:\\Projects\\Aurora' }))
   })
 
   it('keeps the native preview visible while revision history stays in the conversation-side toolbar', async () => {
@@ -307,5 +334,29 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
     expect(bridge.workspace.retryGeneration).toHaveBeenCalledWith('e0684c4c-0d07-4ece-9d6f-22c2f523e399')
+  })
+
+  it('opens a single-design project straight into its workspace', async () => {
+    installBridge([design])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: /Calm dashboard/ }))
+
+    expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
+  })
+
+  it('opens a multi-design project to its design grid and into a chosen design', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
+    installBridge([first, second])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: /Studio/ }))
+
+    const grid = await screen.findByRole('group', { name: 'Designs in this project' })
+    fireEvent.click(within(grid).getByRole('button', { name: /Settings screen/ }))
+    expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
   })
 })
