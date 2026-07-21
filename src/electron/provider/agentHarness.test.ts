@@ -12,6 +12,14 @@ describe('agent completion payload', () => {
     expect(parseAgentCompletionPayload('Just a plain sentence.')).toEqual({ response: 'Just a plain sentence.' })
   })
 
+  it('uses the final message when a provider streams several concatenated JSON objects', () => {
+    const concatenated = '{"response":"Starting on the layout."}{"response":"Building the cards."}{"response":"The cooking app is complete."}'
+    expect(parseAgentCompletionPayload(concatenated)).toEqual({ response: 'The cooking app is complete.' })
+    // Braces inside the response text must not split an object.
+    expect(parseAgentCompletionPayload('{"response":"first"}{"response":"uses {braces} inside"}'))
+      .toEqual({ response: 'uses {braces} inside' })
+  })
+
   it('directs the agent to work in the prepared repository without self-reporting Git evidence', () => {
     const instructions = createDesignAgentInstructions('C:\\workspace\\design')
     expect(instructions).toContain('C:\\workspace\\design')

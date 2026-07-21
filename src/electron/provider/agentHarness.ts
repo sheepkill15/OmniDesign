@@ -49,31 +49,64 @@ export function createDesignAgentInstructions(workspacePath: string): string {
  * revision over a formatting quirk.
  */
 export function parseAgentCompletionPayload(value: string): AgentCompletionPayload {
-  const text = value.trim()
-  for (const candidate of jsonCandidates(text)) {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(candidate)
-    } catch {
-      continue
-    }
-    const result = agentCompletionPayloadSchema.safeParse(parsed)
-    if (result.success) return { response: result.data.response.slice(0, MAX_RESPONSE_LENGTH) }
+  const text = stripCodeFences(value.trim())
+  // Prefer the LAST well-formed {response} object. Codex streams several assistant messages during a
+  // turn (progress narration + the final answer), each its own JSON object, and they arrive
+  // concatenated; the final object is the actual completion.
+  const objects = extractJsonObjects(text)
+  for (let index = objects.length - 1; index >= 0; index -= 1) {
+    const payload = tryParsePayload(objects[index])
+    if (payload) return payload
   }
 
-  const fallback = stripCodeFences(text).trim()
-  if (fallback) return { response: fallback.slice(0, MAX_RESPONSE_LENGTH) }
+  // Fall back to parsing the whole text, then to the raw text so a valid revision is never discarded
+  // over a formatting quirk.
+  const whole = tryParsePayload(text)
+  if (whole) return whole
+  if (text) return { response: text.slice(0, MAX_RESPONSE_LENGTH) }
   throw new Error('The agent did not return any completion text.')
 }
 
-function jsonCandidates(text: string): string[] {
-  const candidates = [text]
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim()
-  if (fenced) candidates.push(fenced)
-  const firstBrace = text.indexOf('{')
-  const lastBrace = text.lastIndexOf('}')
-  if (firstBrace !== -1 && lastBrace > firstBrace) candidates.push(text.slice(firstBrace, lastBrace + 1))
-  return candidates
+function tryParsePayload(candidate: string): AgentCompletionPayload | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(candidate)
+  } catch {
+    return null
+  }
+  const result = agentCompletionPayloadSchema.safeParse(parsed)
+  return result.success ? { response: result.data.response.slice(0, MAX_RESPONSE_LENGTH) } : null
+}
+
+// Find each balanced top-level {...} object in the text, ignoring braces inside string literals so
+// concatenated JSON messages are separated correctly.
+function extractJsonObjects(text: string): string[] {
+  const objects: string[] = []
+  let depth = 0
+  let start = -1
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') inString = true
+    else if (character === '{') {
+      if (depth === 0) start = index
+      depth += 1
+    } else if (character === '}' && depth > 0) {
+      depth -= 1
+      if (depth === 0 && start !== -1) {
+        objects.push(text.slice(start, index + 1))
+        start = -1
+      }
+    }
+  }
+  return objects
 }
 
 function stripCodeFences(text: string): string {
