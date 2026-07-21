@@ -62,6 +62,7 @@ export const designSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
   projectName: z.string().min(1),
+  sourceProjectPath: z.string().nullable(),
   title: z.string().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

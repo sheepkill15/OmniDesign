@@ -68,6 +68,14 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('keeps linked source metadata separate from managed design artifacts', () => {
+    const { store } = createStore()
+    const linked = store.createLinkedDesign('First', 'Existing app', 'C:\\projects\\existing-app')
+
+    expect(linked).toMatchObject({ projectName: 'Existing app', sourceProjectPath: 'C:\\projects\\existing-app' })
+    store.close()
+  })
+
   it('persists preview diagnostics with the immutable revision that produced them', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')

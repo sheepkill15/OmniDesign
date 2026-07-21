@@ -9,6 +9,7 @@ interface DesignRow {
   id: string
   project_id: string
   project_name: string
+  source_path: string | null
   title: string
   created_at: string
   updated_at: string
@@ -211,6 +212,11 @@ ALTER TABLE generation_jobs ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'mock' 
 ALTER TABLE generation_jobs ADD COLUMN model_id TEXT NOT NULL DEFAULT 'mock-v1';
 `
 
+const migrationThirteen = `
+ALTER TABLE projects ADD COLUMN source_path TEXT;
+CREATE UNIQUE INDEX projects_by_source_path ON projects(source_path) WHERE source_path IS NOT NULL;
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -234,7 +240,7 @@ export class WorkspaceStore {
 
   public listDesigns(): Design[] {
     const rows = this.database.prepare(`
-      SELECT d.id, d.project_id, p.name AS project_name, d.title, d.created_at, d.updated_at,
+      SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused
       FROM designs d JOIN projects p ON p.id = d.project_id
       ORDER BY d.updated_at DESC
@@ -244,7 +250,7 @@ export class WorkspaceStore {
 
   public getDesign(designId: string): Design | null {
     const row = this.database.prepare(`
-      SELECT d.id, d.project_id, p.name AS project_name, d.title, d.created_at, d.updated_at,
+      SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ?
     `).get(designId) as unknown as DesignRow | undefined
@@ -268,6 +274,20 @@ export class WorkspaceStore {
       }
     })
 
+    return this.requireDesign(designId)
+  }
+
+  public createLinkedDesign(prompt: string, title: string, sourcePath: string): Design {
+    const projectId = randomUUID()
+    const designId = randomUUID()
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.database.prepare('INSERT INTO projects (id, name, kind, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(projectId, title, 'linked', sourcePath, now, now)
+      this.database.prepare('INSERT INTO designs (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run(designId, projectId, title, now, now)
+      if (prompt) this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)').run(randomUUID(), designId, 'user', prompt, now)
+    })
     return this.requireDesign(designId)
   }
 
@@ -486,7 +506,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -514,6 +534,7 @@ export class WorkspaceStore {
       id: row.id,
       projectId: row.project_id,
       projectName: row.project_name,
+      sourceProjectPath: row.source_path,
       title: row.title,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
