@@ -26,7 +26,8 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Header, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { MenuButton } from './components/MenuButton'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -261,9 +262,13 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
   }
 
   return (
-    <MenuTrigger>
-      <Button className="generation-settings-button" aria-label="Generation settings"><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span><ChevronDownIcon aria-hidden="true" /></Button>
-      <Popover className="generation-settings-popover" placement="top end">
+    <MenuButton
+      label="Generation settings"
+      triggerClassName="generation-settings-button"
+      popoverClassName="generation-settings-popover"
+      placement="top end"
+      trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span><ChevronDownIcon aria-hidden="true" /></>}
+    >
         <div className="generation-settings-columns">
           <section className="generation-settings-column"><h2>Provider</h2><Menu aria-label="Provider" className="generation-settings-menu" shouldCloseOnSelect={false}>
             <MenuItem id="mock" onAction={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
@@ -287,8 +292,7 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
             </div>
           </section>
         </div>
-      </Popover>
-    </MenuTrigger>
+    </MenuButton>
   )
 }
 
@@ -360,19 +364,16 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
           <IconButton label="Attach files or folders" icon={PaperClipIcon} />
           {fixedProject
             ? <span className="project-context project-context-fixed">{fixedProject.kind === 'linked' ? <FolderIcon aria-hidden="true" /> : <DocumentDuplicateIcon aria-hidden="true" />}{fixedProject.name}</span>
-            : <MenuTrigger>
-                <Button className="project-context"><FolderIcon aria-hidden="true" />{projectLabel}<ChevronDownIcon aria-hidden="true" /></Button>
-                <Popover className="project-popover" placement="top start">
-                  <Menu aria-label="Design project" onAction={(key) => chooseTarget(String(key))}>
-                    <MenuItem id="standalone">Standalone design</MenuItem>
-                    <MenuItem id="folder">Choose local project folder…</MenuItem>
-                    {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
-                      <Header className="project-popover-header">Add to a project</Header>
-                      {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
-                    </MenuSection>}
-                  </Menu>
-                </Popover>
-              </MenuTrigger>}
+            : <MenuButton triggerClassName="project-context" popoverClassName="project-popover" placement="top start" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}<ChevronDownIcon aria-hidden="true" /></>}>
+                <Menu aria-label="Design project" onAction={(key) => chooseTarget(String(key))}>
+                  <MenuItem id="standalone">Standalone design</MenuItem>
+                  <MenuItem id="folder">Choose local project folder…</MenuItem>
+                  {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
+                    <Header className="project-popover-header">Add to a project</Header>
+                    {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
+                  </MenuSection>}
+                </Menu>
+              </MenuButton>}
         </div>
         <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />
         <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy} onPress={() => void submit()}>
@@ -526,17 +527,22 @@ function LayoutMenu({ mode, isOpen, onOpenChange, onChange }: { readonly mode: L
   const current = layoutModes.find((candidate) => candidate.id === mode) ?? layoutModes[0]
   const CurrentIcon = current.icon
   return (
-    <MenuTrigger isOpen={isOpen} onOpenChange={onOpenChange}>
-      <Button className="toolbar-button" aria-label={`Layout: ${current.label}`}><CurrentIcon aria-hidden="true" />{current.label}<ChevronDownIcon aria-hidden="true" /></Button>
-      <Popover className="project-popover" placement="bottom end">
-        <Menu aria-label="Workspace layout" onAction={(key) => onChange(String(key) as LayoutMode)}>
-          {layoutModes.map((option) => {
-            const OptionIcon = option.icon
-            return <MenuItem id={option.id} key={option.id}><span><OptionIcon aria-hidden="true" />{option.label}</span>{mode === option.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
-          })}
-        </Menu>
-      </Popover>
-    </MenuTrigger>
+    <MenuButton
+      label={`Layout: ${current.label}`}
+      triggerClassName="toolbar-button"
+      popoverClassName="project-popover"
+      placement="bottom end"
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      trigger={<><CurrentIcon aria-hidden="true" />{current.label}<ChevronDownIcon aria-hidden="true" /></>}
+    >
+      <Menu aria-label="Workspace layout" onAction={(key) => onChange(String(key) as LayoutMode)}>
+        {layoutModes.map((option) => {
+          const OptionIcon = option.icon
+          return <MenuItem id={option.id} key={option.id}><span><OptionIcon aria-hidden="true" />{option.label}</span>{mode === option.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+        })}
+      </Menu>
+    </MenuButton>
   )
 }
 
