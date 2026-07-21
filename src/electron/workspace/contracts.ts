@@ -36,8 +36,11 @@ export const invalidCandidateSchema = z.object({
   createdAt: z.string().datetime(),
 })
 
+export const layoutModeSchema = z.enum(['split', 'conversation', 'preview', 'popped'])
+
 export const layoutSchema = z.object({
   conversationWidth: z.number().min(35).max(65),
+  mode: layoutModeSchema.default('split'),
 })
 
 export const projectKindSchema = z.enum(['standalone', 'linked'])
@@ -177,6 +180,7 @@ export type GenerateRequest = z.infer<typeof generateRequestSchema>
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>
+export type LayoutMode = z.infer<typeof layoutModeSchema>
 export type SaveLayoutRequest = z.infer<typeof saveLayoutRequestSchema>
 export type Theme = z.infer<typeof themeSchema>
 export type GenerationJob = z.infer<typeof generationJobSchema>

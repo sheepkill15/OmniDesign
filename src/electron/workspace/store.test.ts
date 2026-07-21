@@ -93,15 +93,22 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
-  it('persists the workspace divider layout across reopen', () => {
+  it('persists the workspace layout mode and divider across reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    store.saveLayout(created.id, { conversationWidth: 57 })
+    store.saveLayout(created.id, { conversationWidth: 57, mode: 'preview' })
     store.close()
 
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id)?.layout).toEqual({ conversationWidth: 57 })
+    expect(reopened.getDesign(created.id)?.layout).toEqual({ conversationWidth: 57, mode: 'preview' })
     reopened.close()
+  })
+
+  it('defaults the layout mode to split for designs saved before the mode existed', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    expect(store.getDesign(created.id)?.layout).toEqual({ conversationWidth: 43, mode: 'split' })
+    store.close()
   })
 
   it('stores a generated thumbnail outside the immutable revision snapshot', () => {

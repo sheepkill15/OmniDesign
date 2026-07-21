@@ -133,6 +133,9 @@ function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewCon
       store.saveThumbnail(designId, revisionId, png)
       window.webContents.send('preview:thumbnail', { designId, revisionId })
     },
+    (designId) => {
+      if (!window.isDestroyed()) window.webContents.send('preview:popped-in', { designId })
+    },
   )
 }
 
@@ -249,6 +252,12 @@ function registerIpc(): void {
   ipcMain.handle('preview:resize', (event, value: unknown) => {
     authorize(event)
     preview?.resize(previewRequestSchema.shape.bounds.parse(value))
+  })
+  ipcMain.handle('preview:pop-out', (event, value: unknown) => {
+    authorize(event)
+    const request = selectRevisionRequestSchema.parse(value)
+    const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
+    preview?.popOut(request.designId, request.revisionId, files)
   })
   ipcMain.handle('preview:hide', (event) => {
     authorize(event)

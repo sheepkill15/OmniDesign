@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     show: (request: PreviewRequest) => ipcRenderer.invoke('preview:show', request),
     resize: (bounds: PreviewRequest['bounds']) => ipcRenderer.invoke('preview:resize', bounds),
     hide: () => ipcRenderer.invoke('preview:hide'),
+    popOut: (request: { designId: string; revisionId: string }) => ipcRenderer.invoke('preview:pop-out', request),
     onDiagnostic: (listener: (event: { designId: string; revisionId: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, diagnostic: { designId: string; revisionId: string }) => listener(diagnostic)
       ipcRenderer.on('preview:diagnostic', handler)
@@ -53,6 +54,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
       const handler = (_event: Electron.IpcRendererEvent, thumbnail: { designId: string; revisionId: string }) => listener(thumbnail)
       ipcRenderer.on('preview:thumbnail', handler)
       return () => ipcRenderer.removeListener('preview:thumbnail', handler)
+    },
+    onPoppedIn: (listener: (event: { designId: string }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: { designId: string }) => listener(payload)
+      ipcRenderer.on('preview:popped-in', handler)
+      return () => ipcRenderer.removeListener('preview:popped-in', handler)
     },
   },
 })

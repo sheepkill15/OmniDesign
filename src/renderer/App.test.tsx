@@ -17,7 +17,7 @@ const design: OmniDesignDocument = {
   queuePaused: false,
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
-  layout: { conversationWidth: 43 },
+  layout: { conversationWidth: 43, mode: 'split' },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
@@ -78,8 +78,10 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       show: vi.fn().mockResolvedValue(undefined),
       resize: vi.fn().mockResolvedValue(undefined),
       hide: vi.fn().mockResolvedValue(undefined),
+      popOut: vi.fn().mockResolvedValue(undefined),
       onDiagnostic: vi.fn().mockReturnValue(() => undefined),
       onThumbnail: vi.fn().mockReturnValue(() => undefined),
+      onPoppedIn: vi.fn().mockReturnValue(() => undefined),
     },
     settings: {
       getTheme: vi.fn().mockResolvedValue('dark'),
@@ -320,7 +322,58 @@ describe('Phase 1 walking skeleton UI', () => {
     const divider = await screen.findByRole('separator', { name: 'Resize conversation and preview panels' })
     fireEvent.keyDown(divider, { key: 'ArrowRight' })
     expect(divider).toHaveAttribute('aria-valuenow', '45')
-    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', { conversationWidth: 45 }))
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', { conversationWidth: 45, mode: 'split' }))
+  })
+
+  it('switches to a conversation-only layout and hides the preview', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Conversation only' }))
+
+    expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', { conversationWidth: 43, mode: 'conversation' }))
+  })
+
+  it('switches to a preview-only layout and hides the conversation', async () => {
+    installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Design conversation' })
+
+    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Preview only' }))
+
+    expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
+  })
+
+  it('pops the preview into a separate window and offers to dock it', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
+
+    await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith({ designId: 'design-1', revisionId: 'revision-1' }))
+    expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dock preview' }))
+    expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
   })
 
   it('recovers saved designs into the home list', async () => {

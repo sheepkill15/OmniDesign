@@ -19,6 +19,10 @@ import {
   SparklesIcon,
   StopIcon,
   TrashIcon,
+  ViewColumnsIcon,
+  ArrowTopRightOnSquareIcon,
+  ChatBubbleLeftRightIcon,
+  WindowIcon,
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
@@ -506,6 +510,31 @@ function PreviewSurface({ design }: { readonly design: OmniDesignDocument }) {
   return <div className="preview-surface" ref={surface}>{!revisionId && <p>Preview appears after the first valid revision.</p>}</div>
 }
 
+const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; readonly icon: Icon }[] = [
+  { id: 'split', label: 'Split view', icon: ViewColumnsIcon },
+  { id: 'conversation', label: 'Conversation only', icon: ChatBubbleLeftRightIcon },
+  { id: 'preview', label: 'Preview only', icon: WindowIcon },
+  { id: 'popped', label: 'Pop out preview', icon: ArrowTopRightOnSquareIcon },
+]
+
+function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
+  const current = layoutModes.find((candidate) => candidate.id === mode) ?? layoutModes[0]
+  const CurrentIcon = current.icon
+  return (
+    <MenuTrigger>
+      <Button className="toolbar-button" aria-label={`Layout: ${current.label}`}><CurrentIcon aria-hidden="true" />{current.label}<ChevronDownIcon aria-hidden="true" /></Button>
+      <Popover className="project-popover" placement="bottom end">
+        <Menu aria-label="Workspace layout" onAction={(key) => onChange(String(key) as LayoutMode)}>
+          {layoutModes.map((option) => {
+            const OptionIcon = option.icon
+            return <MenuItem id={option.id} key={option.id}><span><OptionIcon aria-hidden="true" />{option.label}</span>{mode === option.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+          })}
+        </Menu>
+      </Popover>
+    </MenuTrigger>
+  )
+}
+
 function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
@@ -517,6 +546,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const [draft, setDraft] = useState(design.draft)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
+  const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
   const split = useRef<HTMLDivElement>(null)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
@@ -529,6 +559,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
+  useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
   useEffect(() => setSelection(design.lastSelection), [design.id])
   const applySelection = (next: GenerationSelection) => {
     setSelection(next)
@@ -541,9 +572,34 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   }, [api, design.id, draft])
   useEffect(() => {
     if (!api) return
-    const timer = window.setTimeout(() => { void api.saveLayout(design.id, { conversationWidth }) }, 250)
+    const timer = window.setTimeout(() => { void api.saveLayout(design.id, { conversationWidth, mode }) }, 250)
     return () => window.clearTimeout(timer)
-  }, [api, conversationWidth, design.id])
+  }, [api, conversationWidth, mode, design.id])
+  // Hide the docked preview whenever the conversation-only layout is active so a preview from a
+  // previous design or layout does not linger over the workspace.
+  useEffect(() => {
+    if (mode === 'conversation') void window.omnidesign?.preview.hide()
+  }, [mode, design.id])
+  // Close the popped-out preview window when the popped layout is left or the workspace unmounts. Kept
+  // separate from the pop-out effect so a revision change reloads the existing window instead of
+  // recreating it.
+  useEffect(() => {
+    if (mode !== 'popped') return
+    return () => { void window.omnidesign?.preview.hide() }
+  }, [mode])
+  // While the popped-out layout is active, move the shared preview into its own window; a later
+  // revision reuses that window and reloads its content.
+  useEffect(() => {
+    const preview = window.omnidesign?.preview
+    if (!preview || mode !== 'popped' || !design.selectedRevisionId) return
+    void preview.popOut({ designId: design.id, revisionId: design.selectedRevisionId })
+  }, [mode, design.id, design.selectedRevisionId])
+  // If the user closes the popped-out preview window, return to the docked split layout.
+  useEffect(() => {
+    const preview = window.omnidesign?.preview
+    if (!preview) return
+    return preview.onPoppedIn((event) => { if (event.designId === design.id) setMode('split') })
+  }, [design.id])
 
   const updateConversationWidth = (clientX: number) => {
     const bounds = split.current?.getBoundingClientRect()
@@ -581,12 +637,48 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
     if (updated) onChange(updated)
   }
 
+  const previewStatus = selectedRevision
+    ? selectedRevision.diagnostics.length ? `${selectedRevision.diagnostics.length} diagnostic${selectedRevision.diagnostics.length === 1 ? '' : 's'} captured` : 'Offline · validated'
+    : 'Waiting for revision'
+
+  const conversationPane = (
+    <section className="conversation-pane" aria-label="Design conversation">
+      <div className="conversation-feed">
+        {buildConversationFeed(design).map((item) => item.kind === 'message'
+          ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p></article>
+          : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
+        {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
+        {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
+        {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
+          <strong>Latest candidate was not activated</strong>
+          <p>{latestInvalidCandidate.diagnostic}</p>
+          <details><summary>Technical details</summary><pre>{latestInvalidCandidate.html}</pre></details>
+        </section>}
+      </div>
+      {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
+      <div className="workspace-composer">
+        <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
+        }} /></TextField>
+        <div className="workspace-composer-footer"><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+      </div>
+    </section>
+  )
+
+  const previewPane = (
+    <section className="preview-pane" aria-label="Generated design preview">
+      <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{previewStatus}</small></div>
+      <PreviewSurface design={design} />
+    </section>
+  )
+
   return (
     <main className="workspace-main">
       <header className="workspace-toolbar">
-        <IconButton label="Back to home" icon={ArrowLeftIcon} onPress={onBack} />
+        <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
         <span className="workspace-title"><strong>{design.title}</strong><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
+          <LayoutMenu mode={mode} onChange={setMode} />
           <Button className="toolbar-button" onPress={() => setHistoryOpen(!historyOpen)}><ClockIcon aria-hidden="true" />History · {design.revisions.length}</Button>
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
         </div>
@@ -602,54 +694,38 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
           ))}
         </div>}
       </header>
-      <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
-        <section className="conversation-pane" aria-label="Design conversation">
-          <div className="conversation-feed">
-            {buildConversationFeed(design).map((item) => item.kind === 'message'
-              ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p></article>
-              : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
-            {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
-            {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
-            {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
-              <strong>Latest candidate was not activated</strong>
-              <p>{latestInvalidCandidate.diagnostic}</p>
-              <details><summary>Technical details</summary><pre>{latestInvalidCandidate.html}</pre></details>
-            </section>}
+      {mode === 'split'
+        ? <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
+            {conversationPane}
+            <div
+              aria-label="Resize conversation and preview panels"
+              aria-orientation="vertical"
+              aria-valuemax={65}
+              aria-valuemin={35}
+              aria-valuenow={Math.round(conversationWidth)}
+              className="workspace-divider"
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft') { event.preventDefault(); setConversationWidth((current) => Math.max(35, current - 2)) }
+                if (event.key === 'ArrowRight') { event.preventDefault(); setConversationWidth((current) => Math.min(65, current + 2)) }
+                if (event.key === 'Home') { event.preventDefault(); setConversationWidth(35) }
+                if (event.key === 'End') { event.preventDefault(); setConversationWidth(65) }
+              }}
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId)
+                updateConversationWidth(event.clientX)
+              }}
+              onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) updateConversationWidth(event.clientX) }}
+              role="separator"
+              tabIndex={0}
+            />
+            {previewPane}
           </div>
-          {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
-          <div className="workspace-composer">
-            <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
-            }} /></TextField>
-            <div className="workspace-composer-footer"><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
-          </div>
-        </section>
-        <div
-          aria-label="Resize conversation and preview panels"
-          aria-orientation="vertical"
-          aria-valuemax={65}
-          aria-valuemin={35}
-          aria-valuenow={Math.round(conversationWidth)}
-          className="workspace-divider"
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft') { event.preventDefault(); setConversationWidth((current) => Math.max(35, current - 2)) }
-            if (event.key === 'ArrowRight') { event.preventDefault(); setConversationWidth((current) => Math.min(65, current + 2)) }
-            if (event.key === 'Home') { event.preventDefault(); setConversationWidth(35) }
-            if (event.key === 'End') { event.preventDefault(); setConversationWidth(65) }
-          }}
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture(event.pointerId)
-            updateConversationWidth(event.clientX)
-          }}
-          onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) updateConversationWidth(event.clientX) }}
-          role="separator"
-          tabIndex={0}
-        />
-        <section className="preview-pane" aria-label="Generated design preview">
-          <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{selectedRevision ? selectedRevision.diagnostics.length ? `${selectedRevision.diagnostics.length} diagnostic${selectedRevision.diagnostics.length === 1 ? '' : 's'} captured` : 'Offline · validated' : 'Waiting for revision'}</small></div>
-          <PreviewSurface design={design} />
-        </section>
-      </div>
+        : mode === 'preview'
+        ? <div className="workspace-single">{previewPane}</div>
+        : <div className="workspace-single">
+            {mode === 'popped' && <div className="popped-preview-note" role="status"><WindowIcon aria-hidden="true" /><span>Preview is open in a separate window.</span><Button className="secondary-action" onPress={() => setMode('split')}>Dock preview</Button></div>}
+            {conversationPane}
+          </div>}
     </main>
   )
 }
