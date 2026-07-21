@@ -556,6 +556,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
   const split = useRef<HTMLDivElement>(null)
+  const historyControl = useRef<HTMLDivElement>(null)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
@@ -584,6 +585,20 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
     })
     return () => { cancelled = true }
   }, [overlayCoversPreview])
+  // Dismiss the revision-history panel on an outside click or Escape, matching the layout menu.
+  useEffect(() => {
+    if (!historyOpen) return
+    const onPointerDown = (event: globalThis.PointerEvent) => {
+      if (historyControl.current && !historyControl.current.contains(event.target as Node)) setHistoryOpen(false)
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setHistoryOpen(false) }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [historyOpen])
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
@@ -706,7 +721,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
         <span className="workspace-title"><strong>{design.title}</strong><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
           <LayoutMenu mode={mode} isOpen={layoutMenuOpen} onOpenChange={setLayoutMenuOpen} onChange={setMode} />
-          <div className="history-control">
+          <div className="history-control" ref={historyControl}>
             <Button className="toolbar-button" aria-haspopup="true" aria-expanded={historyOpen} onPress={() => setHistoryOpen(!historyOpen)}><ClockIcon aria-hidden="true" />History · {design.revisions.length}</Button>
             {historyOpen && <div className="history-popover" aria-label="Revision history">
               <strong>Revision history</strong>

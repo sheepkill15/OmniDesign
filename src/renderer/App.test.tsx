@@ -263,6 +263,21 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.preview.hide).not.toHaveBeenCalled()
   })
 
+  it('closes the revision-history panel on an outside click', async () => {
+    installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Design conversation' })
+
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+    expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByLabelText('Revision history')).not.toBeInTheDocument()
+  })
+
   it('shows revision thumbnails in history', async () => {
     const thumbnailDesign: OmniDesignDocument = {
       ...design,
