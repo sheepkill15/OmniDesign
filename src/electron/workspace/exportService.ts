@@ -1,13 +1,16 @@
 import { writeFileSync } from 'node:fs'
 import { strToU8, zipSync } from 'fflate'
-import type { Design } from './contracts.js'
+import type { RevisionFiles } from './designRepository.js'
 
-export function createOfflineZip(design: Design, revisionId: string): Uint8Array {
-  const revision = design.revisions.find((candidate) => candidate.id === revisionId)
-  if (!revision) throw new Error('Revision not found.')
-  return zipSync({ 'index.html': strToU8(revision.html) }, { level: 9 })
+// Bundle a revision's committed files (index.html plus the .build/ assets it links) into an offline
+// ZIP. The relative paths are preserved so the exported index.html resolves its links locally.
+export function createOfflineZip(files: RevisionFiles): Uint8Array {
+  if (!files['index.html']) throw new Error('Revision has no index.html to export.')
+  const entries: Record<string, Uint8Array> = {}
+  for (const [relativePath, content] of Object.entries(files)) entries[relativePath] = strToU8(content)
+  return zipSync(entries, { level: 9 })
 }
 
-export function writeOfflineZip(design: Design, revisionId: string, destination: string): void {
-  writeFileSync(destination, createOfflineZip(design, revisionId))
+export function writeOfflineZip(files: RevisionFiles, destination: string): void {
+  writeFileSync(destination, createOfflineZip(files))
 }

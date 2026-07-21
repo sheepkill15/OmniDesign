@@ -8,7 +8,6 @@ export const revisionSchema = z.object({
   modelId: z.string().min(1),
   gitCommit: z.string().regex(/^[0-9a-f]{40}$/).nullable(),
   createdAt: z.string().datetime(),
-  html: z.string(),
   thumbnailDataUrl: z.string().nullable(),
 })
 

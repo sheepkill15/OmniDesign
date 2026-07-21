@@ -20,9 +20,9 @@ describe('WorkspaceStore', () => {
   it('persists conversations, drafts, and immutable revision files across reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
-    const first = store.addRevision(created.id, 'Create a calm dashboard', '<html><body>One</body></html>', 'mock', 'mock-v1', 'a'.repeat(40))
+    const first = store.addRevision(created.id, 'Create a calm dashboard', 'mock', 'mock-v1', 'a'.repeat(40))
     store.addPrompt(created.id, 'Make the figures bolder')
-    const second = store.addRevision(created.id, 'Make the figures bolder', '<html><body>Two</body></html>')
+    const second = store.addRevision(created.id, 'Make the figures bolder')
     store.saveDraft(created.id, 'Try a warmer accent')
     store.close()
 
@@ -30,7 +30,7 @@ describe('WorkspaceStore', () => {
     const recovered = reopened.getDesign(created.id)
     expect(recovered?.draft).toBe('Try a warmer accent')
     expect(recovered?.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant'])
-    expect(recovered?.revisions.map((revision) => revision.html)).toEqual(['<html><body>One</body></html>', '<html><body>Two</body></html>'])
+    expect(recovered?.revisions).toHaveLength(2)
     expect(recovered?.revisions[0].gitCommit).toBe('a'.repeat(40))
     expect(recovered?.revisions[1].gitCommit).toBeNull()
     expect(recovered?.activeRevisionId).toBe(second.activeRevisionId)
@@ -41,12 +41,12 @@ describe('WorkspaceStore', () => {
   it('restores history by appending a new head without removing later revisions', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    const first = store.addRevision(created.id, 'First', '<html><body>One</body></html>')
-    const second = store.addRevision(created.id, 'Second', '<html><body>Two</body></html>')
+    const first = store.addRevision(created.id, 'First')
+    const second = store.addRevision(created.id, 'Second')
     const restored = store.restoreRevision(created.id, first.revisions[0].id)
 
     expect(restored.revisions).toHaveLength(3)
-    expect(restored.revisions[2].html).toBe(restored.revisions[0].html)
+    expect(restored.revisions[2].prompt).toBe('Restored: First')
     expect(restored.revisions[2].parentRevisionId).toBe(second.activeRevisionId)
     expect(restored.activeRevisionId).toBe(restored.revisions[2].id)
     store.close()
@@ -79,7 +79,7 @@ describe('WorkspaceStore', () => {
   it('persists preview diagnostics with the immutable revision that produced them', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    const saved = store.addRevision(created.id, 'First', '<html><body>One</body></html>')
+    const saved = store.addRevision(created.id, 'First')
     const revisionId = saved.activeRevisionId!
     store.addPreviewDiagnostic(created.id, revisionId, {
       kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', source: 'omnidesign-preview://revision/token', line: 12,
@@ -107,7 +107,7 @@ describe('WorkspaceStore', () => {
   it('stores a generated thumbnail outside the immutable revision snapshot', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    const saved = store.addRevision(created.id, 'First', '<html><body>One</body></html>')
+    const saved = store.addRevision(created.id, 'First')
     store.saveThumbnail(created.id, saved.activeRevisionId!, Uint8Array.from([137, 80, 78, 71]))
     store.close()
 
@@ -121,8 +121,8 @@ describe('WorkspaceStore', () => {
   it('preserves a separate thumbnail for each revision while keeping the active one on the design', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    const first = store.addRevision(created.id, 'First', '<html><body>One</body></html>')
-    const second = store.addRevision(created.id, 'Second', '<html><body>Two</body></html>')
+    const first = store.addRevision(created.id, 'First')
+    const second = store.addRevision(created.id, 'Second')
     store.saveThumbnail(created.id, first.revisions[0].id, Uint8Array.from([1]))
     store.saveThumbnail(created.id, second.revisions[1].id, Uint8Array.from([2]))
 

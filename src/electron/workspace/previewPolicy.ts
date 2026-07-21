@@ -25,13 +25,14 @@ export function isAllowedPreviewResourceUrl(url: string): boolean {
 export function previewContentSecurityPolicy(): string {
   return [
     "default-src 'none'",
-    "style-src 'unsafe-inline' https:",
+    // omnidesign-preview: lets the entry page load its .build/tailwind.css and .build/alpine.js.
+    "style-src 'unsafe-inline' https: omnidesign-preview:",
     "img-src data: https: omnidesign-preview:",
     "font-src data: https: omnidesign-preview:",
     // 'unsafe-eval' is required by Alpine.js v3, whose default build evaluates directive expressions
     // (x-data, @click, etc.) via the Function constructor. Without it Alpine loads but throws on every
     // directive. The preview is sandboxed (no Node, isolated session), so this stays contained.
-    "script-src 'unsafe-inline' 'unsafe-eval' https:",
+    "script-src 'unsafe-inline' 'unsafe-eval' https: omnidesign-preview:",
     "connect-src https:",
     "base-uri 'none'",
     "form-action 'none'",

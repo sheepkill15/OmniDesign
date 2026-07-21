@@ -1,6 +1,7 @@
-import { compileDesignHtml, validateCompiledDesign } from './compiler.js'
+import { compileTailwindCss, validateCompiledDesign } from './compiler.js'
 import type { Design, GenerationActivity, GenerationSelection, Layout, Theme } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
+import type { RevisionFiles } from './designRepository.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 
@@ -52,20 +53,20 @@ export class WorkspaceService {
     onActivity({ designId, stage: 'generating', detail: 'Mock provider is shaping the requested direction.' })
     const current = this.store.getDesign(designId)
     if (!current) throw new Error('Design not found.')
-    const previous = current.revisions.find((revision) => revision.id === current.activeRevisionId)?.html
-    let candidate = generatedHtml ?? generateMockDesign(prompt, previous).html
+    const isIteration = current.activeRevisionId ?? undefined
+    let candidate = generatedHtml ?? generateMockDesign(prompt, isIteration).html
 
     for (let repairAttempt = 0; repairAttempt <= maxRepairAttempts; repairAttempt += 1) {
       try {
         this.throwIfCancelled(signal)
         onActivity({ designId, stage: 'compiling', detail: 'Compiling the generated Tailwind classes.' })
-        const compiled = await compileDesignHtml(candidate)
+        const tailwindCss = await compileTailwindCss(candidate)
         this.throwIfCancelled(signal)
         onActivity({ designId, stage: 'validating', detail: 'Checking document structure and preview security.' })
-        validateCompiledDesign(compiled)
-        onActivity({ designId, stage: 'saving', detail: 'Saving an immutable local revision.' })
-        const gitCommit = this.repositories.commitIndexHtml(designId, compiled, `Apply design revision: ${prompt}`)
-        const saved = this.store.addRevision(designId, prompt, compiled, 'mock', 'mock-v1', gitCommit)
+        validateCompiledDesign(candidate)
+        onActivity({ designId, stage: 'saving', detail: 'Committing the revision to the design repository.' })
+        const gitCommit = this.repositories.commitRevision(designId, candidate, tailwindCss, `Apply design revision: ${prompt}`)
+        const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved
       } catch (error) {
@@ -77,7 +78,7 @@ export class WorkspaceService {
           return rejected
         }
         onActivity({ designId, stage: 'repairing', detail: `Repairing the candidate (${repairAttempt + 1} of ${maxRepairAttempts}).` })
-        candidate = generateMockDesign(`Repair this design without unsafe code or external resources: ${diagnostic}`, previous).html
+        candidate = generateMockDesign(`Repair this design without unsafe code or external resources: ${diagnostic}`, isIteration).html
       }
     }
 
@@ -92,8 +93,18 @@ export class WorkspaceService {
     const design = this.store.getDesign(designId)
     const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
     if (!revision) throw new Error('Revision not found.')
-    const gitCommit = this.repositories.commitIndexHtml(designId, revision.html, `Restore design revision: ${revision.prompt}`)
+    if (!revision.gitCommit) throw new Error('Revision has no committed content to restore.')
+    const gitCommit = this.repositories.restore(designId, revision.gitCommit, `Restore design revision: ${revision.prompt}`)
     return this.store.restoreRevision(designId, revisionId, gitCommit)
+  }
+
+  /** Read a revision's committed files (entry page + build assets) for preview and export. */
+  public getRevisionFiles(designId: string, revisionId: string): RevisionFiles {
+    const design = this.store.getDesign(designId)
+    const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
+    if (!revision) throw new Error('Revision not found.')
+    if (!revision.gitCommit) throw new Error('Revision has no committed content.')
+    return this.repositories.readRevisionFiles(designId, revision.gitCommit)
   }
 
   public async saveAgentWorkspaceResult(
@@ -106,17 +117,20 @@ export class WorkspaceService {
   ): Promise<Design> {
     const current = this.store.getDesign(designId)
     if (!current) throw new Error('Design not found.')
-    const gitCommit = this.repositories.captureWorkingTree(designId, `Apply agent result: ${prompt}`)
-    const activeRevision = current.revisions.find((revision) => revision.id === current.activeRevisionId)
-    if (activeRevision?.gitCommit === gitCommit) return this.store.addAssistantResponse(designId, response)
 
     try {
+      const indexHtml = this.repositories.readIndexHtml(designId)
       onActivity({ designId, stage: 'compiling', detail: 'Compiling the agent workspace entry page.' })
-      const compiled = await compileDesignHtml(this.repositories.readIndexHtml(designId))
+      const tailwindCss = await compileTailwindCss(indexHtml)
       onActivity({ designId, stage: 'validating', detail: 'Checking the agent workspace result.' })
-      validateCompiledDesign(compiled)
-      onActivity({ designId, stage: 'saving', detail: 'Saving the validated agent revision.' })
-      const saved = this.store.addRevision(designId, prompt, compiled, providerId, modelId, gitCommit, response)
+      validateCompiledDesign(indexHtml)
+      onActivity({ designId, stage: 'saving', detail: 'Committing the agent revision to the design repository.' })
+      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`)
+      if (gitCommit === null) {
+        onActivity({ designId, stage: 'complete', detail: 'No changes to save; recorded the response.' })
+        return this.store.addAssistantResponse(designId, response)
+      }
+      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response)
       onActivity({ designId, stage: 'complete', detail: 'Agent result is ready to preview.' })
       return saved
     } catch (error) {

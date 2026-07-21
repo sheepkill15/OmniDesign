@@ -48,7 +48,6 @@ interface RevisionRow {
   model_id: string
   git_commit: string | null
   created_at: string
-  html_path: string
 }
 
 interface MessageRow {
@@ -260,6 +259,27 @@ CREATE TABLE generation_steps (
 CREATE INDEX generation_steps_by_design ON generation_steps(design_id, created_at);
 `
 
+// Revision content now lives in Git (each revision is a commit); the previous per-revision HTML copy
+// under designs/<id>/revisions/<revId>/index.html is gone, so the html_path column is dropped. Rebuild
+// the table because SQLite cannot drop a UNIQUE column in place. Runs with foreign keys disabled.
+const migrationSeventeen = `
+CREATE TABLE revisions_rebuilt (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  parent_revision_id TEXT REFERENCES revisions(id),
+  prompt TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  git_commit TEXT,
+  created_at TEXT NOT NULL
+) STRICT;
+INSERT INTO revisions_rebuilt (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
+  SELECT id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at FROM revisions;
+DROP TABLE revisions;
+ALTER TABLE revisions_rebuilt RENAME TO revisions;
+CREATE INDEX revisions_by_design ON revisions(design_id, created_at);
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -359,7 +379,6 @@ export class WorkspaceStore {
   public addRevision(
     designId: string,
     prompt: string,
-    html: string,
     providerId = 'mock',
     modelId = 'mock-v1',
     gitCommit: string | null = null,
@@ -368,16 +387,12 @@ export class WorkspaceStore {
     const design = this.requireDesign(designId)
     const revisionId = randomUUID()
     const now = new Date().toISOString()
-    const revisionDirectory = path.join(this.artifactsDirectory, designId, 'revisions', revisionId)
-    mkdirSync(revisionDirectory, { recursive: true })
-    const htmlPath = path.join(revisionDirectory, 'index.html')
-    writeFileSync(htmlPath, html, { encoding: 'utf8', flag: 'wx' })
 
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, html_path, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, htmlPath, now)
+        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, now)
       this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
         .run(randomUUID(), designId, 'assistant', assistantResponse, now)
       this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, updated_at = ?, draft = ? WHERE id = ?')
@@ -396,7 +411,7 @@ export class WorkspaceStore {
 
   public restoreRevision(designId: string, revisionId: string, gitCommit: string | null = null): Design {
     const revision = this.requireRevision(designId, revisionId)
-    return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.html, revision.providerId, revision.modelId, gitCommit)
+    return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.providerId, revision.modelId, gitCommit)
   }
 
   public saveDraft(designId: string, draft: string): void {
@@ -578,15 +593,23 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen]
-    for (const [index, migration] of migrations.entries()) {
-      const version = index + 1
-      const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
-      if (applied) continue
-      this.transaction(() => {
-        this.database.exec(migration)
-        this.database.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(version, new Date().toISOString())
-      })
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen]
+    // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
+    // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
+    // inside a transaction, so it is toggled around the per-migration transactions, not within them.
+    this.database.exec('PRAGMA foreign_keys = OFF')
+    try {
+      for (const [index, migration] of migrations.entries()) {
+        const version = index + 1
+        const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
+        if (applied) continue
+        this.transaction(() => {
+          this.database.exec(migration)
+          this.database.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(version, new Date().toISOString())
+        })
+      }
+    } finally {
+      this.database.exec('PRAGMA foreign_keys = ON')
     }
   }
 
@@ -594,7 +617,7 @@ export class WorkspaceStore {
     const messageRows = this.database.prepare('SELECT id, role, text, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
-      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at, html_path
+      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at
       FROM revisions WHERE design_id = ? ORDER BY created_at, rowid
     `).all(row.id) as unknown as RevisionRow[]
     const invalidCandidateRows = this.database.prepare(`
@@ -639,7 +662,6 @@ export class WorkspaceStore {
         modelId: revision.model_id,
         gitCommit: revision.git_commit,
         createdAt: revision.created_at,
-        html: readFileSync(revision.html_path, 'utf8'),
         thumbnailDataUrl: this.readThumbnailDataUrl(this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(revision.id) as { thumbnail_path: string } | undefined),
         diagnostics: this.database.prepare(`
           SELECT id, kind, level, message, source, line, created_at

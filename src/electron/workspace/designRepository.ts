@@ -1,6 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
+import { alpineRuntimeBase64 } from './alpineRuntime.js'
+
+// Compiled Tailwind CSS and the vendored Alpine runtime live in this committed folder; index.html
+// links to them. Agents are told to leave it alone — OmniDesign regenerates it on every revision.
+export const BUILD_DIR = '.build'
+export const TAILWIND_CSS_PATH = `${BUILD_DIR}/tailwind.css`
+export const ALPINE_JS_PATH = `${BUILD_DIR}/alpine.js`
+export const ENTRY_HTML_PATH = 'index.html'
+
+const alpineRuntime = Buffer.from(alpineRuntimeBase64, 'base64').toString('utf8')
 
 const initialHtml = `<!doctype html>
 <html lang="en">
@@ -8,13 +18,18 @@ const initialHtml = `<!doctype html>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OmniDesign</title>
-    <!-- Tailwind and Alpine.js are provided locally by OmniDesign when the design is compiled; no
-         imports are needed. Use Tailwind utility classes and Alpine directives directly. -->
+    <!-- OmniDesign generates ${BUILD_DIR}/ (compiled Tailwind + Alpine). Do not edit that folder; keep these links. -->
+    <link rel="stylesheet" href="${TAILWIND_CSS_PATH}">
+    <script defer src="${ALPINE_JS_PATH}"></script>
   </head>
   <body class="min-h-screen bg-white text-slate-900 antialiased">
   </body>
 </html>
 `
+
+export interface RevisionFiles {
+  readonly [relativePath: string]: string
+}
 
 export class DesignRepositoryManager {
   public constructor(private readonly artifactsDirectory: string) {}
@@ -33,40 +48,71 @@ export class DesignRepositoryManager {
       this.run(repositoryPath, ['config', 'user.email', 'omnidesign@local'])
     }
 
-    const entryPath = path.join(repositoryPath, 'index.html')
-    if (!existsSync(entryPath)) {
-      writeFileSync(entryPath, initialHtml, { encoding: 'utf8', flag: 'wx' })
+    if (!existsSync(path.join(repositoryPath, ENTRY_HTML_PATH))) {
+      this.writeFile(repositoryPath, ENTRY_HTML_PATH, initialHtml)
+      this.writeFile(repositoryPath, TAILWIND_CSS_PATH, '')
+      this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
       this.commit(repositoryPath, 'Initialize design workspace')
     }
 
     return repositoryPath
   }
 
-  public commitIndexHtml(designId: string, html: string, message: string): string | null {
+  /**
+   * Persist a revision as a Git commit. `indexHtml` is written when provided (the mock provider owns
+   * the whole document); agents author index.html themselves, so it is omitted and only the compiled
+   * stylesheet is refreshed. Returns the resulting commit SHA, or null when nothing changed.
+   */
+  public commitRevision(designId: string, indexHtml: string | null, tailwindCss: string, message: string): string | null {
     const repositoryPath = this.initialize(designId)
-    const entryPath = path.join(repositoryPath, 'index.html')
-    if (readFileSync(entryPath, 'utf8') === html) return null
-    writeFileSync(entryPath, html, 'utf8')
-    this.commit(repositoryPath, message)
-    return this.run(repositoryPath, ['rev-parse', 'HEAD'])
-  }
-
-  public captureWorkingTree(designId: string, message: string): string {
-    const repositoryPath = this.initialize(designId)
-    this.commit(repositoryPath, message)
+    if (indexHtml !== null) this.writeFile(repositoryPath, ENTRY_HTML_PATH, indexHtml)
+    this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
+    this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
+    if (!this.commit(repositoryPath, message)) return null
     return this.run(repositoryPath, ['rev-parse', 'HEAD'])
   }
 
   public readIndexHtml(designId: string): string {
-    return readFileSync(path.join(this.initialize(designId), 'index.html'), 'utf8')
+    return readFileSync(path.join(this.initialize(designId), ENTRY_HTML_PATH), 'utf8')
   }
 
-  private commit(repositoryPath: string, message: string): void {
+  /** Read the files that make up a revision (entry page + build assets) from its Git commit. */
+  public readRevisionFiles(designId: string, commit: string): RevisionFiles {
+    const repositoryPath = this.initialize(designId)
+    const files: Record<string, string> = {}
+    for (const relativePath of [ENTRY_HTML_PATH, TAILWIND_CSS_PATH, ALPINE_JS_PATH]) {
+      const content = this.showFileAtCommit(repositoryPath, commit, relativePath)
+      if (content !== null) files[relativePath] = content
+    }
+    return files
+  }
+
+  /** Restore the working tree to a past commit and record it as a new head commit. */
+  public restore(designId: string, commit: string, message: string): string {
+    const repositoryPath = this.initialize(designId)
+    this.run(repositoryPath, ['checkout', commit, '--', '.'])
+    this.commit(repositoryPath, message)
+    return this.run(repositoryPath, ['rev-parse', 'HEAD'])
+  }
+
+  private writeFile(repositoryPath: string, relativePath: string, content: string): void {
+    const target = path.join(repositoryPath, relativePath)
+    mkdirSync(path.dirname(target), { recursive: true })
+    writeFileSync(target, content, 'utf8')
+  }
+
+  private showFileAtCommit(repositoryPath: string, commit: string, relativePath: string): string | null {
+    const result = this.runAllowingFailure(repositoryPath, ['show', `${commit}:${relativePath}`])
+    return result.status === 0 ? result.output : null
+  }
+
+  private commit(repositoryPath: string, message: string): boolean {
     this.run(repositoryPath, ['add', '--all'])
     const staged = this.runAllowingFailure(repositoryPath, ['diff', '--cached', '--quiet'])
-    if (staged.status === 0) return
+    if (staged.status === 0) return false
     if (staged.status !== 1) throw new Error(`Could not inspect Git changes: ${staged.error}`)
     this.run(repositoryPath, ['commit', '--no-gpg-sign', '-m', message])
+    return true
   }
 
   private run(repositoryPath: string, args: string[]): string {
@@ -79,7 +125,7 @@ export class DesignRepositoryManager {
     try {
       return {
         status: 0,
-        output: execFileSync('git', args, { cwd: repositoryPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+        output: execFileSync('git', args, { cwd: repositoryPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }),
         error: '',
       }
     } catch (error) {

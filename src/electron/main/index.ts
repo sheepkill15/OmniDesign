@@ -233,10 +233,8 @@ function registerIpc(): void {
   ipcMain.handle('preview:show', (event, value: unknown) => {
     authorize(event)
     const request = previewRequestSchema.parse(value)
-    const design = requireWorkspace().getDesign(request.designId)
-    const revision = design?.revisions.find((candidate) => candidate.id === request.revisionId)
-    if (!revision) throw new Error('Revision not found.')
-    preview?.show(request.designId, request.revisionId, revision.html, request.bounds)
+    const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
+    preview?.show(request.designId, request.revisionId, files, request.bounds)
   })
   ipcMain.handle('preview:resize', (event, value: unknown) => {
     authorize(event)
@@ -258,7 +256,7 @@ function registerIpc(): void {
       filters: [{ name: 'ZIP archive', extensions: ['zip'] }],
     })
     if (result.canceled || !result.filePath) return { canceled: true }
-    writeOfflineZip(design, request.revisionId, result.filePath)
+    writeOfflineZip(requireWorkspace().getRevisionFiles(request.designId, request.revisionId), result.filePath)
     return { canceled: false, filePath: result.filePath }
   })
 }

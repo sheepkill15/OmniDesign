@@ -3,12 +3,19 @@ import { BrowserWindow, session, WebContentsView } from 'electron'
 import type { Rectangle, Session } from 'electron'
 import { isAllowedPreviewResourceUrl, isAllowedPreviewUrl, previewContentSecurityPolicy } from './previewPolicy.js'
 import { captureConsoleDiagnostic, captureLoadDiagnostic } from './previewDiagnostics.js'
+import type { RevisionFiles } from './designRepository.js'
 import type { PreviewDiagnostic } from './contracts.js'
+
+function contentTypeFor(relativePath: string): string {
+  if (relativePath.endsWith('.css')) return 'text/css; charset=utf-8'
+  if (relativePath.endsWith('.js')) return 'text/javascript; charset=utf-8'
+  return 'text/html; charset=utf-8'
+}
 
 const partition = 'omnidesign-preview'
 
 export class PreviewController {
-  private readonly documents = new Map<string, string>()
+  private readonly documents = new Map<string, RevisionFiles>()
   private readonly previewSession: Session
   private view: WebContentsView | null = null
   private attached = false
@@ -29,13 +36,13 @@ export class PreviewController {
     void this.previewSession.protocol.handle('omnidesign-preview', (request) => this.handleRequest(request.url))
   }
 
-  public show(designId: string, revisionId: string, html: string, bounds: Rectangle): void {
+  public show(designId: string, revisionId: string, files: RevisionFiles, bounds: Rectangle): void {
     if (this.window.isDestroyed()) return
     const view = this.ensureView()
     if (view.webContents.isDestroyed()) return
     const token = randomUUID()
     this.documents.clear()
-    this.documents.set(token, html)
+    this.documents.set(token, files)
     this.token = token
     this.designId = designId
     this.revisionId = revisionId
@@ -44,7 +51,7 @@ export class PreviewController {
       this.attached = true
     }
     view.setBounds(bounds)
-    void view.webContents.loadURL(`omnidesign-preview://revision/${token}`)
+    void view.webContents.loadURL(`omnidesign-preview://revision/${token}/index.html`)
   }
 
   public resize(bounds: Rectangle): void {
@@ -92,12 +99,14 @@ export class PreviewController {
 
   private handleRequest(url: string): Response {
     if (!isAllowedPreviewUrl(url)) return new Response('Not found', { status: 404 })
-    const token = new URL(url).pathname.slice(1)
-    const html = this.documents.get(token)
-    if (!html) return new Response('Not found', { status: 404 })
-    return new Response(html, {
+    // pathname is /<token>/<relative file path>, e.g. /<token>/index.html or /<token>/.build/tailwind.css
+    const [token, ...pathSegments] = new URL(url).pathname.replace(/^\/+/, '').split('/')
+    const relativePath = pathSegments.join('/') || 'index.html'
+    const content = token ? this.documents.get(token)?.[relativePath] : undefined
+    if (content === undefined) return new Response('Not found', { status: 404 })
+    return new Response(content, {
       headers: {
-        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Type': contentTypeFor(relativePath),
         'Content-Security-Policy': previewContentSecurityPolicy(),
         'X-Content-Type-Options': 'nosniff',
       },

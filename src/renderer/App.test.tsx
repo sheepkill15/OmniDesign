@@ -21,7 +21,7 @@ const design: OmniDesignDocument = {
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
-  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', html: '<html><body>Dashboard</body></html>', thumbnailDataUrl: null, diagnostics: [] }],
+  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
 function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign: OmniDesignDocument = design) {

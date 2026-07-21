@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { collectTailwindCandidates, compileDesignHtml, validateCompiledDesign } from './compiler.js'
+import { collectTailwindCandidates, compileTailwindCss, validateCompiledDesign } from './compiler.js'
 
 describe('design compiler', () => {
-  it('collects complete Tailwind candidates and emits offline CSS', async () => {
+  it('collects complete Tailwind candidates and compiles a standalone stylesheet', async () => {
     const source = '<html><head></head><body class="bg-stone-950 text-white"><h1 class="text-5xl">Hello</h1></body></html>'
     expect(collectTailwindCandidates(source)).toEqual(['bg-stone-950', 'text-white', 'text-5xl'])
 
-    const compiled = await compileDesignHtml(source)
-    expect(compiled).toContain('<style data-omnidesign-tailwind>')
-    expect(compiled).toContain('.bg-stone-950')
-    // A design without Alpine directives should not carry the Alpine runtime.
-    expect(compiled).not.toContain('data-omnidesign-alpine')
-    expect(() => validateCompiledDesign(compiled)).not.toThrow()
+    const css = await compileTailwindCss(source)
+    expect(css).toContain('.bg-stone-950')
+    expect(css).toContain('.text-5xl')
+    // The compiler returns CSS only — no HTML wrapper, so nothing is copied into the document.
+    expect(css).not.toContain('<style')
   })
 
   it('collects Tailwind classes from Alpine dynamic bindings and transitions', async () => {
@@ -31,34 +30,18 @@ describe('design compiler', () => {
     expect(candidates).not.toContain('{')
     expect(candidates).not.toContain('?')
 
-    const compiled = await compileDesignHtml(source)
-    expect(compiled).toContain('.bg-blue-500')
-    expect(compiled).toContain('.items-center')
-    // Because the markup uses Alpine, its runtime is injected locally (no external CDN).
-    expect(compiled).toContain('data-omnidesign-alpine')
-  })
-
-  it('injects Tailwind and Alpine exactly once even when re-compiling an already-compiled document', async () => {
-    const source = '<html><head></head><body class="p-4"><div x-data="{ open: false }" x-show="open"></div></body></html>'
-    const once = await compileDesignHtml(source)
-    const twice = await compileDesignHtml(once)
-
-    const countOf = (haystack: string, needle: string) => haystack.split(needle).length - 1
-    expect(countOf(twice, 'data-omnidesign-tailwind')).toBe(1)
-    expect(countOf(twice, 'data-omnidesign-alpine')).toBe(1)
-    expect(countOf(twice, '<style ')).toBe(1)
-    // Re-compiling is stable: the second pass produces the same document as the first.
-    expect(twice).toBe(once)
-    expect(() => validateCompiledDesign(twice)).not.toThrow()
+    const css = await compileTailwindCss(source)
+    expect(css).toContain('.bg-blue-500')
+    expect(css).toContain('.items-center')
   })
 
   it('allows scripts and external HTTPS resources but rejects local files and malformed documents', async () => {
-    await expect(compileDesignHtml('<main>Missing document</main>')).rejects.toThrow(/html and body/)
+    await expect(compileTailwindCss('<main>Missing document</main>')).rejects.toThrow(/html and body/)
     // Inline scripts and external HTTPS styles, fonts, plugins, and images are permitted.
     expect(() => validateCompiledDesign('<html><body><script>console.log(1)</script></body></html>')).not.toThrow()
     expect(() => validateCompiledDesign('<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter"></head><body><img src="https://example.com/a.png"></body></html>')).not.toThrow()
-    // External HTTPS plugin scripts (e.g. a charting library from a CDN) must validate.
-    expect(() => validateCompiledDesign('<html><head><script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.js"></script></head><body></body></html>')).not.toThrow()
+    // The relative .build/ links used by the starter page validate.
+    expect(() => validateCompiledDesign('<html><head><link rel="stylesheet" href=".build/tailwind.css"><script defer src=".build/alpine.js"></script></head><body></body></html>')).not.toThrow()
     // Local filesystem access stays blocked.
     expect(() => validateCompiledDesign('<html><body><img src="file:///C:/secret.png"></body></html>')).toThrow(/file:/)
   })

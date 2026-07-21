@@ -26,6 +26,8 @@ export function generateMockDesign(prompt: string, previousHtml?: string): Gener
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
+  <link rel="stylesheet" href=".build/tailwind.css">
+  <script defer src=".build/alpine.js"></script>
 </head>
 <body class="min-h-screen bg-stone-950 text-stone-100 antialiased">
   <main class="mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-8 py-16">
