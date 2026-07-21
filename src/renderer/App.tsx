@@ -27,6 +27,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
 import { Button, Header, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { DropdownButton } from './components/DropdownButton'
 import { MenuButton } from './components/MenuButton'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
@@ -523,26 +524,30 @@ const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; r
   { id: 'popped', label: 'Pop out preview', icon: ArrowTopRightOnSquareIcon },
 ]
 
-function LayoutMenu({ mode, isOpen, onOpenChange, onChange }: { readonly mode: LayoutMode; readonly isOpen: boolean; readonly onOpenChange: (open: boolean) => void; readonly onChange: (mode: LayoutMode) => void }) {
+function LayoutMenu({ mode, onOpenChange, onChange }: { readonly mode: LayoutMode; readonly onOpenChange: (open: boolean) => void; readonly onChange: (mode: LayoutMode) => void }) {
   const current = layoutModes.find((candidate) => candidate.id === mode) ?? layoutModes[0]
   const CurrentIcon = current.icon
   return (
-    <MenuButton
+    <DropdownButton
       label={`Layout: ${current.label}`}
+      panelLabel="Workspace layout"
       triggerClassName="toolbar-button"
-      popoverClassName="project-popover"
+      panelClassName="dropdown-panel-menu"
       placement="bottom end"
-      isOpen={isOpen}
       onOpenChange={onOpenChange}
-      trigger={<><CurrentIcon aria-hidden="true" />{current.label}<ChevronDownIcon aria-hidden="true" /></>}
+      trigger={<><CurrentIcon aria-hidden="true" />{current.label}</>}
     >
-      <Menu aria-label="Workspace layout" onAction={(key) => onChange(String(key) as LayoutMode)}>
-        {layoutModes.map((option) => {
-          const OptionIcon = option.icon
-          return <MenuItem id={option.id} key={option.id}><span><OptionIcon aria-hidden="true" />{option.label}</span>{mode === option.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
-        })}
-      </Menu>
-    </MenuButton>
+      {(close) => layoutModes.map((option) => {
+        const OptionIcon = option.icon
+        return (
+          <button type="button" className="dropdown-row" data-active={mode === option.id || undefined} key={option.id} onClick={() => { onChange(option.id); close() }}>
+            <OptionIcon aria-hidden="true" />
+            <span>{option.label}</span>
+            {mode === option.id && <CheckCircleIcon className="dropdown-row-check" aria-hidden="true" />}
+          </button>
+        )
+      })}
+    </DropdownButton>
   )
 }
 
@@ -562,7 +567,6 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
   const split = useRef<HTMLDivElement>(null)
-  const historyControl = useRef<HTMLDivElement>(null)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
@@ -591,22 +595,6 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
     })
     return () => { cancelled = true }
   }, [overlayCoversPreview])
-  // Dismiss the revision-history panel on an outside click or Escape, matching the layout menu.
-  useEffect(() => {
-    if (!historyOpen) return
-    const onPointerDown = (event: globalThis.PointerEvent) => {
-      if (historyControl.current && !historyControl.current.contains(event.target as Node)) setHistoryOpen(false)
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setHistoryOpen(false) }
-    // Capture phase so the panel still closes when the press opens another overlay (e.g. the layout
-    // menu), whose React Aria press handling stops the event before it reaches a bubble-phase listener.
-    document.addEventListener('pointerdown', onPointerDown, true)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [historyOpen])
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
@@ -662,10 +650,10 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
     onChange(await api.generate(design.id, draft.trim(), selection.providerId, selection.modelId, selection.effort ?? undefined))
     setDraft('')
   }
-  const selectRevision = async (revisionId: string) => {
+  const selectRevision = async (revisionId: string, close: () => void) => {
     if (!api) return
     onChange(await api.selectRevision(design.id, revisionId))
-    setHistoryOpen(false)
+    close()
   }
   const restore = async () => {
     if (!api || !design.selectedRevisionId) return
@@ -728,21 +716,27 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
         <span className="workspace-title"><strong>{design.title}</strong><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
-          <LayoutMenu mode={mode} isOpen={layoutMenuOpen} onOpenChange={setLayoutMenuOpen} onChange={setMode} />
-          <div className="history-control" ref={historyControl}>
-            <Button className="toolbar-button" aria-haspopup="true" aria-expanded={historyOpen} onPress={() => setHistoryOpen(!historyOpen)}><ClockIcon aria-hidden="true" />History · {design.revisions.length}</Button>
-            {historyOpen && <div className="history-popover" aria-label="Revision history">
-              <strong>Revision history</strong>
+          <LayoutMenu mode={mode} onOpenChange={setLayoutMenuOpen} onChange={setMode} />
+          <DropdownButton
+            panelLabel="Revision history"
+            triggerClassName="toolbar-button"
+            panelClassName="dropdown-panel-history"
+            placement="bottom end"
+            onOpenChange={setHistoryOpen}
+            trigger={<><ClockIcon aria-hidden="true" />History · {design.revisions.length}</>}
+          >
+            {(close) => <>
+              <strong className="dropdown-panel-title">Revision history</strong>
               {[...design.revisions].reverse().map((revision, index) => (
-                <Button className="history-row" data-active={revision.id === design.selectedRevisionId || undefined} key={revision.id} onPress={() => void selectRevision(revision.id)}>
+                <button type="button" className="history-row" data-active={revision.id === design.selectedRevisionId || undefined} key={revision.id} onClick={() => void selectRevision(revision.id, close)}>
                   {revision.thumbnailDataUrl
                     ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
                     : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
                   <span><strong>{index === 0 ? 'Current head' : new Date(revision.createdAt).toLocaleString()}</strong><small>{revision.prompt}</small></span>
-                </Button>
+                </button>
               ))}
-            </div>}
-          </div>
+            </>}
+          </DropdownButton>
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
         </div>
       </header>

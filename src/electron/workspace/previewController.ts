@@ -19,6 +19,8 @@ export class PreviewController {
   private readonly previewSession: Session
   private view: WebContentsView | null = null
   private attached = false
+  private suspended = false
+  private lastBounds: Rectangle | null = null
   private designId: string | null = null
   private revisionId: string | null = null
   private token: string | null = null
@@ -47,6 +49,8 @@ export class PreviewController {
     if (view.webContents.isDestroyed()) return
     this.closePopWindow()
     this.loadDocument(designId, revisionId, files)
+    this.suspended = false
+    this.lastBounds = bounds
     if (!this.attached) {
       this.window.contentView.addChildView(view)
       this.attached = true
@@ -55,18 +59,32 @@ export class PreviewController {
     view.setBounds(bounds)
   }
 
-  // Temporarily stop compositing the native preview layer so trusted-UI overlays (menus, popovers)
-  // that sit above the docked preview can paint over it. Only affects a docked preview; a detached or
-  // popped-out view is unchanged.
+  // Detach the docked preview from the window while a trusted-UI overlay is open, then re-attach it.
+  // Detaching (rather than only hiding) is deliberate: the preview is a second web contents in the
+  // window, and leaving it attached lets it contend for focus with the trusted renderer, which breaks
+  // focus-driven overlay behavior (React Aria menu hover/keyboard). The renderer shows a captured still
+  // frame in its place so there is no visible gap.
   public setSuspended(suspended: boolean): void {
-    if (!this.attached || !this.view || this.view.webContents.isDestroyed()) return
-    this.view.setVisible(!suspended)
+    if (!this.view || this.view.webContents.isDestroyed() || this.window.isDestroyed()) return
+    if (suspended) {
+      if (!this.attached || this.suspended) return
+      this.window.contentView.removeChildView(this.view)
+      this.attached = false
+      this.suspended = true
+    } else {
+      if (!this.suspended) return
+      this.window.contentView.addChildView(this.view)
+      this.attached = true
+      this.suspended = false
+      this.view.setVisible(true)
+      if (this.lastBounds) this.view.setBounds(this.lastBounds)
+    }
   }
 
   // Capture the docked preview's current frame so the renderer can show it as a still image while the
   // native layer is suspended, avoiding any visible gap. Returns null when no docked preview is shown.
   public async freeze(): Promise<string | null> {
-    if (!this.attached || !this.view || this.view.webContents.isDestroyed()) return null
+    if (!this.attached || this.suspended || !this.view || this.view.webContents.isDestroyed()) return null
     try {
       const image = await this.view.webContents.capturePage()
       if (image.isEmpty()) return null
@@ -86,6 +104,7 @@ export class PreviewController {
       if (!this.window.isDestroyed()) this.window.contentView.removeChildView(view)
       this.attached = false
     }
+    this.suspended = false
     this.loadDocument(designId, revisionId, files)
     if (this.popWindow && !this.popWindow.isDestroyed()) {
       this.fitPopWindow()
@@ -115,11 +134,13 @@ export class PreviewController {
   }
 
   public resize(bounds: Rectangle): void {
-    if (this.attached && this.view && !this.view.webContents.isDestroyed()) this.view.setBounds(bounds)
+    this.lastBounds = bounds
+    if (this.attached && !this.suspended && this.view && !this.view.webContents.isDestroyed()) this.view.setBounds(bounds)
   }
 
   public hide(): void {
     this.closePopWindow()
+    this.suspended = false
     if (!this.attached || !this.view) return
     if (!this.window.isDestroyed()) this.window.contentView.removeChildView(this.view)
     this.attached = false

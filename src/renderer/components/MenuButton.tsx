@@ -20,7 +20,9 @@ export function MenuButton({ trigger, children, label, triggerClassName, popover
   return (
     <MenuTrigger isOpen={isOpen} onOpenChange={onOpenChange}>
       <Button className={triggerClassName} aria-label={label}>{trigger}</Button>
-      <Popover className={popoverClassName} placement={placement}>{children}</Popover>
+      {/* Non-modal: a lightweight dropdown must not make the rest of the workspace inert, so other
+          toolbar controls stay hoverable/clickable and the window keeps its focused appearance. */}
+      <Popover className={popoverClassName} placement={placement} isNonModal>{children}</Popover>
     </MenuTrigger>
   )
 }

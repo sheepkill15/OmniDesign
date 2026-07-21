@@ -75,7 +75,7 @@ test('pops the preview into its own window and docks it back', async () => {
     const dockedWindowCount = run.app.windows().length
 
     await run.window.getByRole('button', { name: /Layout/ }).click()
-    await run.window.getByRole('menuitem', { name: 'Pop out preview' }).click()
+    await run.window.getByRole('button', { name: 'Pop out preview' }).click()
 
     await expect.poll(() => run.app.windows().length).toBeGreaterThan(dockedWindowCount)
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toHaveCount(0)

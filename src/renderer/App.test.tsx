@@ -367,7 +367,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Generated design preview' })
 
     fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Conversation only' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation only' }))
 
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
@@ -384,7 +384,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Design conversation' })
 
     fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Preview only' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview only' }))
 
     expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
@@ -400,7 +400,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Generated design preview' })
 
     fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pop out preview' }))
 
     await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith({ designId: 'design-1', revisionId: 'revision-1' }))
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
