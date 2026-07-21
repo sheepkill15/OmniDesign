@@ -524,16 +524,17 @@ button:disabled,
 
 .effort-control { display: grid; align-content: start; gap: 10px; padding-inline: 14px; }
 .effort-control > span, .effort-labels { color: var(--text-subtle); font-size: 11px; }
-.effort-slider { width: 100%; }
-.effort-slider-track { position: relative; height: 36px; display: flex; align-items: center; }
-.effort-rail { position: absolute; right: 8px; left: 8px; z-index: 0; height: 5px; border-radius: 999px; background: var(--border-strong); }
-.effort-nodes { position: absolute; right: 8px; left: 8px; z-index: 1; display: flex; align-items: center; justify-content: space-between; }
+.effort-vertical-control { min-height: 174px; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.effort-slider { width: 36px; height: 100%; }
+.effort-slider-track { position: relative; width: 36px; height: 100%; display: flex; justify-content: center; }
+.effort-rail { position: absolute; top: 8px; bottom: 8px; z-index: 0; width: 5px; border-radius: 999px; background: var(--border-strong); }
+.effort-nodes { position: absolute; top: 8px; bottom: 8px; z-index: 1; display: flex; flex-direction: column-reverse; align-items: center; justify-content: space-between; }
 .effort-node { width: 12px; height: 12px; box-sizing: border-box; border: 2px solid var(--text-faint); border-radius: 50%; background: var(--surface-1); }
 .effort-node[data-active] { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
 .effort-slider-thumb { width: 1px; height: 1px; opacity: 0; outline: none; pointer-events: none; }
 .effort-slider-thumb[data-focus-visible] { opacity: 1; box-shadow: 0 0 0 3px var(--focus-ring); }
-.effort-labels { display: flex; justify-content: space-between; gap: 8px; }
-.effort-labels span:last-child { text-align: right; }
+.effort-labels { display: flex; flex-direction: column; justify-content: space-between; min-height: 158px; }
+.effort-labels span:last-child { text-align: left; }
 .effort-control[data-disabled] { opacity: .55; }
 
 .submit-prompt {

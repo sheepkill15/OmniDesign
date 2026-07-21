@@ -205,14 +205,16 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
           </Menu></section>
           <section className="generation-settings-column effort-control" data-disabled={!efforts.length || undefined}>
             <h2>Effort</h2><span>{efforts[effortIndex]?.name ?? 'Not supported by this model'}</span>
-            <Slider aria-label="Reasoning effort" className="effort-slider" minValue={0} maxValue={Math.max(0, efforts.length - 1)} step={1} value={effortIndex} isDisabled={!efforts.length} onChange={(value) => onChange({ providerId, modelId: model?.id ?? 'mock-v1', effort: efforts[Number(value)]?.id ?? null })}>
-              <SliderTrack className="effort-slider-track">
-                <span className="effort-rail" aria-hidden="true" />
-                <span className="effort-nodes" aria-hidden="true">{efforts.map((candidate, index) => <span className="effort-node" data-active={index === effortIndex || undefined} key={candidate.id} />)}</span>
-                <SliderThumb className="effort-slider-thumb" />
-              </SliderTrack>
-            </Slider>
-            {efforts.length > 1 && <div className="effort-labels"><span>{efforts[0]?.name}</span><span>{efforts.at(-1)?.name}</span></div>}
+            <div className="effort-vertical-control">
+              <Slider aria-label="Reasoning effort" orientation="vertical" className="effort-slider" minValue={0} maxValue={Math.max(0, efforts.length - 1)} step={1} value={effortIndex} isDisabled={!efforts.length} onChange={(value) => onChange({ providerId, modelId: model?.id ?? 'mock-v1', effort: efforts[Number(value)]?.id ?? null })}>
+                <SliderTrack className="effort-slider-track">
+                  <span className="effort-rail" aria-hidden="true" />
+                  <span className="effort-nodes" aria-hidden="true">{efforts.map((candidate, index) => <span className="effort-node" data-active={index === effortIndex || undefined} key={candidate.id} />)}</span>
+                  <SliderThumb className="effort-slider-thumb" />
+                </SliderTrack>
+              </Slider>
+              {efforts.length > 1 && <div className="effort-labels"><span>{efforts.at(-1)?.name}</span><span>{efforts[0]?.name}</span></div>}
+            </div>
           </section>
         </div>
       </Popover>

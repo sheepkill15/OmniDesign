@@ -150,6 +150,7 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.queryByText('Provider default')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Codex' }))
     const effort = screen.getByRole('slider', { name: 'Reasoning effort' })
+    expect(effort).toHaveAttribute('aria-orientation', 'vertical')
     fireEvent.keyDown(effort, { key: 'End' })
     fireEvent.keyDown(effort, { key: 'Escape' })
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
