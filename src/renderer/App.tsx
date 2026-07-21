@@ -167,16 +167,20 @@ function Settings({ theme, onThemeChange }: { readonly theme: 'dark' | 'light'; 
   )
 }
 
-function NewDesignComposer({ providerLabel, busy, onCreate }: {
-  readonly providerLabel: string
+function NewDesignComposer({ providers, busy, onCreate }: {
+  readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
-  readonly onCreate: (prompt: string) => Promise<void>
+  readonly onCreate: (prompt: string, providerId: 'mock' | 'codex' | 'claude', modelId: string) => Promise<void>
 }) {
   const [prompt, setPrompt] = useState('')
+  const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
+  const [providerId, setProviderId] = useState<'mock' | 'codex' | 'claude'>('mock')
+  const provider = readyProviders.find((candidate) => candidate.id === providerId)
+  const modelId = provider?.models[0]?.id ?? 'mock-v1'
   const submit = async () => {
     const value = prompt.trim()
     if (!value || busy) return
-    await onCreate(value)
+    await onCreate(value, providerId, modelId)
     setPrompt('')
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -193,7 +197,10 @@ function NewDesignComposer({ providerLabel, busy, onCreate }: {
       </TextField>
       <div className="composer-footer">
         <div className="composer-leading"><IconButton label="Attach files or folders" icon={PaperClipIcon} /><span className="project-context"><FolderIcon aria-hidden="true" />Standalone design</span></div>
-        <div className="composer-controls"><span className="control-button"><SparklesIcon aria-hidden="true" />{providerLabel}</span><span className="control-button"><CommandLineIcon aria-hidden="true" />Mock model</span></div>
+        <RadioGroup aria-label="Generation provider" className="composer-controls" value={providerId} onChange={(value) => setProviderId(value as 'mock' | 'codex' | 'claude')}>
+          <Radio className="control-button" value="mock"><SparklesIcon aria-hidden="true" />Development provider</Radio>
+          {readyProviders.map((candidate) => <Radio className="control-button" value={candidate.id} key={candidate.id}><CommandLineIcon aria-hidden="true" />{candidate.name} · {candidate.models[0].name}</Radio>)}
+        </RadioGroup>
         <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy} onPress={() => void submit()}>
           {busy ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}
         </Button>
@@ -202,19 +209,19 @@ function NewDesignComposer({ providerLabel, busy, onCreate }: {
   )
 }
 
-function Home({ designs, providerLabel, busy, activity, onCreate, onOpen }: {
+function Home({ designs, providers, busy, activity, onCreate, onOpen }: {
   readonly designs: readonly OmniDesignDocument[]
-  readonly providerLabel: string
+  readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly activity: GenerationActivity | null
-  readonly onCreate: (prompt: string) => Promise<void>
+  readonly onCreate: (prompt: string, providerId: 'mock' | 'codex' | 'claude', modelId: string) => Promise<void>
   readonly onOpen: (design: OmniDesignDocument) => void
 }) {
   return (
     <main className="home-main">
       <div className="home-content">
         <header className="page-heading"><h1>Start with an idea.</h1><p>Turn it into something you can see, use, and refine—without leaving your local workspace.</p></header>
-        <NewDesignComposer providerLabel={providerLabel} busy={busy} onCreate={onCreate} />
+        <NewDesignComposer providers={providers} busy={busy} onCreate={onCreate} />
         {activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
         <section className="recent-section" aria-labelledby="recent-designs">
           <div className="section-heading"><h2 id="recent-designs">Continue designing</h2><span>{designs.length ? `${designs.length} local` : 'Nothing here yet'}</span></div>
@@ -481,11 +488,11 @@ export function App() {
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
   }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
 
-  const create = async (prompt: string) => {
+  const create = async (prompt: string, providerId: 'mock' | 'codex' | 'claude', modelId: string) => {
     if (!workspaceApi) return
     setBusy(true)
     try {
-      const design = await workspaceApi.create(prompt)
+      const design = await workspaceApi.create(prompt, providerId, modelId)
       setActiveDesign(design)
       await refresh()
     } finally {
@@ -518,7 +525,7 @@ export function App() {
         ? <Settings theme={theme} onThemeChange={changeTheme} />
         : activeDesign
         ? <DesignWorkspace design={activeDesign} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={home} onChange={updateDesign} />
-        : <Home designs={designs} providerLabel={providerState.label} busy={false} activity={activity} onCreate={create} onOpen={openDesign} />}
+        : <Home designs={designs} providers={providerState.providers} busy={false} activity={activity} onCreate={create} onOpen={openDesign} />}
     </div>
   )
 }

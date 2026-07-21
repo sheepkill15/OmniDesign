@@ -75,12 +75,11 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByText('Your first design starts above')).toBeInTheDocument()
   })
 
-  it('reports an installed provider while keeping the mock provider active', async () => {
+  it('keeps the development provider available when an installed provider has no selectable models', async () => {
     installBridge()
     render(<App />)
 
-    await waitFor(() => expect(screen.getByText(/Codex available/)).toBeInTheDocument())
-    expect(screen.getByText(/Development provider active/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Development provider')).toBeInTheDocument())
   })
 
   it('opens provider availability and refreshes local provider discovery', async () => {
@@ -125,7 +124,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
-    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A calm dashboard'))
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A calm dashboard', 'mock', 'mock-v1'))
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
