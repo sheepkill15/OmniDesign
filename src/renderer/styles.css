@@ -321,11 +321,62 @@ button:disabled,
   white-space: nowrap;
 }
 
+.project-trailing {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 34px;
+  margin-right: 6px;
+}
+
 .project-count {
-  padding-right: 10px;
   color: var(--text-faint);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  transition: opacity 100ms ease;
+}
+
+.project-add {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.project-add svg {
+  width: 15px;
+  stroke-width: 2;
+}
+
+.project-add:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.project-add[data-focus-visible] {
+  opacity: 1;
+  pointer-events: auto;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.project-nav-row:hover .project-count,
+.project-nav-row:focus-within .project-count {
+  opacity: 0;
+}
+
+.project-nav-row:hover .project-add,
+.project-nav-row:focus-within .project-add {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .design-sublist {

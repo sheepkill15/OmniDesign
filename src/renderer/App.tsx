@@ -47,12 +47,13 @@ function NavigationItem({ icon: IconComponent, label, badge, active = false, onP
   )
 }
 
-function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOpenDesign }: {
+function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOpenDesign, onAddDesign }: {
   readonly project: ProjectSummary
   readonly activeProjectId: string | null
   readonly activeDesignId: string | null
   readonly onOpen: (project: ProjectSummary) => void
   readonly onOpenDesign: (project: ProjectSummary, design: OmniDesignDocument) => void
+  readonly onAddDesign: (project: ProjectSummary) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [designs, setDesigns] = useState<readonly OmniDesignDocument[]>([])
@@ -73,7 +74,13 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
           <ProjectIcon aria-hidden="true" />
           <span>{project.name}</span>
         </Button>
-        <span className="project-count">{project.designCount}</span>
+        <span className="project-trailing">
+          <span className="project-count" aria-hidden="true">{project.designCount}</span>
+          <TooltipTrigger delay={350}>
+            <Button className="project-add" aria-label={`New design in ${project.name}`} onPress={() => onAddDesign(project)}><PlusIcon aria-hidden="true" /></Button>
+            <Tooltip className="tooltip">New design in {project.name}</Tooltip>
+          </TooltipTrigger>
+        </span>
       </div>
       {expanded && (
         <div className="design-sublist" role="group" aria-label={`${project.name} designs`}>
@@ -89,7 +96,7 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
   )
 }
 
-function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, homeActive, settingsOpen, providersOpen, generationsOpen, onHome, onOpen, onOpenDesign, onSettings, onProviders, onGenerations }: {
+function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, homeActive, settingsOpen, providersOpen, generationsOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations }: {
   readonly projects: readonly ProjectSummary[]
   readonly activeProjectId: string | null
   readonly activeDesignId: string | null
@@ -101,6 +108,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
   readonly onHome: () => void
   readonly onOpen: (project: ProjectSummary) => void
   readonly onOpenDesign: (project: ProjectSummary, design: OmniDesignDocument) => void
+  readonly onAddDesign: (project: ProjectSummary) => void
   readonly onSettings: () => void
   readonly onProviders: () => void
   readonly onGenerations: () => void
@@ -120,7 +128,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
         <div className="sidebar-heading"><span>Projects</span><IconButton label="New design" icon={PlusIcon} onPress={onHome} /></div>
         <div className="project-navigation" aria-label="Projects">
           {projects.map((project) => (
-            <ProjectNavItem key={project.id} project={project} activeProjectId={activeProjectId} activeDesignId={activeDesignId} onOpen={onOpen} onOpenDesign={onOpenDesign} />
+            <ProjectNavItem key={project.id} project={project} activeProjectId={activeProjectId} activeDesignId={activeDesignId} onOpen={onOpen} onOpenDesign={onOpenDesign} onAddDesign={onAddDesign} />
           ))}
           {!projects.length && <p className="sidebar-empty">Your local projects will appear here.</p>}
         </div>
@@ -280,18 +288,19 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
   )
 }
 
-function NewDesignComposer({ providers, busy, fixedProject, projects = [], onCreate }: {
+function NewDesignComposer({ providers, busy, fixedProject, projects = [], initialProject = null, onCreate }: {
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly fixedProject?: ProjectSummary
   readonly projects?: readonly ProjectSummary[]
+  readonly initialProject?: ProjectSummary | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => Promise<void>
 }) {
   const [prompt, setPrompt] = useState('')
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
   const [selection, setSelection] = useState<GenerationSelection>({ providerId: 'mock', modelId: 'mock-v1', effort: null })
   const [sourceProjectPath, setSourceProjectPath] = useState<string | null>(null)
-  const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null)
+  const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(initialProject)
   // Only linked (folder-backed) projects are meaningful reuse targets; standalone projects stay the
   // private container of their single design.
   const linkedProjects = projects.filter((project) => project.kind === 'linked')
@@ -300,6 +309,12 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], onCre
     if (!pending) return
     void pending.then((saved) => { if (saved) setSelection(saved) })
   }, [])
+  // Pre-fill the target when a project's "+" launched this composer.
+  useEffect(() => {
+    if (!initialProject) return
+    setSelectedProject(initialProject)
+    setSourceProjectPath(null)
+  }, [initialProject])
   const applySelection = (next: GenerationSelection) => {
     setSelection(next)
     void window.omnidesign?.settings.saveGenerationDefaults?.(next)
@@ -376,11 +391,12 @@ function ProjectThumbnail({ title, thumbnailDataUrl }: { readonly title: string;
   return <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>
 }
 
-function Home({ projects, providers, busy, activity, onCreate, onOpen }: {
+function Home({ projects, providers, busy, activity, composerProject, onCreate, onOpen }: {
   readonly projects: readonly ProjectSummary[]
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly activity: GenerationActivity | null
+  readonly composerProject: ProjectSummary | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => Promise<void>
   readonly onOpen: (project: ProjectSummary) => void
 }) {
@@ -388,7 +404,7 @@ function Home({ projects, providers, busy, activity, onCreate, onOpen }: {
     <main className="home-main">
       <div className="home-content">
         <header className="page-heading"><h1>Start with an idea.</h1><p>Turn it into something you can see, use, and refine—without leaving your local workspace.</p></header>
-        <NewDesignComposer providers={providers} busy={busy} projects={projects} onCreate={onCreate} />
+        <NewDesignComposer providers={providers} busy={busy} projects={projects} initialProject={composerProject} onCreate={onCreate} />
         {busy
           ? <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>
           : activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
@@ -666,6 +682,7 @@ export function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null)
+  const [composerProject, setComposerProject] = useState<ProjectSummary | null>(null)
   const [activity, setActivity] = useState<GenerationActivity | null>(null)
   const [busy, setBusy] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -742,7 +759,9 @@ export function App() {
     void window.omnidesign?.settings.saveTheme(nextTheme)
   }
   const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false) }
-  const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setActivity(null); void refresh() }
+  const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setActivity(null); void refresh() }
+  // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
+  const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
   const openProviders = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
   const openGenerations = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
@@ -770,7 +789,7 @@ export function App() {
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} />
+      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} />
       {generationsOpen
         ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} />
         : providersOpen
@@ -781,7 +800,7 @@ export function App() {
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} />
-        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpen={openProject} />}
+        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}
     </div>
   )
 }

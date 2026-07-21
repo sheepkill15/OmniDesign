@@ -229,6 +229,21 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A companion settings screen', 'mock', 'mock-v1', undefined, { projectId: 'aurora' }))
   })
 
+  it('pre-fills the composer target from a project row add button', async () => {
+    const bridge = installBridge([design])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'New design in Calm dashboard' }))
+    const composer = await screen.findByRole('region', { name: 'Create a design' })
+    await waitFor(() => expect(within(composer).getByRole('button', { name: /Calm dashboard/ })).toBeInTheDocument())
+    const prompt = within(composer).getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'Another screen' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('Another screen', 'mock', 'mock-v1', undefined, { projectId: 'project-1' }))
+  })
+
   it('keeps the native preview visible while revision history stays in the conversation-side toolbar', async () => {
     const bridge = installBridge()
     render(<App />)
