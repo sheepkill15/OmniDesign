@@ -704,6 +704,59 @@ button:disabled,
 .theme-swatch-dark { background: #1d1d1c; }
 .theme-swatch-light { background: #f6f5f1; }
 
+.provider-list {
+  display: grid;
+  gap: 1px;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  background: var(--border);
+}
+
+.provider-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 78px;
+  padding: 14px;
+  background: var(--surface-1);
+}
+
+.provider-row > span:nth-child(2) {
+  display: grid;
+  gap: 4px;
+}
+
+.provider-row small,
+.provider-row em {
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.provider-status {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.provider-status[data-ready] { background: var(--success); }
+
+.provider-state {
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-align: right;
+}
+
+.settings-empty {
+  margin: 0;
+  padding: 16px;
+  background: var(--surface-1);
+  color: var(--text-subtle);
+}
+
 .mini-preview-image {
   width: 72px;
   height: 48px;

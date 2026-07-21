@@ -45,13 +45,15 @@ function NavigationItem({ icon: IconComponent, label, badge, active = false, onP
   )
 }
 
-function Sidebar({ designs, activeDesignId, settingsOpen, onHome, onOpen, onSettings }: {
+function Sidebar({ designs, activeDesignId, settingsOpen, providersOpen, onHome, onOpen, onSettings, onProviders }: {
   readonly designs: readonly OmniDesignDocument[]
   readonly activeDesignId: string | null
   readonly settingsOpen: boolean
+  readonly providersOpen: boolean
   readonly onHome: () => void
   readonly onOpen: (design: OmniDesignDocument) => void
   readonly onSettings: () => void
+  readonly onProviders: () => void
 }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
@@ -78,12 +80,37 @@ function Sidebar({ designs, activeDesignId, settingsOpen, onHome, onOpen, onSett
         </div>
       </div>
       <div className="sidebar-footer">
-        <NavigationItem icon={CommandLineIcon} label="Providers" />
+        <NavigationItem icon={CommandLineIcon} label="Providers" active={providersOpen} onPress={onProviders} />
         <NavigationItem icon={TrashIcon} label="Trash" />
         <NavigationItem icon={Cog6ToothIcon} label="Settings" active={settingsOpen} onPress={onSettings} />
         <div className="account-row"><span className="avatar">OD</span><span><strong>Local workspace</strong><small>Stored on this device</small></span></div>
       </div>
     </aside>
+  )
+}
+
+function Providers({ providers, loading, onRefresh }: {
+  readonly providers: readonly ProviderStatus[]
+  readonly loading: boolean
+  readonly onRefresh: () => void
+}) {
+  return (
+    <main className="settings-main">
+      <div className="settings-content">
+        <header className="page-heading"><h1>Providers</h1><p>OmniDesign uses the existing sign-in state of locally installed provider tools. No credentials are stored here.</p></header>
+        <section className="settings-section" aria-labelledby="provider-availability-heading">
+          <div className="section-heading"><h2 id="provider-availability-heading">Availability</h2><Button className="secondary-action" onPress={onRefresh} isDisabled={loading}><ArrowPathIcon className={loading ? 'spin' : undefined} aria-hidden="true" />Refresh</Button></div>
+          <div className="provider-list">
+            {providers.map((provider) => <article className="provider-row" key={provider.id}>
+              <span className="provider-status" data-ready={provider.installed && provider.authenticated || undefined} aria-hidden="true" />
+              <span><strong>{provider.name}</strong><small>{provider.detail}</small>{provider.models.length > 0 && <em>{provider.models.length} model{provider.models.length === 1 ? '' : 's'} available</em>}</span>
+              <span className="provider-state">{provider.installed && provider.authenticated ? 'Ready' : provider.installed ? 'Sign in required' : 'Unavailable'}</span>
+            </article>)}
+            {!loading && !providers.length && <p className="settings-empty">No provider availability information is available. Refresh to test local provider tools.</p>}
+          </div>
+        </section>
+      </div>
+    </main>
   )
 }
 
@@ -340,17 +367,27 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
   )
 }
 
-function useAvailableProvider(): string {
+function useProviders(): { readonly label: string; readonly providers: readonly ProviderStatus[]; readonly loading: boolean; readonly refresh: () => void } {
   const [label, setLabel] = useState('Development provider')
-  useEffect(() => {
+  const [providers, setProviders] = useState<ProviderStatus[]>([])
+  const [loading, setLoading] = useState(false)
+  const refresh = useCallback(() => {
     const api = window.omnidesign?.providers
     if (!api) return
-    void api.discover().then((providers) => {
-      const provider = providers.find((candidate) => candidate.installed && candidate.authenticated)
-      if (provider) setLabel(`${provider.name} available · Development provider active`)
-    }).catch(() => undefined)
+    setLoading(true)
+    void api.discover().then((available) => {
+      setProviders(available)
+      const provider = available.find((candidate) => candidate.installed && candidate.authenticated)
+      setLabel(provider ? `${provider.name} available · Development provider active` : 'Development provider')
+    }).catch(() => {
+      setProviders([])
+      setLabel('Development provider')
+    }).finally(() => setLoading(false))
   }, [])
-  return label
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+  return { label, providers, loading, refresh }
 }
 
 export function App() {
@@ -359,8 +396,9 @@ export function App() {
   const [activity, setActivity] = useState<GenerationActivity | null>(null)
   const [busy, setBusy] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [providersOpen, setProvidersOpen] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
-  const providerLabel = useAvailableProvider()
+  const providerState = useProviders()
   const workspaceApi = window.omnidesign?.workspace
 
   const updateDesign = useCallback((design: OmniDesignDocument) => {
@@ -422,18 +460,21 @@ export function App() {
     document.documentElement.dataset.theme = nextTheme
     void window.omnidesign?.settings.saveTheme(nextTheme)
   }
-  const home = () => { void window.omnidesign?.preview.hide(); setSettingsOpen(false); setActiveDesign(null); setActivity(null); void refresh() }
-  const openSettings = () => { void window.omnidesign?.preview.hide(); setActiveDesign(null); setSettingsOpen(true) }
-  const openDesign = (design: OmniDesignDocument) => { setSettingsOpen(false); setActiveDesign(design) }
+  const home = () => { void window.omnidesign?.preview.hide(); setProvidersOpen(false); setSettingsOpen(false); setActiveDesign(null); setActivity(null); void refresh() }
+  const openSettings = () => { void window.omnidesign?.preview.hide(); setProvidersOpen(false); setActiveDesign(null); setSettingsOpen(true) }
+  const openProviders = () => { void window.omnidesign?.preview.hide(); setSettingsOpen(false); setActiveDesign(null); setProvidersOpen(true); providerState.refresh() }
+  const openDesign = (design: OmniDesignDocument) => { setProvidersOpen(false); setSettingsOpen(false); setActiveDesign(design) }
 
   return (
     <div className="app-frame">
-      <Sidebar designs={designs} activeDesignId={activeDesign?.id ?? null} settingsOpen={settingsOpen} onHome={home} onOpen={openDesign} onSettings={openSettings} />
-      {settingsOpen
+      <Sidebar designs={designs} activeDesignId={activeDesign?.id ?? null} settingsOpen={settingsOpen} providersOpen={providersOpen} onHome={home} onOpen={openDesign} onSettings={openSettings} onProviders={openProviders} />
+      {providersOpen
+        ? <Providers providers={providerState.providers} loading={providerState.loading} onRefresh={providerState.refresh} />
+        : settingsOpen
         ? <Settings theme={theme} onThemeChange={changeTheme} />
         : activeDesign
         ? <DesignWorkspace design={activeDesign} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={home} onChange={updateDesign} />
-        : <Home designs={designs} providerLabel={providerLabel} busy={false} activity={activity} onCreate={create} onOpen={openDesign} />}
+        : <Home designs={designs} providerLabel={providerState.label} busy={false} activity={activity} onCreate={create} onOpen={openDesign} />}
     </div>
   )
 }

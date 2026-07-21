@@ -82,6 +82,18 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByText(/Development provider active/)).toBeInTheDocument()
   })
 
+  it('opens provider availability and refreshes local provider discovery', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+    expect(await screen.findByRole('heading', { name: 'Providers' })).toBeInTheDocument()
+    expect(screen.getAllByText('Ready')).not.toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    await waitFor(() => expect(bridge.providers.discover).toHaveBeenCalledTimes(3))
+  })
+
   it('creates a design through the workspace bridge and opens the split workspace', async () => {
     const bridge = installBridge()
     render(<App />)
