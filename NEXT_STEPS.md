@@ -4,7 +4,7 @@ This is a working plan, not a finalized product specification. The project owner
 
 ## Immediate Objective
 
-Turn Phase 1 into a narrow, testable vertical slice before broadly scaffolding or implementing the application.
+Use the completed walking skeleton to expand the implemented vertical slice toward the full Phase 1 acceptance criteria without weakening its tested persistence and preview isolation.
 
 The first complete user journey should be:
 
@@ -124,14 +124,31 @@ The walking skeleton should:
 
 This slice must test the difficult architectural boundaries rather than presenting a broad but disconnected UI mockup.
 
+Implementation is now underway on `feature/phase-1-core`. The current slice exercises real renderer-to-main IPC and includes:
+
+- Standalone design creation through a deterministic development provider.
+- Simulated generation-stage activity.
+- Tailwind 4 compilation with complete candidate extraction.
+- Blocking validation for malformed documents, scripts, inline handlers, and external runtime resources.
+- SQLite persistence with numbered migration state, foreign keys, and WAL journaling.
+- Immutable HTML revision snapshots in OmniDesign-managed application storage.
+- A session-isolated `WebContentsView` using `omnidesign-preview://`, no preload, sandboxing, denied permissions, denied navigation, blocked network requests, and a restrictive preview CSP.
+- Conversational follow-up generation, revision selection, and non-destructive restoration.
+- Draft persistence, restart recovery, and selected-revision offline ZIP export.
+- Automated coverage for persistence/recovery, restoration, compilation/validation, preview policy, export contents, and critical React interactions.
+
+The walking skeleton boundaries are complete. Browser-console, runtime, and preview-load diagnostics are captured, persisted with their revision metadata, and surfaced through the trusted UI. The workspace's keyboard-operable divider persists independently per design, and the isolated preview generates aspect-ratio-preserving managed thumbnails for revisions after they load. Home uses the active revision thumbnail, while history exposes revision-specific thumbnails. Rejected generated candidates are stored outside completed history with their diagnostics and remain inspectable without replacing the prior valid revision. Playwright drives the built Electron application through creation, preview, offline export, close, relaunch, and recovery using isolated test data. The current development provider is not a substitute for connecting the real Codex and Claude adapters to structured design generation.
+
 ### 5. Complete the Provider Integration
 
-The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. Continue by:
+The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. The accepted next execution model is repo-native agent work: OmniDesign initializes a self-contained Git repository and `index.html` for each design, starts the provider harness in that repository, and supplies a linked original project only as an explicit read-only reference. Git determines changes and revisions; the agent neither inventories changed files nor chooses an entry point. Continue by:
 
 - Preserving the provider-neutral contracts described in `ARCHITECTURE.md` and keeping provider-specific concepts in adapters.
 - Preserve the mock provider for automated tests and local development.
 - Add Codex and Claude contract and integration tests appropriate to their supported capabilities.
 - Add the deferred cancellation, continuation, configuration, and API-key behavior when its Phase 1 contract is defined.
+- Implement the managed design-repository lifecycle and provider-harness working-directory contract.
+- Define and validate the remaining JSON completion-payload schema with the product owner. `response` is required for the agent's conversational reply and may be returned without a design change. Keep Git state, validation and diagnostics harness-owned, and usage adapter-owned; no agent field may inventory changed files or choose an entry point.
 
 ### 6. Run the Generation-Framework Benchmark
 
@@ -162,7 +179,17 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 ## Current Handoff State
 
+- Phase 1 implementation has begun on `feature/phase-1-core`. A working development-provider slice can create, iterate, preview, persist, reopen, select/restore history, and export a standalone design.
+- Runtime verification on Windows created two revisions in Electron, rendered the generated result through the isolated `WebContentsView`, restarted the application, and recovered both revisions from local storage.
+- The walking skeleton is complete: it captures and persists preview console, runtime, and load diagnostics; its per-design split-divider state survives restart and is keyboard operable; aspect-ratio-preserving revision thumbnails are captured through the isolated preview and persisted as managed artifacts; and invalid candidates persist outside completed history without replacing the prior valid revision. The built Electron application has automated coverage for creation, preview framing, offline export, close, relaunch, and recovery with isolated test storage.
 - The product owner accepted the Quiet Studio home direction. The consolidated implementation and its future-screen rules are documented in `docs/HOME_DESIGN_BASELINE.md` and `DESIGN_SYSTEM.md`.
+- The trusted application now exposes a Settings appearance screen. Its dark and light themes use the existing semantic tokens, persist through the validated Electron IPC boundary and SQLite migration, and never alter the isolated generated-design preview.
+- Providers now has an availability surface backed by the provider-neutral discovery gateway. It refreshes locally installed Codex and Claude Code availability, sign-in diagnostics, and adapter-reported model counts without exposing credentials or subprocess access to the renderer. Persisted provider configurations and per-prompt provider/model selection remain to be connected to design generation.
+- Generation now enters a persisted job queue. The initial coordinator runs up to two designs concurrently while maintaining a sequential queue per design, retains job state in SQLite, and marks queued or running work interrupted on application shutdown or restart. The workspace exposes Stop for active or queued work and Retry for stopped attempts; cancellation avoids creating an invalid candidate and retries create a fresh queued attempt while retaining prior diagnostics. Stop now aborts the active Codex or Claude provider invocation through the provider-neutral adapter contract, rather than waiting for its eventual response. Queued mock generations make up to three automatic validation self-repair attempts before retaining an invalid candidate; provider/transport retries, Continue, and broader queue management remain the next additions to this subsystem.
+- The persistent Generations navigation entry now shows the active-job count and opens a cross-design queue view. It identifies queued and running prompts, lets the user open the associated design, and provides Stop without requiring the user to return to that design first. Per-job elapsed time, provider/model details, detailed activity, and queue-paused state remain to be surfaced.
+- A failed or cancelled predecessor now persists a paused state for its design queue. Later prompts remain queued, including after restart, until the user retries the stopped attempt; the retry resumes the queue and is ordered ahead of its paused successors.
+- Agent-backed designs now receive a managed Git repository with a prepared `index.html`. Codex and Claude harness calls run in that workspace, return a strict conversational `response` payload, and leave Git plus independent validation to determine whether a revision is created. Git commit identities are retained with completed revisions; response-only turns persist without manufacturing a revision.
+- Provider, model, and optional effort selection now persists on queued work and survives Retry. Both the home and design-workspace composers expose one layered generation-settings menu for the development provider plus authenticated discovered provider models; effort uses the adapter-advertised levels and is omitted when Provider default is selected. The home project control now offers standalone creation or a native local-folder choice, which creates a linked project without writing to its source folder.
 - The temporary concept switcher and rejected Visual Gallery and Project Workbench implementations have been removed. Representative project/design data remains non-functional placeholder content until persistence is connected.
 - The project charter and roadmap are recorded in `AGENTS.md`.
 - Accepted and proposed technical direction is recorded in `ARCHITECTURE.md`.
@@ -176,4 +203,4 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - Basic multiple-design support is now included in Phase 1; multiple conversations and visible branching remain deferred.
 - Phase 1 is qualified on Windows first while preserving the accepted cross-platform architecture.
 - Persistent AI-extracted project profiles are deferred; Phase 1 uses read-only project context on demand during generation.
-- Broad implementation should not begin until the primary Phase 1 flow and initial visual language are sufficiently defined.
+- The primary Phase 1 flow, provider dispatch pilot, and trusted visual language are sufficiently defined for implementation. Continue in vertical slices and keep the full `docs/PHASE_1_SPEC.md` acceptance matrix distinct from walking-skeleton progress.

@@ -77,6 +77,38 @@ describe('ProviderService', () => {
     })
   })
 
+  it('forwards cancellation through the provider-neutral prompt contract', async () => {
+    const claude = createAdapter('claude')
+    const controller = new AbortController()
+    const service = new ProviderService([claude])
+
+    await service.prompt({
+      requestId: 'request-cancel',
+      providerId: 'claude',
+      modelId: 'model-1',
+      prompt: 'Build it',
+      signal: controller.signal,
+    })
+
+    expect(claude.prompt).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }), expect.any(Function))
+  })
+
+  it('runs a design agent in its managed workspace and validates its conversational completion payload', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"The design is ready."}' })
+
+    await expect(service.runDesignAgent({
+      requestId: 'request-2', providerId: 'codex', modelId: 'model-1', prompt: 'Refine the hierarchy', workspacePath: 'C:\\workspace\\design',
+    })).resolves.toEqual({ providerId: 'codex', modelId: 'model-1', response: 'The design is ready.' })
+
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      workspacePath: 'C:\\workspace\\design',
+      outputSchema: expect.objectContaining({ required: ['response'] }),
+      instructions: expect.stringContaining('C:\\workspace\\design'),
+    }), expect.any(Function))
+  })
+
   it('rejects duplicate adapter identities', () => {
     expect(() => new ProviderService([createAdapter('codex'), createAdapter('codex')])).toThrow(
       'Provider adapter identifiers must be unique.',

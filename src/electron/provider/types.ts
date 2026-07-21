@@ -27,6 +27,7 @@ export interface ProviderPrompt {
   readonly modelId: string
   readonly effort?: string
   readonly prompt: string
+  readonly signal?: AbortSignal
 }
 
 export interface ProviderReply {

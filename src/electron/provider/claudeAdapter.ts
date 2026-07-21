@@ -11,7 +11,6 @@ import type { ProviderEffortLevel, ProviderModel } from './types.js'
 import { isObject, providerFailure, titleCase } from './providerUtils.js'
 
 const COMMAND_TIMEOUT_MS = 12_000
-const PROMPT_TIMEOUT_MS = 120_000
 
 export function parseClaudeEfforts(help: string): ProviderEffortLevel[] {
   const effortHelp = help.match(/--effort\s+<level>[\s\S]*?\(([a-z,\s]+)\)/i)?.[1] ?? ''
@@ -75,12 +74,16 @@ export class ClaudeAdapter implements ProviderAdapter {
       '--include-partial-messages',
       '--model', request.modelId,
       ...(request.effort ? ['--effort', request.effort] : []),
-      '--permission-mode', 'plan',
+      '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
       '--no-session-persistence',
+      ...(request.instructions ? ['--append-system-prompt', request.instructions] : []),
+      ...(request.outputSchema ? ['--json-schema', JSON.stringify(request.outputSchema)] : []),
     ]
     const result = await runCommand(command, args, {
+      ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
       input: request.prompt,
-      timeoutMs: PROMPT_TIMEOUT_MS,
+      // No prompt timeout: the agent runs until it finishes or the user cancels via the abort signal.
+      ...(request.signal ? { signal: request.signal } : {}),
       onStdoutLine: (line) => {
         const parsed = this.readEvent(line)
         if (!parsed) {

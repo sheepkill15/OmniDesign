@@ -13,7 +13,9 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "start": "electron .",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json",
-    "test": "vitest run --environment jsdom --exclude=dist-electron/**"
+    "test": "vitest run --environment jsdom --exclude=dist-electron/** --exclude=tests/e2e/**",
+    "test:e2e": "pnpm build && playwright test -c playwright.e2e.config.ts",
+    "vendor:alpine": "node scripts/vendor-alpine.mjs"
   },
   "dependencies": {
     "@heroicons/react": "2.2.0",
@@ -26,6 +28,8 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "alpinejs": "^3.15.12",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^26.1.1",
@@ -36,6 +40,7 @@
     "cross-env": "^10.1.0",
     "electron": "^43.1.1",
     "jsdom": "^29.1.1",
+    "playwright": "1.61.1",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10",

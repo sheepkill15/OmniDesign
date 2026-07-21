@@ -37,14 +37,18 @@ export async function runCommand(
   resolved: ResolvedCommand,
   args: readonly string[],
   options: {
+    readonly cwd?: string
     readonly input?: string
     readonly timeoutMs?: number
+    readonly signal?: AbortSignal
     readonly onStdoutLine?: (line: string) => void
     readonly onStderrLine?: (line: string) => void
   } = {},
 ): Promise<CommandResult> {
+  if (options.signal?.aborted) return Promise.reject(new Error('Provider command was cancelled.'))
   const invocation = resolveSpawnInvocation(resolved, args)
   const child = spawn(invocation.command, invocation.args, {
+    ...(options.cwd ? { cwd: options.cwd } : {}),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,
@@ -66,28 +70,40 @@ export async function runCommand(
 
   return new Promise<CommandResult>((resolve, reject) => {
     let timedOut = false
+    let cancelled = false
+    let settled = false
+    const finish = (complete: () => void) => {
+      if (settled) return
+      settled = true
+      if (timeout) clearTimeout(timeout)
+      options.signal?.removeEventListener('abort', cancel)
+      complete()
+    }
     const timeout = options.timeoutMs === undefined ? undefined : setTimeout(() => {
       timedOut = true
       child.kill()
     }, options.timeoutMs)
+    const cancel = () => {
+      cancelled = true
+      child.kill()
+    }
+    options.signal?.addEventListener('abort', cancel, { once: true })
     child.on('error', (error) => {
-      if (timeout) clearTimeout(timeout)
-      reject(error)
+      finish(() => reject(error))
     })
     child.on('close', (code) => {
-      if (timeout) clearTimeout(timeout)
-      if (stdoutRemainder && options.onStdoutLine) options.onStdoutLine(stdoutRemainder)
-      if (stderrRemainder && options.onStderrLine) options.onStderrLine(stderrRemainder)
-      const output = {
-        code,
-        stdout: Buffer.concat(stdout).toString('utf8'),
-        stderr: Buffer.concat(stderr).toString('utf8'),
-      }
-      if (timedOut) {
-        reject(new Error(`Provider command timed out after ${options.timeoutMs}ms.`))
-      } else {
-        resolve(output)
-      }
+      finish(() => {
+        if (stdoutRemainder && options.onStdoutLine) options.onStdoutLine(stdoutRemainder)
+        if (stderrRemainder && options.onStderrLine) options.onStderrLine(stderrRemainder)
+        const output = {
+          code,
+          stdout: Buffer.concat(stdout).toString('utf8'),
+          stderr: Buffer.concat(stderr).toString('utf8'),
+        }
+        if (cancelled) reject(new Error('Provider command was cancelled.'))
+        else if (timedOut) reject(new Error(`Provider command timed out after ${options.timeoutMs}ms.`))
+        else resolve(output)
+      })
     })
   })
 }
