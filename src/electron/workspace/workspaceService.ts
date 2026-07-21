@@ -1,12 +1,17 @@
 import { compileDesignHtml, validateCompiledDesign } from './compiler.js'
 import type { Design, GenerationActivity, Layout, Theme } from './contracts.js'
+import { DesignRepositoryManager } from './designRepository.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
 
 export class WorkspaceService {
-  public constructor(private readonly store: WorkspaceStore) {}
+  private readonly repositories: DesignRepositoryManager
+
+  public constructor(private readonly store: WorkspaceStore) {
+    this.repositories = new DesignRepositoryManager(store.getDesignArtifactsDirectory())
+  }
 
   public listDesigns(): Design[] {
     return this.store.listDesigns()
@@ -19,6 +24,7 @@ export class WorkspaceService {
   public async createDesign(prompt: string, onActivity: ActivityListener): Promise<Design> {
     const generated = generateMockDesign(prompt)
     const design = this.store.createStandaloneDesign(prompt, generated.title)
+    this.repositories.initialize(design.id)
     return this.generate(design.id, prompt, onActivity, generated.html, false)
   }
 
@@ -40,6 +46,7 @@ export class WorkspaceService {
         onActivity({ designId, stage: 'validating', detail: 'Checking document structure and preview security.' })
         validateCompiledDesign(compiled)
         onActivity({ designId, stage: 'saving', detail: 'Saving an immutable local revision.' })
+        this.repositories.commitIndexHtml(designId, compiled, `Apply design revision: ${prompt}`)
         const saved = this.store.addRevision(designId, prompt, compiled)
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved

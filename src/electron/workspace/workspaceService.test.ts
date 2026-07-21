@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -27,6 +28,9 @@ describe('WorkspaceService', () => {
     expect(second.revisions).toHaveLength(2)
     expect(second.revisions[1].parentRevisionId).toBe(first.activeRevisionId)
     expect(second.revisions[1].html).toContain('<style>')
+    const repositoryPath = path.join(directory, 'designs', first.id, 'repository')
+    expect(existsSync(path.join(repositoryPath, '.git'))).toBe(true)
+    expect(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repositoryPath, encoding: 'utf8' }).trim()).toBe('3')
     expect(activity.map((event) => event.stage)).toEqual([
       'generating', 'compiling', 'validating', 'saving', 'complete',
       'generating', 'compiling', 'validating', 'saving', 'complete',

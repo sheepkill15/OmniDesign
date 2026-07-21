@@ -216,6 +216,10 @@ export class WorkspaceStore {
     this.database.close()
   }
 
+  public getDesignArtifactsDirectory(): string {
+    return this.artifactsDirectory
+  }
+
   public listDesigns(): Design[] {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, d.title, d.created_at, d.updated_at,
