@@ -272,8 +272,9 @@ function PreviewSurface({ design }: { readonly design: OmniDesignDocument }) {
   return <div className="preview-surface" ref={surface}>{!revisionId && <p>Preview appears after the first valid revision.</p>}</div>
 }
 
-function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
+function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }: {
   readonly design: OmniDesignDocument
+  readonly providers: readonly ProviderStatus[]
   readonly activity: GenerationActivity | null
   readonly busy: boolean
   readonly onBack: () => void
@@ -282,6 +283,7 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
   const [draft, setDraft] = useState(design.draft)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
+  const [providerId, setProviderId] = useState<'mock' | 'codex' | 'claude'>('mock')
   const split = useRef<HTMLDivElement>(null)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
@@ -289,6 +291,9 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
   const activeJob = [...design.generationJobs].reverse().find((job) => ['queued', 'running'].includes(job.state))
   const retryableJob = [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
   const api = window.omnidesign?.workspace
+  const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
+  const selectedProvider = readyProviders.find((provider) => provider.id === providerId)
+  const modelId = selectedProvider?.models[0]?.id ?? 'mock-v1'
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
@@ -311,7 +316,7 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
 
   const submit = async () => {
     if (!api || !draft.trim() || busy || !selectedIsHead) return
-    onChange(await api.generate(design.id, draft.trim()))
+    onChange(await api.generate(design.id, draft.trim(), providerId, modelId))
     setDraft('')
   }
   const selectRevision = async (revisionId: string) => {
@@ -377,7 +382,7 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
             <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
             }} /></TextField>
-            <div className="workspace-composer-footer"><span><SparklesIcon aria-hidden="true" />Development provider · Mock model</span><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+            <div className="workspace-composer-footer"><RadioGroup aria-label="Change provider" className="composer-controls" value={providerId} onChange={(value) => setProviderId(value as 'mock' | 'codex' | 'claude')}><Radio className="control-button" value="mock">Development provider</Radio>{readyProviders.map((provider) => <Radio className="control-button" value={provider.id} key={provider.id}>{provider.name} · {provider.models[0].name}</Radio>)}</RadioGroup><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
           </div>
         </section>
         <div
@@ -524,7 +529,7 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} onThemeChange={changeTheme} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={home} onChange={updateDesign} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={home} onChange={updateDesign} />
         : <Home designs={designs} providers={providerState.providers} busy={false} activity={activity} onCreate={create} onOpen={openDesign} />}
     </div>
   )
