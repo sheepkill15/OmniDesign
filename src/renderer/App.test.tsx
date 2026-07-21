@@ -94,6 +94,26 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.providers.discover).toHaveBeenCalledTimes(3))
   })
 
+  it('shows active work globally and can cancel it from the generations view', async () => {
+    const queuedDesign: OmniDesignDocument = {
+      ...design,
+      generationJobs: [{
+        id: '7e3670bd-2f6c-444d-afd0-a26e17839964', designId: 'design-1', prompt: 'Try a warmer direction', state: 'queued',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: null, completedAt: null, error: null,
+      }],
+    }
+    const bridge = installBridge([queuedDesign])
+    render(<App />)
+
+    await screen.findAllByText('Calm dashboard')
+    fireEvent.click(screen.getByRole('button', { name: /Generations/ }))
+    expect(await screen.findByRole('heading', { name: 'Generations' })).toBeInTheDocument()
+    expect(screen.getByText(/Try a warmer direction/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+
+    await waitFor(() => expect(bridge.workspace.cancelGeneration).toHaveBeenCalledWith('7e3670bd-2f6c-444d-afd0-a26e17839964'))
+  })
+
   it('creates a design through the workspace bridge and opens the split workspace', async () => {
     const bridge = installBridge()
     render(<App />)

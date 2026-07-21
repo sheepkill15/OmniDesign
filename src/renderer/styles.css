@@ -757,6 +757,45 @@ button:disabled,
   color: var(--text-subtle);
 }
 
+.generation-list {
+  display: grid;
+  gap: 1px;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  background: var(--border);
+}
+
+.generation-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 76px;
+  padding: 12px 14px;
+  background: var(--surface-1);
+}
+
+.generation-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.generation-copy small {
+  max-width: 480px;
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generation-row .secondary-action { margin-left: auto; }
+
 .mini-preview-image {
   width: 72px;
   height: 48px;

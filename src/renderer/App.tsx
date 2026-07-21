@@ -45,15 +45,17 @@ function NavigationItem({ icon: IconComponent, label, badge, active = false, onP
   )
 }
 
-function Sidebar({ designs, activeDesignId, settingsOpen, providersOpen, onHome, onOpen, onSettings, onProviders }: {
+function Sidebar({ designs, activeDesignId, settingsOpen, providersOpen, generationsOpen, onHome, onOpen, onSettings, onProviders, onGenerations }: {
   readonly designs: readonly OmniDesignDocument[]
   readonly activeDesignId: string | null
   readonly settingsOpen: boolean
   readonly providersOpen: boolean
+  readonly generationsOpen: boolean
   readonly onHome: () => void
   readonly onOpen: (design: OmniDesignDocument) => void
   readonly onSettings: () => void
   readonly onProviders: () => void
+  readonly onGenerations: () => void
 }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
@@ -64,7 +66,7 @@ function Sidebar({ designs, activeDesignId, settingsOpen, providersOpen, onHome,
       </div>
       <nav className="global-navigation" aria-label="Application">
         <NavigationItem icon={HomeIcon} label="Home" active={!activeDesignId && !settingsOpen} onPress={onHome} />
-        <NavigationItem icon={BoltIcon} label="Generations" />
+        <NavigationItem icon={BoltIcon} label="Generations" badge={(() => { const count = designs.flatMap((design) => design.generationJobs).filter((job) => ['queued', 'running'].includes(job.state)).length; return count ? String(count) : undefined })()} active={generationsOpen} onPress={onGenerations} />
       </nav>
       <div className="sidebar-section">
         <div className="sidebar-heading"><span>Designs</span><IconButton label="Add design" icon={PlusIcon} onPress={onHome} /></div>
@@ -86,6 +88,33 @@ function Sidebar({ designs, activeDesignId, settingsOpen, providersOpen, onHome,
         <div className="account-row"><span className="avatar">OD</span><span><strong>Local workspace</strong><small>Stored on this device</small></span></div>
       </div>
     </aside>
+  )
+}
+
+function Generations({ designs, onOpen, onCancel }: {
+  readonly designs: readonly OmniDesignDocument[]
+  readonly onOpen: (design: OmniDesignDocument) => void
+  readonly onCancel: (jobId: string) => Promise<void>
+}) {
+  const jobs = designs.flatMap((design) => design.generationJobs
+    .filter((job) => ['queued', 'running'].includes(job.state))
+    .map((job) => ({ design, job })))
+  return (
+    <main className="settings-main">
+      <div className="settings-content">
+        <header className="page-heading"><h1>Generations</h1><p>Work continues while you move between designs. Each design runs one prompt at a time.</p></header>
+        <section className="settings-section" aria-labelledby="active-generations-heading">
+          <div className="section-heading"><h2 id="active-generations-heading">Active work</h2><span>{jobs.length ? `${jobs.length} active` : 'All caught up'}</span></div>
+          <div className="generation-list">
+            {jobs.map(({ design, job }) => <article className="generation-row" key={job.id}>
+              <Button className="generation-copy" onPress={() => onOpen(design)}><strong>{design.title}</strong><small>{job.state === 'queued' ? 'Queued' : 'Running'} · {job.prompt}</small></Button>
+              <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>
+            </article>)}
+            {!jobs.length && <p className="settings-empty">No generations are queued or running.</p>}
+          </div>
+        </section>
+      </div>
+    </main>
   )
 }
 
@@ -397,6 +426,7 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [providersOpen, setProvidersOpen] = useState(false)
+  const [generationsOpen, setGenerationsOpen] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const providerState = useProviders()
   const workspaceApi = window.omnidesign?.workspace
@@ -460,15 +490,22 @@ export function App() {
     document.documentElement.dataset.theme = nextTheme
     void window.omnidesign?.settings.saveTheme(nextTheme)
   }
-  const home = () => { void window.omnidesign?.preview.hide(); setProvidersOpen(false); setSettingsOpen(false); setActiveDesign(null); setActivity(null); void refresh() }
-  const openSettings = () => { void window.omnidesign?.preview.hide(); setProvidersOpen(false); setActiveDesign(null); setSettingsOpen(true) }
-  const openProviders = () => { void window.omnidesign?.preview.hide(); setSettingsOpen(false); setActiveDesign(null); setProvidersOpen(true); providerState.refresh() }
-  const openDesign = (design: OmniDesignDocument) => { setProvidersOpen(false); setSettingsOpen(false); setActiveDesign(design) }
+  const home = () => { void window.omnidesign?.preview.hide(); setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setActiveDesign(null); setActivity(null); void refresh() }
+  const openSettings = () => { void window.omnidesign?.preview.hide(); setGenerationsOpen(false); setProvidersOpen(false); setActiveDesign(null); setSettingsOpen(true) }
+  const openProviders = () => { void window.omnidesign?.preview.hide(); setGenerationsOpen(false); setSettingsOpen(false); setActiveDesign(null); setProvidersOpen(true); providerState.refresh() }
+  const openGenerations = () => { void window.omnidesign?.preview.hide(); setProvidersOpen(false); setSettingsOpen(false); setActiveDesign(null); setGenerationsOpen(true); void refresh() }
+  const openDesign = (design: OmniDesignDocument) => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setActiveDesign(design) }
+  const cancelGeneration = async (jobId: string) => {
+    await workspaceApi?.cancelGeneration(jobId)
+    await refresh()
+  }
 
   return (
     <div className="app-frame">
-      <Sidebar designs={designs} activeDesignId={activeDesign?.id ?? null} settingsOpen={settingsOpen} providersOpen={providersOpen} onHome={home} onOpen={openDesign} onSettings={openSettings} onProviders={openProviders} />
-      {providersOpen
+      <Sidebar designs={designs} activeDesignId={activeDesign?.id ?? null} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} onHome={home} onOpen={openDesign} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} />
+      {generationsOpen
+        ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} />
+        : providersOpen
         ? <Providers providers={providerState.providers} loading={providerState.loading} onRefresh={providerState.refresh} />
         : settingsOpen
         ? <Settings theme={theme} onThemeChange={changeTheme} />
