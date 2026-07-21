@@ -61,6 +61,7 @@ describe('GenerationQueue', () => {
     work.get(second.id)?.resolve()
     work.get(third.id)?.resolve()
     await waitFor(() => store.listGenerationJobs(['completed']).length === 3)
+    await new Promise((resolve) => setTimeout(resolve, 0))
     store.close()
   })
 
@@ -76,6 +77,39 @@ describe('GenerationQueue', () => {
       expect.objectContaining({ id: queued.id, state: 'interrupted' }),
       expect.objectContaining({ id: running.id, state: 'interrupted' }),
     ]))
+    store.close()
+  })
+
+  it('cancels queued work and retries interrupted work as a new queued job', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const queue = new GenerationQueue(store, vi.fn(), () => undefined)
+    const queued = store.enqueueGenerationJob(design.id, 'Queued prompt')
+
+    expect(queue.cancel(queued.id)).toMatchObject({ id: queued.id, state: 'cancelled' })
+    const retried = queue.retry(queued.id)
+    expect(retried).toMatchObject({ designId: design.id, prompt: 'Queued prompt', state: 'queued' })
+    expect(retried.id).not.toBe(queued.id)
+    await waitFor(() => store.getGenerationJob(retried.id)?.state === 'completed')
+    store.close()
+  })
+
+  it('aborts active work and records it as cancelled', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const pending = deferred()
+    let signal: AbortSignal | undefined
+    const queue = new GenerationQueue(store, async (_job, currentSignal) => {
+      signal = currentSignal
+      await pending.promise
+    }, () => undefined)
+    const job = queue.enqueue(design.id, 'Active prompt')
+
+    await waitFor(() => signal !== undefined)
+    queue.cancel(job.id)
+    expect(signal?.aborted).toBe(true)
+    pending.resolve()
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'cancelled')
     store.close()
   })
 })

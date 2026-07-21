@@ -17,6 +17,7 @@ const design: OmniDesignDocument = {
   layout: { conversationWidth: 43 },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
+  generationJobs: [],
   revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', html: '<html><body>Dashboard</body></html>', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
@@ -30,9 +31,11 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     },
     workspace: {
       list: vi.fn().mockResolvedValue(initialDesigns),
-      get: vi.fn().mockResolvedValue(design),
+      get: vi.fn().mockResolvedValue(createdDesign),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
+      cancelGeneration: vi.fn().mockResolvedValue(undefined),
+      retryGeneration: vi.fn().mockResolvedValue(undefined),
       selectRevision: vi.fn().mockResolvedValue(design),
       restoreRevision: vi.fn().mockResolvedValue(design),
       saveDraft: vi.fn().mockResolvedValue(undefined),
@@ -197,5 +200,25 @@ describe('Phase 1 walking skeleton UI', () => {
 
     expect(document.documentElement).toHaveAttribute('data-theme', 'light')
     expect(bridge.settings.saveTheme).toHaveBeenCalledWith('light')
+  })
+
+  it('offers a retry for a stopped generation without replacing its current revision', async () => {
+    const interruptedDesign: OmniDesignDocument = {
+      ...design,
+      generationJobs: [{
+        id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Try again', state: 'interrupted',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'OmniDesign closed before this generation completed.',
+      }],
+    }
+    const bridge = installBridge([], interruptedDesign)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Design conversation' })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(bridge.workspace.retryGeneration).toHaveBeenCalledWith('e0684c4c-0d07-4ece-9d6f-22c2f523e399')
   })
 })

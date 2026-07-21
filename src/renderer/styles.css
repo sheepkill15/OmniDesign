@@ -1041,6 +1041,38 @@ button:disabled,
   border-top: 1px solid var(--border);
 }
 
+.generation-progress,
+.generation-recovery {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.generation-progress .secondary-action,
+.generation-recovery .secondary-action {
+  margin-left: auto;
+}
+
+.generation-recovery {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.generation-recovery span {
+  display: grid;
+  gap: 2px;
+  color: var(--text-subtle);
+}
+
+.generation-recovery strong {
+  color: var(--text);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
 .historical-banner {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;

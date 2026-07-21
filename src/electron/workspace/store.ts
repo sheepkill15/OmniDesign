@@ -165,12 +165,31 @@ CREATE TABLE generation_jobs (
   id TEXT PRIMARY KEY,
   design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
   prompt TEXT NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'interrupted')),
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
   created_at TEXT NOT NULL,
   started_at TEXT,
   completed_at TEXT,
   error TEXT
 ) STRICT;
+CREATE INDEX generation_jobs_by_design ON generation_jobs(design_id, created_at);
+CREATE INDEX generation_jobs_by_state ON generation_jobs(state, created_at);
+`
+
+const migrationNine = `
+ALTER TABLE generation_jobs RENAME TO generation_jobs_previous;
+CREATE TABLE generation_jobs (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  prompt TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  error TEXT
+) STRICT;
+INSERT INTO generation_jobs (id, design_id, prompt, state, created_at, started_at, completed_at, error)
+SELECT id, design_id, prompt, state, created_at, started_at, completed_at, error FROM generation_jobs_previous;
+DROP TABLE generation_jobs_previous;
 CREATE INDEX generation_jobs_by_design ON generation_jobs(design_id, created_at);
 CREATE INDEX generation_jobs_by_state ON generation_jobs(state, created_at);
 `
@@ -321,6 +340,14 @@ export class WorkspaceStore {
     return rows.map((row) => this.hydrateGenerationJob(row))
   }
 
+  public getGenerationJob(id: string): GenerationJob | null {
+    const row = this.database.prepare(`
+      SELECT id, design_id, prompt, state, created_at, started_at, completed_at, error
+      FROM generation_jobs WHERE id = ?
+    `).get(id) as unknown as GenerationJobRow | undefined
+    return row ? this.hydrateGenerationJob(row) : null
+  }
+
   public setGenerationJobState(id: string, state: Exclude<GenerationJobState, 'queued'>, error: string | null = null): GenerationJob {
     const now = new Date().toISOString()
     const result = state === 'running'
@@ -328,6 +355,26 @@ export class WorkspaceStore {
       : this.database.prepare('UPDATE generation_jobs SET state = ?, completed_at = ?, error = ? WHERE id = ? AND state = \'running\'').run(state, now, error, id)
     if (result.changes !== 1) throw new Error('Generation job is not in a state that can be updated.')
     return this.requireGenerationJob(id)
+  }
+
+  public cancelQueuedGenerationJob(id: string): GenerationJob {
+    const now = new Date().toISOString()
+    const result = this.database.prepare("UPDATE generation_jobs SET state = 'cancelled', completed_at = ?, error = 'Cancelled by the user.' WHERE id = ? AND state = 'queued'")
+      .run(now, id)
+    if (result.changes !== 1) throw new Error('Generation job is not queued.')
+    return this.requireGenerationJob(id)
+  }
+
+  public retryGenerationJob(id: string): GenerationJob {
+    const previous = this.requireGenerationJob(id)
+    if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
+    const retryId = randomUUID()
+    const now = new Date().toISOString()
+    this.database.prepare(`
+      INSERT INTO generation_jobs (id, design_id, prompt, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.prompt, now)
+    return this.requireGenerationJob(retryId)
   }
 
   public markGenerationJobsInterrupted(): GenerationJob[] {
@@ -384,7 +431,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -428,6 +475,7 @@ export class WorkspaceStore {
         diagnostic: candidate.diagnostic,
         createdAt: candidate.created_at,
       })),
+      generationJobs: this.listGenerationJobsForDesign(row.id),
       revisions: revisionRows.map((revision): Revision => ({
         id: revision.id,
         parentRevisionId: revision.parent_revision_id,
@@ -465,12 +513,17 @@ export class WorkspaceStore {
   }
 
   private requireGenerationJob(id: string): GenerationJob {
-    const row = this.database.prepare(`
+    const job = this.getGenerationJob(id)
+    if (!job) throw new Error('Generation job not found.')
+    return job
+  }
+
+  private listGenerationJobsForDesign(designId: string): GenerationJob[] {
+    const rows = this.database.prepare(`
       SELECT id, design_id, prompt, state, created_at, started_at, completed_at, error
-      FROM generation_jobs WHERE id = ?
-    `).get(id) as unknown as GenerationJobRow | undefined
-    if (!row) throw new Error('Generation job not found.')
-    return this.hydrateGenerationJob(row)
+      FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
+    `).all(designId) as unknown as GenerationJobRow[]
+    return rows.map((row) => this.hydrateGenerationJob(row))
   }
 
   private hydrateGenerationJob(row: GenerationJobRow): GenerationJob {

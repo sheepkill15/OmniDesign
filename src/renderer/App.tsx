@@ -15,6 +15,7 @@ import {
   PaperClipIcon,
   PlusIcon,
   SparklesIcon,
+  StopIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -215,6 +216,8 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
+  const activeJob = [...design.generationJobs].reverse().find((job) => ['queued', 'running'].includes(job.state))
+  const retryableJob = [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
   const api = window.omnidesign?.workspace
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
@@ -253,6 +256,18 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
   const exportRevision = async () => {
     if (api && design.selectedRevisionId) await api.exportRevision(design.id, design.selectedRevisionId)
   }
+  const cancelGeneration = async () => {
+    if (!api || !activeJob) return
+    await api.cancelGeneration(activeJob.id)
+    const updated = await api.get(design.id)
+    if (updated) onChange(updated)
+  }
+  const retryGeneration = async () => {
+    if (!api || !retryableJob) return
+    await api.retryGeneration(retryableJob.id)
+    const updated = await api.get(design.id)
+    if (updated) onChange(updated)
+  }
 
   return (
     <main className="workspace-main">
@@ -279,7 +294,8 @@ function DesignWorkspace({ design, activity, busy, onBack, onChange }: {
         <section className="conversation-pane" aria-label="Design conversation">
           <div className="conversation-feed">
             {design.messages.map((message) => <article className={`conversation-message message-${message.role}`} key={message.id}><span>{message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{message.text}</p></article>)}
-            {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
+            {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
+            {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
             {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
               <strong>Latest candidate was not activated</strong>
               <p>{latestInvalidCandidate.diagnostic}</p>
@@ -370,7 +386,7 @@ export function App() {
     if (!workspaceApi) return
     return workspaceApi.onActivity((next) => {
       setActivity(next)
-      const finished = ['complete', 'failed', 'interrupted'].includes(next.stage)
+      const finished = ['complete', 'failed', 'cancelled', 'interrupted'].includes(next.stage)
       setBusy(!finished)
       if (finished) {
         void workspaceApi.get(next.designId).then((design) => {
@@ -416,8 +432,8 @@ export function App() {
       {settingsOpen
         ? <Settings theme={theme} onThemeChange={changeTheme} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy} onBack={home} onChange={updateDesign} />
-        : <Home designs={designs} providerLabel={providerLabel} busy={busy} activity={activity} onCreate={create} onOpen={openDesign} />}
+        ? <DesignWorkspace design={activeDesign} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={home} onChange={updateDesign} />
+        : <Home designs={designs} providerLabel={providerLabel} busy={false} activity={activity} onCreate={create} onOpen={openDesign} />}
     </div>
   )
 }

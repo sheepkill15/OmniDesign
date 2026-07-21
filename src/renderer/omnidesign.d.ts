@@ -70,6 +70,17 @@ interface InvalidCandidate {
   readonly createdAt: string
 }
 
+interface GenerationJob {
+  readonly id: string
+  readonly designId: string
+  readonly prompt: string
+  readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
+  readonly createdAt: string
+  readonly startedAt: string | null
+  readonly completedAt: string | null
+  readonly error: string | null
+}
+
 interface OmniDesignDocument {
   readonly id: string
   readonly projectId: string
@@ -84,12 +95,13 @@ interface OmniDesignDocument {
   readonly layout: { readonly conversationWidth: number }
   readonly messages: readonly DesignMessage[]
   readonly invalidCandidates: readonly InvalidCandidate[]
+  readonly generationJobs: readonly GenerationJob[]
   readonly revisions: readonly DesignRevision[]
 }
 
 interface GenerationActivity {
   readonly designId: string
-  readonly stage: 'generating' | 'compiling' | 'validating' | 'saving' | 'complete' | 'failed'
+  readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
   readonly detail: string
 }
 
@@ -112,6 +124,8 @@ interface Window {
       get(designId: string): Promise<OmniDesignDocument | null>
       create(prompt: string): Promise<OmniDesignDocument>
       generate(designId: string, prompt: string): Promise<OmniDesignDocument>
+      cancelGeneration(jobId: string): Promise<GenerationJob>
+      retryGeneration(jobId: string): Promise<GenerationJob>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string): Promise<void>

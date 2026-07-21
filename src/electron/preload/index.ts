@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('omnidesign', {
     get: (designId: string) => ipcRenderer.invoke('workspace:get', { designId }),
     create: (prompt: string) => ipcRenderer.invoke('workspace:create', { prompt }),
     generate: (designId: string, prompt: string) => ipcRenderer.invoke('workspace:generate', { designId, prompt }),
+    cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),
+    retryGeneration: (jobId: string) => ipcRenderer.invoke('workspace:retry-generation', { jobId }),
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),
     restoreRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:restore-revision', { designId, revisionId }),
     saveDraft: (designId: string, draft: string) => ipcRenderer.invoke('workspace:save-draft', { designId, draft }),

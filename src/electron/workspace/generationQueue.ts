@@ -2,10 +2,11 @@ import type { GenerationActivity, GenerationJob } from './contracts.js'
 import { WorkspaceStore } from './store.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
-type JobRunner = (job: GenerationJob, onActivity: ActivityListener) => Promise<void>
+type JobRunner = (job: GenerationJob, signal: AbortSignal, onActivity: ActivityListener) => Promise<void>
 
 export class GenerationQueue {
   private readonly runningDesignIds = new Set<string>()
+  private readonly abortControllers = new Map<string, AbortController>()
   private runningCount = 0
   private draining = false
 
@@ -29,6 +30,28 @@ export class GenerationQueue {
     return this.store.markGenerationJobsInterrupted()
   }
 
+  public cancel(jobId: string): GenerationJob {
+    const job = this.store.getGenerationJob(jobId)
+    if (!job) throw new Error('Generation job not found.')
+    if (job.state === 'queued') {
+      const cancelled = this.store.cancelQueuedGenerationJob(jobId)
+      this.onActivity({ designId: cancelled.designId, stage: 'cancelled', detail: 'Queued generation was cancelled.' })
+      void this.drain()
+      return cancelled
+    }
+    if (job.state !== 'running') throw new Error('Generation job is not active.')
+    this.abortControllers.get(jobId)?.abort()
+    this.onActivity({ designId: job.designId, stage: 'generating', detail: 'Stopping generation…' })
+    return job
+  }
+
+  public retry(jobId: string): GenerationJob {
+    const job = this.store.retryGenerationJob(jobId)
+    this.onActivity({ designId: job.designId, stage: 'queued', detail: 'Generation retry is queued.' })
+    void this.drain()
+    return job
+  }
+
   private async drain(): Promise<void> {
     if (this.draining) return
     this.draining = true
@@ -46,23 +69,27 @@ export class GenerationQueue {
   private start(job: GenerationJob): void {
     this.runningCount += 1
     this.runningDesignIds.add(job.designId)
-    void this.execute(job)
+    const abortController = new AbortController()
+    this.abortControllers.set(job.id, abortController)
+    void this.execute(job, abortController.signal)
   }
 
-  private async execute(job: GenerationJob): Promise<void> {
+  private async execute(job: GenerationJob, signal: AbortSignal): Promise<void> {
     try {
       this.store.setGenerationJobState(job.id, 'running')
       let failed = false
-      await this.runJob(job, (activity) => {
+      await this.runJob(job, signal, (activity) => {
         failed ||= activity.stage === 'failed'
         this.onActivity(activity)
       })
-      this.store.setGenerationJobState(job.id, failed ? 'failed' : 'completed', failed ? 'Generation did not produce a valid revision.' : null)
+      this.store.setGenerationJobState(job.id, signal.aborted ? 'cancelled' : failed ? 'failed' : 'completed', signal.aborted ? 'Cancelled by the user.' : failed ? 'Generation did not produce a valid revision.' : null)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Generation failed.'
-      this.store.setGenerationJobState(job.id, 'failed', detail)
-      this.onActivity({ designId: job.designId, stage: 'failed', detail })
+      const stage = signal.aborted ? 'cancelled' : 'failed'
+      this.store.setGenerationJobState(job.id, stage, signal.aborted ? 'Cancelled by the user.' : detail)
+      this.onActivity({ designId: job.designId, stage, detail: signal.aborted ? 'Generation was cancelled.' : detail })
     } finally {
+      this.abortControllers.delete(job.id)
       this.runningCount -= 1
       this.runningDesignIds.delete(job.designId)
       void this.drain()

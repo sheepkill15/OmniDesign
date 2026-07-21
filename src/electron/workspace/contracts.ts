@@ -42,7 +42,7 @@ export const layoutSchema = z.object({
 
 export const themeSchema = z.enum(['dark', 'light'])
 
-export const generationJobStateSchema = z.enum(['queued', 'running', 'completed', 'failed', 'interrupted'])
+export const generationJobStateSchema = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted'])
 
 export const generationJobSchema = z.object({
   id: z.string().min(1),
@@ -69,6 +69,7 @@ export const designSchema = z.object({
   layout: layoutSchema,
   messages: z.array(messageSchema),
   invalidCandidates: z.array(invalidCandidateSchema),
+  generationJobs: z.array(generationJobSchema),
   revisions: z.array(revisionSchema.extend({ diagnostics: z.array(previewDiagnosticSchema) })),
 })
 
@@ -78,6 +79,10 @@ export const createDesignRequestSchema = z.object({
 
 export const designIdRequestSchema = z.object({
   designId: z.string().min(1).max(100),
+})
+
+export const generationJobIdRequestSchema = z.object({
+  jobId: z.string().uuid(),
 })
 
 export const generateRequestSchema = designIdRequestSchema.extend({
@@ -126,6 +131,6 @@ export type ExportRequest = z.infer<typeof exportRequestSchema>
 
 export interface GenerationActivity {
   readonly designId: string
-  readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'saving' | 'complete' | 'failed' | 'interrupted'
+  readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
   readonly detail: string
 }

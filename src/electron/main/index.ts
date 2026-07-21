@@ -7,6 +7,7 @@ import {
   designIdRequestSchema,
   exportRequestSchema,
   generateRequestSchema,
+  generationJobIdRequestSchema,
   previewRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
@@ -138,6 +139,14 @@ function registerIpc(): void {
     requireGenerationQueue().enqueue(request.designId, request.prompt)
     return requireWorkspace().getDesign(request.designId)
   })
+  ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
+    authorize(event)
+    return requireGenerationQueue().cancel(generationJobIdRequestSchema.parse(value).jobId)
+  })
+  ipcMain.handle('workspace:retry-generation', (event, value: unknown) => {
+    authorize(event)
+    return requireGenerationQueue().retry(generationJobIdRequestSchema.parse(value).jobId)
+  })
   ipcMain.handle('workspace:select-revision', (event, value: unknown) => {
     authorize(event)
     const request = selectRevisionRequestSchema.parse(value)
@@ -206,7 +215,7 @@ void app.whenReady().then(() => {
   workspace = new WorkspaceService(store)
   generationQueue = new GenerationQueue(
     store,
-    async (job, onActivity) => { await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false) },
+    async (job, signal, onActivity) => { await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal) },
     sendGenerationActivity,
   )
   generationQueue.recoverAfterRestart()
