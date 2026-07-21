@@ -108,6 +108,7 @@ function Generations({ designs, onOpen, onCancel }: {
           <div className="generation-list">
             {jobs.map(({ design, job }) => <article className="generation-row" key={job.id}>
               <Button className="generation-copy" onPress={() => onOpen(design)}><strong>{design.title}</strong><small>{job.state === 'queued' ? 'Queued' : 'Running'} · {job.prompt}</small></Button>
+              <time className="generation-elapsed" dateTime={job.startedAt ?? job.createdAt}>{formatGenerationElapsed(job.startedAt ?? job.createdAt)}</time>
               <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>
             </article>)}
             {!jobs.length && <p className="settings-empty">No generations are queued or running.</p>}
@@ -116,6 +117,12 @@ function Generations({ designs, onOpen, onCancel }: {
       </div>
     </main>
   )
+}
+
+function formatGenerationElapsed(startedAt: string): string {
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1_000))
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s`
+  return `${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s`
 }
 
 function Providers({ providers, loading, onRefresh }: {

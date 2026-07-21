@@ -796,6 +796,13 @@ button:disabled,
 
 .generation-row .secondary-action { margin-left: auto; }
 
+.generation-elapsed {
+  color: var(--text-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .mini-preview-image {
   width: 72px;
   height: 48px;

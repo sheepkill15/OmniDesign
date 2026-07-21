@@ -109,6 +109,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /Generations/ }))
     expect(await screen.findByRole('heading', { name: 'Generations' })).toBeInTheDocument()
     expect(screen.getByText(/Try a warmer direction/)).toBeInTheDocument()
+    expect(screen.getByText(/Queued/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
 
     await waitFor(() => expect(bridge.workspace.cancelGeneration).toHaveBeenCalledWith('7e3670bd-2f6c-444d-afd0-a26e17839964'))
