@@ -366,10 +366,20 @@ export function App() {
       document.documentElement.dataset.theme = savedTheme
     })
   }, [])
-  useEffect(() => workspaceApi?.onActivity((next) => {
-    setActivity(next)
-    setBusy(!['complete', 'failed'].includes(next.stage))
-  }), [workspaceApi])
+  useEffect(() => {
+    if (!workspaceApi) return
+    return workspaceApi.onActivity((next) => {
+      setActivity(next)
+      const finished = ['complete', 'failed', 'interrupted'].includes(next.stage)
+      setBusy(!finished)
+      if (finished) {
+        void workspaceApi.get(next.designId).then((design) => {
+          if (design) updateDesign(design)
+        })
+        void refresh()
+      }
+    })
+  }, [refresh, updateDesign, workspaceApi])
   useEffect(() => window.omnidesign?.preview.onDiagnostic((event) => {
     if (event.designId !== activeDesign?.id || !workspaceApi) return
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })

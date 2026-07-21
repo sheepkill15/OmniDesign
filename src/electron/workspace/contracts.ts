@@ -42,6 +42,19 @@ export const layoutSchema = z.object({
 
 export const themeSchema = z.enum(['dark', 'light'])
 
+export const generationJobStateSchema = z.enum(['queued', 'running', 'completed', 'failed', 'interrupted'])
+
+export const generationJobSchema = z.object({
+  id: z.string().min(1),
+  designId: z.string().min(1),
+  prompt: z.string(),
+  state: generationJobStateSchema,
+  createdAt: z.string().datetime(),
+  startedAt: z.string().datetime().nullable(),
+  completedAt: z.string().datetime().nullable(),
+  error: z.string().nullable(),
+})
+
 export const designSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -106,11 +119,13 @@ export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>
 export type SaveLayoutRequest = z.infer<typeof saveLayoutRequestSchema>
 export type Theme = z.infer<typeof themeSchema>
+export type GenerationJob = z.infer<typeof generationJobSchema>
+export type GenerationJobState = z.infer<typeof generationJobStateSchema>
 export type PreviewRequest = z.infer<typeof previewRequestSchema>
 export type ExportRequest = z.infer<typeof exportRequestSchema>
 
 export interface GenerationActivity {
   readonly designId: string
-  readonly stage: 'generating' | 'compiling' | 'validating' | 'saving' | 'complete' | 'failed'
+  readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'saving' | 'complete' | 'failed' | 'interrupted'
   readonly detail: string
 }

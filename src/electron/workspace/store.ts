@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { designSchema, layoutSchema, themeSchema } from './contracts.js'
-import type { Design, InvalidCandidate, Layout, Message, PreviewDiagnostic, Revision, Theme } from './contracts.js'
+import { designSchema, generationJobSchema, layoutSchema, themeSchema } from './contracts.js'
+import type { Design, GenerationJob, GenerationJobState, InvalidCandidate, Layout, Message, PreviewDiagnostic, Revision, Theme } from './contracts.js'
 
 interface DesignRow {
   id: string
@@ -52,6 +52,17 @@ interface InvalidCandidateRow {
   candidate_path: string
   diagnostic: string
   created_at: string
+}
+
+interface GenerationJobRow {
+  id: string
+  design_id: string
+  prompt: string
+  state: GenerationJobState
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
 }
 
 const migrationOne = `
@@ -147,6 +158,21 @@ CREATE TABLE settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 ) STRICT;
+`
+
+const migrationEight = `
+CREATE TABLE generation_jobs (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  prompt TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'interrupted')),
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  error TEXT
+) STRICT;
+CREATE INDEX generation_jobs_by_design ON generation_jobs(design_id, created_at);
+CREATE INDEX generation_jobs_by_state ON generation_jobs(state, created_at);
 `
 
 export class WorkspaceStore {
@@ -269,6 +295,48 @@ export class WorkspaceStore {
     `).run(theme)
   }
 
+  public enqueueGenerationJob(designId: string, prompt: string): GenerationJob {
+    this.requireDesign(designId)
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO generation_jobs (id, design_id, prompt, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, prompt, now)
+      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(randomUUID(), designId, 'user', prompt, now)
+      this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
+    })
+    return this.requireGenerationJob(id)
+  }
+
+  public listGenerationJobs(states: readonly GenerationJobState[] = ['queued']): GenerationJob[] {
+    if (!states.length) return []
+    const placeholders = states.map(() => '?').join(', ')
+    const rows = this.database.prepare(`
+      SELECT id, design_id, prompt, state, created_at, started_at, completed_at, error
+      FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
+    `).all(...states) as unknown as GenerationJobRow[]
+    return rows.map((row) => this.hydrateGenerationJob(row))
+  }
+
+  public setGenerationJobState(id: string, state: Exclude<GenerationJobState, 'queued'>, error: string | null = null): GenerationJob {
+    const now = new Date().toISOString()
+    const result = state === 'running'
+      ? this.database.prepare("UPDATE generation_jobs SET state = ?, started_at = ?, completed_at = NULL, error = NULL WHERE id = ? AND state = 'queued'").run(state, now, id)
+      : this.database.prepare('UPDATE generation_jobs SET state = ?, completed_at = ?, error = ? WHERE id = ? AND state = \'running\'').run(state, now, error, id)
+    if (result.changes !== 1) throw new Error('Generation job is not in a state that can be updated.')
+    return this.requireGenerationJob(id)
+  }
+
+  public markGenerationJobsInterrupted(): GenerationJob[] {
+    const now = new Date().toISOString()
+    this.database.prepare("UPDATE generation_jobs SET state = 'interrupted', completed_at = ?, error = 'OmniDesign closed before this generation completed.' WHERE state IN ('queued', 'running')")
+      .run(now)
+    return this.listGenerationJobs(['interrupted'])
+  }
+
   public addPreviewDiagnostic(designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
     this.requireRevision(designId, revisionId)
     this.database.prepare(`
@@ -316,7 +384,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -394,6 +462,28 @@ export class WorkspaceStore {
     const revision = this.requireDesign(designId).revisions.find((candidate) => candidate.id === revisionId)
     if (!revision) throw new Error('Revision not found.')
     return revision
+  }
+
+  private requireGenerationJob(id: string): GenerationJob {
+    const row = this.database.prepare(`
+      SELECT id, design_id, prompt, state, created_at, started_at, completed_at, error
+      FROM generation_jobs WHERE id = ?
+    `).get(id) as unknown as GenerationJobRow | undefined
+    if (!row) throw new Error('Generation job not found.')
+    return this.hydrateGenerationJob(row)
+  }
+
+  private hydrateGenerationJob(row: GenerationJobRow): GenerationJob {
+    return generationJobSchema.parse({
+      id: row.id,
+      designId: row.design_id,
+      prompt: row.prompt,
+      state: row.state,
+      createdAt: row.created_at,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      error: row.error,
+    })
   }
 
   private transaction(work: () => void): void {

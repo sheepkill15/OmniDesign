@@ -15,6 +15,7 @@ import {
 } from '../workspace/contracts.js'
 import type { GenerationActivity } from '../workspace/contracts.js'
 import { writeOfflineZip } from '../workspace/exportService.js'
+import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewController } from '../workspace/previewController.js'
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
@@ -25,6 +26,7 @@ const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let preview: PreviewController | null = null
 let workspace: WorkspaceService | null = null
+let generationQueue: GenerationQueue | null = null
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'omnidesign-preview',
@@ -82,6 +84,11 @@ function requireWorkspace(): WorkspaceService {
   return workspace
 }
 
+function requireGenerationQueue(): GenerationQueue {
+  if (!generationQueue) throw new Error('Generation queue is not ready.')
+  return generationQueue
+}
+
 function sendGenerationActivity(activity: GenerationActivity): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:activity', activity)
 }
@@ -128,7 +135,8 @@ function registerIpc(): void {
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
-    return requireWorkspace().generate(request.designId, request.prompt, sendGenerationActivity)
+    requireGenerationQueue().enqueue(request.designId, request.prompt)
+    return requireWorkspace().getDesign(request.designId)
   })
   ipcMain.handle('workspace:select-revision', (event, value: unknown) => {
     authorize(event)
@@ -193,9 +201,15 @@ function registerIpc(): void {
 
 app.enableSandbox()
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   const store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace'))
   workspace = new WorkspaceService(store)
+  generationQueue = new GenerationQueue(
+    store,
+    async (job, onActivity) => { await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false) },
+    sendGenerationActivity,
+  )
+  generationQueue.recoverAfterRestart()
   mainWindow = createMainWindow()
   preview = createPreview(mainWindow, store)
   registerIpc()
@@ -212,8 +226,15 @@ app.whenReady().then(() => {
       preview = createPreview(mainWindow, store)
     }
   })
+}).catch((error: unknown) => {
+  console.error('OmniDesign failed to initialize.', error)
+  app.exit(1)
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  generationQueue?.recoverAfterRestart()
 })
