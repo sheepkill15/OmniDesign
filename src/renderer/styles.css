@@ -654,17 +654,13 @@ button:disabled,
 .generation-settings-button svg { width: 15px; flex: 0 0 auto; stroke-width: 1.8; }
 .generation-settings-button svg:last-child { width: 12px; }
 
-.generation-settings-popover,
-.project-popover {
+/* Generation-settings is a wide multi-column dropdown; reset the base panel padding so its columns
+   and dividers reach the edges. */
+.dropdown-panel.generation-settings-popover {
+  min-width: 660px;
+  padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  background: var(--surface-1);
-  box-shadow: 0 18px 40px rgb(0 0 0 / 22%);
 }
-
-.generation-settings-popover { min-width: 660px; }
-.project-popover { min-width: 260px; }
 
 .generation-settings-columns {
   display: grid;
@@ -672,37 +668,14 @@ button:disabled,
   max-height: min(460px, calc(100vh - 40px));
 }
 
-.generation-settings-column { min-width: 0; max-height: min(460px, calc(100vh - 40px)); box-sizing: border-box; padding: 12px 9px; overflow-y: auto; }
+.generation-settings-column { min-width: 0; max-height: min(460px, calc(100vh - 40px)); box-sizing: border-box; padding: 12px 7px; overflow-y: auto; }
 .generation-settings-column + .generation-settings-column { border-left: 1px solid var(--border); }
 .generation-settings-column h2 { margin: 0 5px 8px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.generation-settings-menu { display: grid; gap: 2px; }
 
-.generation-settings-menu,
-.project-popover [role='menu'] { padding: 5px; outline: none; }
-
-.generation-settings-menu [role='menuitem'],
-.project-popover [role='menuitem'] {
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 9px;
-  border-radius: 8px;
-  color: var(--text-subtle);
-  cursor: pointer;
-  font-size: 12px;
-  outline: none;
-}
-
-.generation-settings-menu [role='menuitem'][data-focused],
-.project-popover [role='menuitem'][data-focused] { background: var(--surface-3); color: var(--text); }
-.project-popover-section { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
-.project-popover-header { display: block; padding: 6px 9px 3px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.project-popover [role='menuitem'] > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.project-popover [role='menuitem'] > span svg { width: 16px; flex: 0 0 auto; color: var(--text-faint); }
-.project-popover [role='menuitem'] > svg { width: 15px; flex: 0 0 auto; color: var(--success); }
-.generation-settings-menu [role='menuitem'][data-disabled] { color: var(--text-faint); cursor: default; }
-.generation-settings-menu svg { width: 15px; color: var(--success); }
+/* Compact project-target dropdown reuses the shared row styling. */
+.dropdown-panel.project-menu { min-width: 240px; }
+.dropdown-section-header { padding: 8px 9px 3px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
 .effort-control { display: grid; align-content: start; gap: 10px; padding-inline: 14px; }
 .effort-control > span, .effort-labels { color: var(--text-subtle); font-size: 11px; }

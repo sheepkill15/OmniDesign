@@ -6,7 +6,6 @@ import {
   BellIcon,
   BoltIcon,
   CheckCircleIcon,
-  ChevronDownIcon,
   ChevronRightIcon,
   ClockIcon,
   Cog6ToothIcon,
@@ -26,9 +25,8 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, Header, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { DropdownButton } from './components/DropdownButton'
-import { MenuButton } from './components/MenuButton'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -263,22 +261,22 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
   }
 
   return (
-    <MenuButton
+    <DropdownButton
       label="Generation settings"
       triggerClassName="generation-settings-button"
-      popoverClassName="generation-settings-popover"
+      panelClassName="generation-settings-popover"
       placement="top end"
-      trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span><ChevronDownIcon aria-hidden="true" /></>}
+      trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span></>}
     >
         <div className="generation-settings-columns">
-          <section className="generation-settings-column"><h2>Provider</h2><Menu aria-label="Provider" className="generation-settings-menu" shouldCloseOnSelect={false}>
-            <MenuItem id="mock" onAction={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
-            {available.map((candidate) => <MenuItem id={candidate.id} key={candidate.id} onAction={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
-          </Menu></section>
-          <section className="generation-settings-column"><h2>Model</h2><Menu aria-label="Model" className="generation-settings-menu" shouldCloseOnSelect={false}>
-            {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: effortForModel(candidate.effortLevels) })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
-            {!provider && <MenuItem id="mock-model" isDisabled>Mock v1</MenuItem>}
-          </Menu></section>
+          <section className="generation-settings-column"><h2>Provider</h2><div className="generation-settings-menu" role="group" aria-label="Provider">
+            <button type="button" className="dropdown-row" data-active={providerId === 'mock' || undefined} onClick={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon className="dropdown-row-check" aria-hidden="true" />}</button>
+            {available.map((candidate) => <button type="button" className="dropdown-row" data-active={providerId === candidate.id || undefined} key={candidate.id} onClick={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon className="dropdown-row-check" aria-hidden="true" />}</button>)}
+          </div></section>
+          <section className="generation-settings-column"><h2>Model</h2><div className="generation-settings-menu" role="group" aria-label="Model">
+            {(provider?.models ?? []).map((candidate) => <button type="button" className="dropdown-row" data-active={model?.id === candidate.id || undefined} key={candidate.id} onClick={() => onChange({ providerId, modelId: candidate.id, effort: effortForModel(candidate.effortLevels) })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon className="dropdown-row-check" aria-hidden="true" />}</button>)}
+            {!provider && <button type="button" className="dropdown-row" disabled><span>Mock v1</span></button>}
+          </div></section>
           <section className="generation-settings-column effort-control" data-disabled={!efforts.length || undefined}>
             <h2>Effort</h2><span>{efforts[effortIndex]?.name ?? 'Not supported by this model'}</span>
             <div className="effort-vertical-control">
@@ -293,7 +291,7 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
             </div>
           </section>
         </div>
-    </MenuButton>
+    </DropdownButton>
   )
 }
 
@@ -365,16 +363,16 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
           <IconButton label="Attach files or folders" icon={PaperClipIcon} />
           {fixedProject
             ? <span className="project-context project-context-fixed">{fixedProject.kind === 'linked' ? <FolderIcon aria-hidden="true" /> : <DocumentDuplicateIcon aria-hidden="true" />}{fixedProject.name}</span>
-            : <MenuButton triggerClassName="project-context" popoverClassName="project-popover" placement="top start" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}<ChevronDownIcon aria-hidden="true" /></>}>
-                <Menu aria-label="Design project" onAction={(key) => chooseTarget(String(key))}>
-                  <MenuItem id="standalone">Standalone design</MenuItem>
-                  <MenuItem id="folder">Choose local project folder…</MenuItem>
-                  {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
-                    <Header className="project-popover-header">Add to a project</Header>
-                    {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
-                  </MenuSection>}
-                </Menu>
-              </MenuButton>}
+            : <DropdownButton triggerClassName="project-context" panelClassName="project-menu" panelLabel="Design project" placement="top start" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}</>}>
+                {(close) => <>
+                  <button type="button" className="dropdown-row" onClick={() => { chooseTarget('standalone'); close() }}>Standalone design</button>
+                  <button type="button" className="dropdown-row" onClick={() => { chooseTarget('folder'); close() }}>Choose local project folder…</button>
+                  {linkedProjects.length > 0 && <>
+                    <div className="dropdown-section-header">Add to a project</div>
+                    {linkedProjects.map((project) => <button type="button" className="dropdown-row" key={project.id} onClick={() => { chooseTarget(`project:${project.id}`); close() }}>{project.name}</button>)}
+                  </>}
+                </>}
+              </DropdownButton>}
         </div>
         <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />
         <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy} onPress={() => void submit()}>
