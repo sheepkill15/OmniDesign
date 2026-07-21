@@ -148,7 +148,7 @@ The narrow installed-subscription pilot is implemented behind a provider-neutral
 - Add Codex and Claude contract and integration tests appropriate to their supported capabilities.
 - Add the deferred cancellation, continuation, configuration, and API-key behavior when its Phase 1 contract is defined.
 - Implement the managed design-repository lifecycle and provider-harness working-directory contract.
-- Define and validate the remaining JSON completion-report schema with the product owner. `response` is required for the agent's conversational reply and may be returned without a design change; the remaining fields must describe execution outcome and useful diagnostics or metadata, not changed files or an entry point.
+- Define and validate the remaining JSON completion-payload schema with the product owner. `response` is required for the agent's conversational reply and may be returned without a design change. Keep Git state, validation and diagnostics harness-owned, and usage adapter-owned; no agent field may inventory changed files or choose an entry point.
 
 ### 6. Run the Generation-Framework Benchmark
 

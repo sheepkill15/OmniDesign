@@ -355,7 +355,7 @@ The precise installed-subscription, discovery, authentication, and API-key mecha
 - When a design is linked to an existing project, the harness provides that original project as an explicit read-only reference. It is never the design working directory and the agent receives no write authority to it.
 - Git detects changed files and records the resulting revision. The agent is not required to produce a changed-file list, and OmniDesign does not derive change detection from an agent report.
 - The prepared `index.html` is the fixed preview and export entry page. The agent does not choose or report an entry point.
-- After execution, the agent returns a validated JSON completion report. It includes a `response` field containing the agent's conversational reply to the user; a response may be returned without design changes or a new revision. The remaining product-defined fields communicate outcome and useful diagnostics or metadata, and do not contain file inventory or entry-point fields.
+- After execution, the agent returns a validated JSON completion payload. It includes a `response` field containing the agent's conversational reply to the user; a response may be returned without design changes or a new revision. OmniDesign builds the persisted completion record independently: Git determines changes, harness and validation tooling produce validation results and diagnostics, and the provider adapter supplies usage and cost when available. The remaining product-defined agent-payload fields do not contain file inventory or entry-point fields.
 - The currently active completed revision remains previewable until a new candidate is complete and passes blocking validation.
 - Progressive file-by-file preview updates are deferred.
 
@@ -534,7 +534,7 @@ Each agent-backed design uses one Git repository in OmniDesign-managed storage. 
 - Source-project repositories are never nested with or modified by design repositories.
 - The design repository may become accessible to advanced users in a later phase.
 
-SQLite remains responsible for application metadata, conversations, job records, revision pointers, diagnostics, and migration-safe queries. The completion report, including its `response` field, is validated and retained with the attempt, but it is not a substitute for Git state.
+SQLite remains responsible for application metadata, conversations, job records, revision pointers, diagnostics, and migration-safe queries. The agent completion payload, including its `response` field, is validated and retained with the attempt; the harness-owned completion record retains independently observed Git, validation, diagnostics, and usage data.
 
 ## Export
 
