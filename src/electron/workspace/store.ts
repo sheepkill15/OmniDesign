@@ -17,6 +17,7 @@ interface DesignRow {
   draft: string
   layout_json: string
   thumbnail_path: string | null
+  queue_paused: number
 }
 
 interface RevisionRow {
@@ -194,6 +195,10 @@ CREATE INDEX generation_jobs_by_design ON generation_jobs(design_id, created_at)
 CREATE INDEX generation_jobs_by_state ON generation_jobs(state, created_at);
 `
 
+const migrationTen = `
+ALTER TABLE designs ADD COLUMN queue_paused INTEGER NOT NULL DEFAULT 0 CHECK (queue_paused IN (0, 1));
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -214,7 +219,7 @@ export class WorkspaceStore {
   public listDesigns(): Design[] {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path
+             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused
       FROM designs d JOIN projects p ON p.id = d.project_id
       ORDER BY d.updated_at DESC
     `).all() as unknown as DesignRow[]
@@ -224,7 +229,7 @@ export class WorkspaceStore {
   public getDesign(designId: string): Design | null {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path
+             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ?
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -369,11 +374,10 @@ export class WorkspaceStore {
     const previous = this.requireGenerationJob(id)
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
-    const now = new Date().toISOString()
     this.database.prepare(`
       INSERT INTO generation_jobs (id, design_id, prompt, state, created_at, started_at, completed_at, error)
       VALUES (?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.prompt, now)
+    `).run(retryId, previous.designId, previous.prompt, previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -382,6 +386,20 @@ export class WorkspaceStore {
     this.database.prepare("UPDATE generation_jobs SET state = 'interrupted', completed_at = ?, error = 'OmniDesign closed before this generation completed.' WHERE state IN ('queued', 'running')")
       .run(now)
     return this.listGenerationJobs(['interrupted'])
+  }
+
+  public pauseGenerationQueue(designId: string): void {
+    const result = this.database.prepare('UPDATE designs SET queue_paused = 1 WHERE id = ?').run(designId)
+    if (result.changes !== 1) throw new Error('Design not found.')
+  }
+
+  public resumeGenerationQueue(designId: string): void {
+    const result = this.database.prepare('UPDATE designs SET queue_paused = 0 WHERE id = ?').run(designId)
+    if (result.changes !== 1) throw new Error('Design not found.')
+  }
+
+  public listPausedGenerationDesignIds(): string[] {
+    return (this.database.prepare('SELECT id FROM designs WHERE queue_paused = 1').all() as { id: string }[]).map((row) => row.id)
   }
 
   public addPreviewDiagnostic(designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
@@ -431,7 +449,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -466,6 +484,7 @@ export class WorkspaceStore {
       selectedRevisionId: row.selected_revision_id,
       draft: row.draft,
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
+      queuePaused: row.queue_paused === 1,
       layout: layoutSchema.parse(JSON.parse(row.layout_json)),
       messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({

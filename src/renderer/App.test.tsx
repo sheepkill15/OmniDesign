@@ -14,6 +14,7 @@ const design: OmniDesignDocument = {
   selectedRevisionId: 'revision-1',
   draft: '',
   thumbnailDataUrl: null,
+  queuePaused: false,
   layout: { conversationWidth: 43 },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],

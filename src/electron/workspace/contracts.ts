@@ -66,6 +66,7 @@ export const designSchema = z.object({
   selectedRevisionId: z.string().nullable(),
   draft: z.string(),
   thumbnailDataUrl: z.string().nullable(),
+  queuePaused: z.boolean(),
   layout: layoutSchema,
   messages: z.array(messageSchema),
   invalidCandidates: z.array(invalidCandidateSchema),

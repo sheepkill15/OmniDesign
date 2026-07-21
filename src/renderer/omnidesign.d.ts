@@ -92,6 +92,7 @@ interface OmniDesignDocument {
   readonly selectedRevisionId: string | null
   readonly draft: string
   readonly thumbnailDataUrl: string | null
+  readonly queuePaused: boolean
   readonly layout: { readonly conversationWidth: number }
   readonly messages: readonly DesignMessage[]
   readonly invalidCandidates: readonly InvalidCandidate[]

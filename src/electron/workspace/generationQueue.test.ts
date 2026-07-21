@@ -112,4 +112,17 @@ describe('GenerationQueue', () => {
     await waitFor(() => store.getGenerationJob(job.id)?.state === 'cancelled')
     store.close()
   })
+
+  it('pauses later prompts for a design after a failed predecessor', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const queue = new GenerationQueue(store, async () => { throw new Error('Provider unavailable.') }, () => undefined, 1)
+    const first = queue.enqueue(design.id, 'First prompt')
+    const second = queue.enqueue(design.id, 'Second prompt')
+
+    await waitFor(() => store.getGenerationJob(first.id)?.state === 'failed')
+    expect(store.getGenerationJob(second.id)).toMatchObject({ state: 'queued' })
+    expect(store.getDesign(design.id)?.queuePaused).toBe(true)
+    store.close()
+  })
 })
