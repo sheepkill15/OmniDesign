@@ -706,20 +706,22 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
         <span className="workspace-title"><strong>{design.title}</strong><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
           <LayoutMenu mode={mode} isOpen={layoutMenuOpen} onOpenChange={setLayoutMenuOpen} onChange={setMode} />
-          <Button className="toolbar-button" onPress={() => setHistoryOpen(!historyOpen)}><ClockIcon aria-hidden="true" />History · {design.revisions.length}</Button>
+          <div className="history-control">
+            <Button className="toolbar-button" aria-haspopup="true" aria-expanded={historyOpen} onPress={() => setHistoryOpen(!historyOpen)}><ClockIcon aria-hidden="true" />History · {design.revisions.length}</Button>
+            {historyOpen && <div className="history-popover" aria-label="Revision history">
+              <strong>Revision history</strong>
+              {[...design.revisions].reverse().map((revision, index) => (
+                <Button className="history-row" data-active={revision.id === design.selectedRevisionId || undefined} key={revision.id} onPress={() => void selectRevision(revision.id)}>
+                  {revision.thumbnailDataUrl
+                    ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
+                    : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
+                  <span><strong>{index === 0 ? 'Current head' : new Date(revision.createdAt).toLocaleString()}</strong><small>{revision.prompt}</small></span>
+                </Button>
+              ))}
+            </div>}
+          </div>
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
         </div>
-        {historyOpen && <div className="history-popover" aria-label="Revision history">
-          <strong>Revision history</strong>
-          {[...design.revisions].reverse().map((revision, index) => (
-            <Button className="history-row" data-active={revision.id === design.selectedRevisionId || undefined} key={revision.id} onPress={() => void selectRevision(revision.id)}>
-              {revision.thumbnailDataUrl
-                ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
-                : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
-              <span><strong>{index === 0 ? 'Current head' : new Date(revision.createdAt).toLocaleString()}</strong><small>{revision.prompt}</small></span>
-            </Button>
-          ))}
-        </div>}
       </header>
       {mode === 'split'
         ? <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
