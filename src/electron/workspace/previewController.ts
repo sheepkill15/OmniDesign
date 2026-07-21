@@ -123,12 +123,22 @@ export class PreviewController {
     const token = this.token
     const designId = this.designId
     const revisionId = this.revisionId
-    try {
-      const image = await view.webContents.capturePage()
-      if (token !== this.token || view.webContents.isDestroyed()) return
-      this.onThumbnail(designId, revisionId, image.resize({ width: 320 }).toPNG())
-    } catch {
-      // A preview can be replaced or destroyed while Chromium is producing its capture.
+    // A freshly attached view may not be painted yet on the first load after creation, so capturePage
+    // can return an empty frame. Retry briefly until Chromium produces a real frame, and never persist
+    // an empty image (which is what previously left the thumbnail blank until the app was reopened).
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (token !== this.token || !this.view || this.view.webContents.isDestroyed()) return
+      try {
+        const image = await this.view.webContents.capturePage()
+        if (token !== this.token || !this.view || this.view.webContents.isDestroyed()) return
+        if (!image.isEmpty()) {
+          this.onThumbnail(designId, revisionId, image.resize({ width: 320 }).toPNG())
+          return
+        }
+      } catch {
+        // A preview can be replaced or destroyed while Chromium is producing its capture.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150))
     }
   }
 }
