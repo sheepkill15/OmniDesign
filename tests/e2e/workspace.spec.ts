@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { _electron as electron } from 'playwright'
+import type { ElectronApplication } from 'playwright'
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -19,8 +20,10 @@ async function launchWorkspace(userDataDirectory: string) {
 
 test('creates and recovers a standalone design in the built Electron app', async () => {
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-e2e-'))
+  let activeApp: ElectronApplication | null = null
   try {
     const firstRun = await launchWorkspace(userDataDirectory)
+    activeApp = firstRun.app
     await expect(firstRun.window.getByRole('heading', { name: 'Start with an idea.' })).toBeVisible()
     const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
     await prompt.fill('A calm analytics dashboard')
@@ -40,13 +43,21 @@ test('creates and recovers a standalone design in the built Electron app', async
       }
     }).toBe(true)
     await firstRun.app.close()
+    activeApp = null
 
     const secondRun = await launchWorkspace(userDataDirectory)
-    await expect(secondRun.window.getByText('A calm analytics dashboard')).toBeVisible()
-    await secondRun.window.getByText('A calm analytics dashboard').click()
+    activeApp = secondRun.app
+    const recoveredDesign = secondRun.window
+      .getByRole('region', { name: 'Continue designing' })
+      .getByRole('button')
+      .filter({ hasText: 'A calm analytics dashboard' })
+    await expect(recoveredDesign).toBeVisible()
+    await recoveredDesign.click()
     await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await secondRun.app.close()
+    activeApp = null
   } finally {
-    await rm(userDataDirectory, { recursive: true, force: true })
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
