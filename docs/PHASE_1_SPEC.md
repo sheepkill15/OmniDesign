@@ -350,8 +350,12 @@ The precise installed-subscription, discovery, authentication, and API-key mecha
 
 ### Execution Model
 
-- The provider generates or modifies files in the OmniDesign-managed design working area.
-- Linked source projects and referenced attachments are read-only.
+- Every agent-backed design runs in a self-contained Git repository in OmniDesign-managed storage. OmniDesign prepares the repository and its `index.html` entry page before the agent starts.
+- The provider harness starts the agent in that design repository. The agent may work on its files as it would on any other project.
+- When a design is linked to an existing project, the harness provides that original project as an explicit read-only reference. It is never the design working directory and the agent receives no write authority to it.
+- Git detects changed files and records the resulting revision. The agent is not required to produce a changed-file list, and OmniDesign does not derive change detection from an agent report.
+- The prepared `index.html` is the fixed preview and export entry page. The agent does not choose or report an entry point.
+- After execution, the agent returns a validated JSON completion report. It includes a `response` field containing the agent's conversational reply to the user; a response may be returned without design changes or a new revision. The remaining product-defined fields communicate outcome and useful diagnostics or metadata, and do not contain file inventory or entry-point fields.
 - The currently active completed revision remains previewable until a new candidate is complete and passes blocking validation.
 - Progressive file-by-file preview updates are deferred.
 
@@ -427,7 +431,7 @@ When a valid generation changes design files:
 - A thumbnail is generated.
 - The conversation records validation warnings, provider/model, usage, and cost when available.
 
-No revision is created when the provider response does not change design files. The conversation message and attempt record are still preserved.
+No revision is created when the provider response does not change design files. The agent's completion-report `response`, conversation message, and attempt record are still preserved.
 
 ### Cancel, Continue, and Retry
 
@@ -521,16 +525,16 @@ This behavior provides the outcome the user expects from restoration without usi
 
 ### Internal Git History
 
-Using one hidden Git repository per design is a provisional implementation option, not a settled product requirement. If adopted in the early phases:
+Each agent-backed design uses one Git repository in OmniDesign-managed storage. The repository is the agent harness workspace and Git is the authoritative mechanism for determining whether agent execution changed the design working tree.
 
-- Repositories live in OmniDesign-managed storage.
+- OmniDesign initializes the repository and prepares `index.html` before execution.
 - Users are not required to understand or manage Git.
-- Completed revision commits are automatic.
-- Restoration is non-destructive.
+- Completed changed revisions create commits automatically.
+- Restoration is non-destructive and must not rewrite or delete later history.
 - Source-project repositories are never nested with or modified by design repositories.
 - The design repository may become accessible to advanced users in a later phase.
 
-The implementation choice must be evaluated against the accepted SQLite-plus-immutable-files architecture before it is recorded as accepted in `ARCHITECTURE.md`.
+SQLite remains responsible for application metadata, conversations, job records, revision pointers, diagnostics, and migration-safe queries. The completion report, including its `response` field, is validated and retained with the attempt, but it is not a substitute for Git state.
 
 ## Export
 

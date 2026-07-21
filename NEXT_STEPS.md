@@ -141,12 +141,14 @@ The walking skeleton boundaries are complete. Browser-console, runtime, and prev
 
 ### 5. Complete the Provider Integration
 
-The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. Continue by:
+The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. The accepted next execution model is repo-native agent work: OmniDesign initializes a self-contained Git repository and `index.html` for each design, starts the provider harness in that repository, and supplies a linked original project only as an explicit read-only reference. Git determines changes and revisions; the agent neither inventories changed files nor chooses an entry point. Continue by:
 
 - Preserving the provider-neutral contracts described in `ARCHITECTURE.md` and keeping provider-specific concepts in adapters.
 - Preserve the mock provider for automated tests and local development.
 - Add Codex and Claude contract and integration tests appropriate to their supported capabilities.
 - Add the deferred cancellation, continuation, configuration, and API-key behavior when its Phase 1 contract is defined.
+- Implement the managed design-repository lifecycle and provider-harness working-directory contract.
+- Define and validate the remaining JSON completion-report schema with the product owner. `response` is required for the agent's conversational reply and may be returned without a design change; the remaining fields must describe execution outcome and useful diagnostics or metadata, not changed files or an entry point.
 
 ### 6. Run the Generation-Framework Benchmark
 

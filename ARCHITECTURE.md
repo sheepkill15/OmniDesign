@@ -310,7 +310,17 @@ workspace/
           index.html
 ```
 
-Revision directories are append-only. Restoration copies the selected snapshot into a new revision whose parent is the previous head. SQLite retains the active and selected pointers, so later history is never deleted or rewritten. A hidden Git repository would duplicate this accepted history model without adding user-visible Phase 1 value and is therefore not part of the walking skeleton.
+Revision directories are append-only. Restoration copies the selected snapshot into a new revision whose parent is the previous head. SQLite retains the active and selected pointers, so later history is never deleted or rewritten. This describes the completed walking skeleton's snapshot store; agent-backed design workspaces use the additional Git-backed model below.
+
+### Agent Harness Design Workspaces
+
+Each agent-backed design has a self-contained Git repository in OmniDesign-managed storage. It is a normal working repository for the provider harness, not a repository the user is required to manage. Before an agent starts, OmniDesign creates the repository and prepares its `index.html` entry page.
+
+The provider harness starts the agent in that design repository. The agent may inspect and edit the design as it would any other project. When the design is associated with an existing project, the original project is supplied separately as an explicit read-only reference; it is never the agent's working directory and the harness grants it no write authority.
+
+Git, not an agent-authored file inventory, determines whether the working tree changed and records the resulting design revision. The prepared `index.html` is the fixed preview/export entry page, so the agent does not choose or report an entry point. Completed revisions continue to be represented by immutable application metadata and non-destructive restoration; implementation may create a new commit from a restored state rather than rewriting history.
+
+After execution, the agent returns a validated JSON completion report. It includes a `response` field containing the agent's conversational reply to the user. A response does not imply that the design changed or that a new revision exists. The remaining field schema is intentionally pending product definition. The report communicates execution outcome and useful diagnostics or metadata, but it must not be used to declare changed files or select the entry page.
 
 If Electron moves to a Node release where `node:sqlite` compatibility or support changes materially, re-evaluate this choice before upgrading Electron rather than silently replacing the persistence layer.
 

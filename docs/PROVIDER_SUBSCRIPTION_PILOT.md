@@ -25,3 +25,11 @@ The renderer receives only `discover` and `prompt` IPC operations. It cannot acc
 - API-key configuration, multiple accounts, provider settings, refresh/update actions, attachments, project-context access, conversation persistence, cancellation, retries, and design generation orchestration.
 - Claude's exact subscription-entitled model discovery, if and when Claude Code exposes a stable supported mechanism.
 - Moving these prototype contracts into the planned provider-contract package after the walking skeleton establishes the package boundaries.
+
+## Target Agent Harness Contract
+
+The next provider-generation integration does not ask a model to return a complete HTML document. OmniDesign creates a self-contained Git repository for each design and prepares its `index.html` before the provider agent starts. The provider harness runs the agent in that repository, where it can work normally on the design files.
+
+For an existing-project design, the harness supplies the original project as a separate, explicit read-only reference. The original project is not the agent workspace and is never writable through the harness.
+
+OmniDesign reads Git state to determine whether the design changed and creates revisions from that state. The agent does not list changed files and does not choose or report an entry point. After it finishes, it returns a validated JSON completion report with a `response` field for its conversational reply to the user. A response may be returned without design changes or a new revision. The remaining report fields will contain product-defined execution outcome and useful diagnostics or metadata; file inventory and entry-point fields are explicitly out of scope.
