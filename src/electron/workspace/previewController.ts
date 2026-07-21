@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { BrowserWindow, session, WebContentsView } from 'electron'
 import type { Rectangle, Session } from 'electron'
-import { isAllowedPreviewUrl, previewContentSecurityPolicy } from './previewPolicy.js'
+import { isAllowedPreviewResourceUrl, isAllowedPreviewUrl, previewContentSecurityPolicy } from './previewPolicy.js'
 import { captureConsoleDiagnostic, captureLoadDiagnostic } from './previewDiagnostics.js'
 import type { PreviewDiagnostic } from './contracts.js'
 
@@ -24,7 +24,7 @@ export class PreviewController {
     this.previewSession = session.fromPartition(partition)
     this.previewSession.setPermissionCheckHandler(() => false)
     this.previewSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
-    this.previewSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !isAllowedPreviewUrl(details.url) }))
+    this.previewSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !isAllowedPreviewResourceUrl(details.url) }))
     if (this.previewSession.protocol.isProtocolHandled('omnidesign-preview')) this.previewSession.protocol.unhandle('omnidesign-preview')
     void this.previewSession.protocol.handle('omnidesign-preview', (request) => this.handleRequest(request.url))
   }

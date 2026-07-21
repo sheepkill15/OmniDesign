@@ -81,9 +81,10 @@ export class JsonRpcProcess {
   }
 }
 
-export function startJsonRpcProcess(resolved: ResolvedCommand, args: readonly string[]): JsonRpcProcess {
+export function startJsonRpcProcess(resolved: ResolvedCommand, args: readonly string[], options: { readonly cwd?: string } = {}): JsonRpcProcess {
   const invocation = resolveSpawnInvocation(resolved, args)
   return new JsonRpcProcess(spawn(invocation.command, invocation.args, {
+    ...(options.cwd ? { cwd: options.cwd } : {}),
     stdio: 'pipe',
     windowsHide: true,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,

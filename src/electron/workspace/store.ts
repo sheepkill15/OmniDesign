@@ -2,8 +2,16 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { designSchema, generationJobSchema, layoutSchema, themeSchema } from './contracts.js'
-import type { Design, GenerationJob, GenerationJobState, InvalidCandidate, Layout, Message, PreviewDiagnostic, Revision, Theme } from './contracts.js'
+import { designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, themeSchema } from './contracts.js'
+import type { Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, Revision, Theme } from './contracts.js'
+
+function safeParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return undefined
+  }
+}
 
 interface DesignRow {
   id: string
@@ -19,6 +27,17 @@ interface DesignRow {
   layout_json: string
   thumbnail_path: string | null
   queue_paused: number
+  last_provider_id: string
+  last_model_id: string
+  last_effort: string | null
+}
+
+interface GenerationStepRow {
+  id: string
+  stage: string
+  label: string
+  detail: string | null
+  created_at: string
 }
 
 interface RevisionRow {
@@ -222,6 +241,25 @@ const migrationFourteen = `
 ALTER TABLE generation_jobs ADD COLUMN effort TEXT;
 `
 
+const migrationFifteen = `
+ALTER TABLE designs ADD COLUMN last_provider_id TEXT NOT NULL DEFAULT 'mock' CHECK (last_provider_id IN ('mock', 'codex', 'claude'));
+ALTER TABLE designs ADD COLUMN last_model_id TEXT NOT NULL DEFAULT 'mock-v1';
+ALTER TABLE designs ADD COLUMN last_effort TEXT;
+`
+
+const migrationSixteen = `
+CREATE TABLE generation_steps (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  job_id TEXT,
+  stage TEXT NOT NULL,
+  label TEXT NOT NULL,
+  detail TEXT,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX generation_steps_by_design ON generation_steps(design_id, created_at);
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -246,7 +284,8 @@ export class WorkspaceStore {
   public listDesigns(): Design[] {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused
+             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.last_provider_id, d.last_model_id, d.last_effort
       FROM designs d JOIN projects p ON p.id = d.project_id
       ORDER BY d.updated_at DESC
     `).all() as unknown as DesignRow[]
@@ -256,7 +295,8 @@ export class WorkspaceStore {
   public getDesign(designId: string): Design | null {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused
+             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.last_provider_id, d.last_model_id, d.last_effort
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ?
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -379,6 +419,33 @@ export class WorkspaceStore {
       INSERT INTO settings (key, value) VALUES ('theme', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(theme)
+  }
+
+  public getGenerationDefaults(): GenerationSelection {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'generation.defaults'").get() as { value: string } | undefined
+    if (!setting) return { providerId: 'mock', modelId: 'mock-v1', effort: null }
+    return generationSelectionSchema.catch({ providerId: 'mock', modelId: 'mock-v1', effort: null }).parse(safeParseJson(setting.value))
+  }
+
+  public saveGenerationDefaults(selection: GenerationSelection): void {
+    this.database.prepare(`
+      INSERT INTO settings (key, value) VALUES ('generation.defaults', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(JSON.stringify(generationSelectionSchema.parse(selection)))
+  }
+
+  public saveDesignSelection(designId: string, selection: GenerationSelection): void {
+    const parsed = generationSelectionSchema.parse(selection)
+    const result = this.database.prepare('UPDATE designs SET last_provider_id = ?, last_model_id = ?, last_effort = ? WHERE id = ?')
+      .run(parsed.providerId, parsed.modelId, parsed.effort, designId)
+    if (result.changes !== 1) throw new Error('Design not found.')
+  }
+
+  public addGenerationStep(designId: string, stage: string, label: string, detail: string | null = null, jobId: string | null = null): void {
+    this.database.prepare(`
+      INSERT INTO generation_steps (id, design_id, job_id, stage, label, detail, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(randomUUID(), designId, jobId, stage, label, detail, new Date().toISOString())
   }
 
   public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null): GenerationJob {
@@ -511,7 +578,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -548,6 +615,12 @@ export class WorkspaceStore {
       draft: row.draft,
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
       queuePaused: row.queue_paused === 1,
+      lastSelection: {
+        providerId: row.last_provider_id,
+        modelId: row.last_model_id,
+        effort: row.last_effort,
+      },
+      generationSteps: this.listGenerationStepsForDesign(row.id),
       layout: layoutSchema.parse(JSON.parse(row.layout_json)),
       messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
@@ -599,6 +672,14 @@ export class WorkspaceStore {
     const job = this.getGenerationJob(id)
     if (!job) throw new Error('Generation job not found.')
     return job
+  }
+
+  private listGenerationStepsForDesign(designId: string): GenerationStep[] {
+    const rows = this.database.prepare(`
+      SELECT id, stage, label, detail, created_at
+      FROM generation_steps WHERE design_id = ? ORDER BY created_at, rowid
+    `).all(designId) as unknown as GenerationStepRow[]
+    return rows.map((row) => ({ id: row.id, stage: row.stage, label: row.label, detail: row.detail, createdAt: row.created_at }))
   }
 
   private listGenerationJobsForDesign(designId: string): GenerationJob[] {

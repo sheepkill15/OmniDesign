@@ -8,7 +8,10 @@ import {
   exportRequestSchema,
   generateRequestSchema,
   generationJobIdRequestSchema,
+  generationSelectionSchema,
+  generationStageLabel,
   previewRequestSchema,
+  saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
@@ -27,7 +30,15 @@ const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let preview: PreviewController | null = null
 let workspace: WorkspaceService | null = null
+let workspaceStore: WorkspaceStore | null = null
 let generationQueue: GenerationQueue | null = null
+const lastPersistedStageByDesign = new Map<string, string>()
+
+// Designs, their Git repositories, and the SQLite database live under the app's userData directory
+// (on Windows that is %APPDATA%\Roaming\<app>\workspace). Tests point userData at a temp directory.
+function resolveWorkspaceDirectory(): string {
+  return path.join(app.getPath('userData'), 'workspace')
+}
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'omnidesign-preview',
@@ -94,6 +105,22 @@ function sendGenerationActivity(activity: GenerationActivity): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:activity', activity)
 }
 
+// Persist a permanent, chronological record of the major generation milestones for the design's
+// conversation history, then forward the live activity to the renderer. Consecutive activities that
+// share a stage (for example the many streaming "generating" updates from an agent) collapse into a
+// single milestone so the history stays readable.
+function recordActivity(activity: GenerationActivity): void {
+  if (workspaceStore && lastPersistedStageByDesign.get(activity.designId) !== activity.stage) {
+    lastPersistedStageByDesign.set(activity.designId, activity.stage)
+    try {
+      workspaceStore.addGenerationStep(activity.designId, activity.stage, generationStageLabel(activity.stage), activity.detail || null)
+    } catch {
+      // The design may have been removed while a late activity arrived; the live event below is enough.
+    }
+  }
+  sendGenerationActivity(activity)
+}
+
 function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewController {
   return new PreviewController(
     window,
@@ -128,17 +155,24 @@ function registerIpc(): void {
     authorize(event)
     return requireWorkspace().getDesign(designIdRequestSchema.parse(value).designId)
   })
-  ipcMain.handle('workspace:create', (event, value: unknown) => {
+  ipcMain.handle('workspace:create', async (event, value: unknown) => {
     authorize(event)
     const request = createDesignRequestSchema.parse(value)
-    if (request.providerId === 'mock') return requireWorkspace().createDesign(request.prompt, sendGenerationActivity, request.sourceProjectPath)
-    const design = requireWorkspace().createAgentDesignShell(request.prompt, request.sourceProjectPath)
+    const selection = { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null }
+    if (request.providerId === 'mock') {
+      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, request.sourceProjectPath)
+      requireWorkspace().rememberSelection(design.id, selection)
+      return requireWorkspace().getDesign(design.id) ?? design
+    }
+    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, request.sourceProjectPath)
+    requireWorkspace().rememberSelection(design.id, selection)
     requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort)
-    return design
+    return requireWorkspace().getDesign(design.id) ?? design
   })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
+    requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
     requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort)
     return requireWorkspace().getDesign(request.designId)
   })
@@ -183,6 +217,19 @@ function registerIpc(): void {
     authorize(event)
     requireWorkspace().saveTheme(themeSchema.parse(value))
   })
+  ipcMain.handle('settings:get-generation-defaults', (event) => {
+    authorize(event)
+    return requireWorkspace().getGenerationDefaults()
+  })
+  ipcMain.handle('settings:save-generation-defaults', (event, value: unknown) => {
+    authorize(event)
+    requireWorkspace().saveGenerationDefaults(generationSelectionSchema.parse(value))
+  })
+  ipcMain.handle('workspace:save-design-selection', (event, value: unknown) => {
+    authorize(event)
+    const request = saveDesignSelectionRequestSchema.parse(value)
+    requireWorkspace().saveDesignSelection(request.designId, request.selection)
+  })
   ipcMain.handle('preview:show', (event, value: unknown) => {
     authorize(event)
     const request = previewRequestSchema.parse(value)
@@ -219,7 +266,8 @@ function registerIpc(): void {
 app.enableSandbox()
 
 void app.whenReady().then(() => {
-  const store = new WorkspaceStore(path.join(app.getPath('userData'), 'workspace'))
+  const store = new WorkspaceStore(resolveWorkspaceDirectory())
+  workspaceStore = store
   workspace = new WorkspaceService(store)
   generationQueue = new GenerationQueue(
     store,
@@ -229,7 +277,7 @@ void app.whenReady().then(() => {
         return
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
-      onActivity({ designId: job.designId, stage: 'generating', detail: `Starting ${job.providerId} in the managed design workspace.` })
+      onActivity({ designId: job.designId, stage: 'generating', detail: `Starting ${job.providerId} in the design's Git repository.` })
       const reply = await providers.runDesignAgent({
         requestId: job.id,
         providerId: job.providerId,
@@ -244,7 +292,7 @@ void app.whenReady().then(() => {
       if (signal.aborted) throw new Error('Generation was cancelled.')
       await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity)
     },
-    sendGenerationActivity,
+    recordActivity,
   )
   generationQueue.recoverAfterRestart()
   mainWindow = createMainWindow()

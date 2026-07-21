@@ -120,6 +120,20 @@ function Generations({ designs, onOpen, onCancel }: {
   )
 }
 
+type ConversationFeedItem =
+  | { readonly kind: 'message'; readonly createdAt: string; readonly message: DesignMessage }
+  | { readonly kind: 'step'; readonly createdAt: string; readonly step: GenerationStep }
+
+// Interleave persisted user/assistant messages with the recorded generation milestones so the major
+// steps of each run appear in the conversation history in the order they happened.
+function buildConversationFeed(design: OmniDesignDocument): ConversationFeedItem[] {
+  const items: ConversationFeedItem[] = [
+    ...design.messages.map((message) => ({ kind: 'message' as const, createdAt: message.createdAt, message })),
+    ...design.generationSteps.map((step) => ({ kind: 'step' as const, createdAt: step.createdAt, step })),
+  ]
+  return items.sort((first, second) => first.createdAt < second.createdAt ? -1 : first.createdAt > second.createdAt ? 1 : 0)
+}
+
 function formatGenerationElapsed(startedAt: string): string {
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1_000))
   if (elapsedSeconds < 60) return `${elapsedSeconds}s`
@@ -230,14 +244,21 @@ function NewDesignComposer({ providers, busy, onCreate }: {
 }) {
   const [prompt, setPrompt] = useState('')
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
-  const [providerId, setProviderId] = useState<ProviderId>('mock')
-  const [modelId, setModelId] = useState('mock-v1')
-  const [effort, setEffort] = useState<string | null>(null)
+  const [selection, setSelection] = useState<GenerationSelection>({ providerId: 'mock', modelId: 'mock-v1', effort: null })
   const [sourceProjectPath, setSourceProjectPath] = useState<string | null>(null)
+  useEffect(() => {
+    const pending = window.omnidesign?.settings.getGenerationDefaults?.()
+    if (!pending) return
+    void pending.then((saved) => { if (saved) setSelection(saved) })
+  }, [])
+  const applySelection = (next: GenerationSelection) => {
+    setSelection(next)
+    void window.omnidesign?.settings.saveGenerationDefaults?.(next)
+  }
   const submit = async () => {
     const value = prompt.trim()
     if (!value || busy) return
-    await onCreate(value, providerId, modelId, effort, sourceProjectPath)
+    await onCreate(value, selection.providerId, selection.modelId, selection.effort, sourceProjectPath)
     setPrompt('')
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -254,7 +275,7 @@ function NewDesignComposer({ providers, busy, onCreate }: {
       </TextField>
       <div className="composer-footer">
         <div className="composer-leading"><IconButton label="Attach files or folders" icon={PaperClipIcon} /><MenuTrigger><Button className="project-context"><FolderIcon aria-hidden="true" />{sourceProjectPath ? sourceProjectPath.split(/[\\/]/).filter(Boolean).at(-1) : 'Standalone design'}<ChevronDownIcon aria-hidden="true" /></Button><Popover className="project-popover" placement="top start"><Menu aria-label="Design project" onAction={(key) => { if (key === 'standalone') setSourceProjectPath(null); if (key === 'folder') void window.omnidesign?.workspace.chooseProjectFolder().then((path) => { if (path) setSourceProjectPath(path) }) }}><MenuItem id="standalone">Standalone design</MenuItem><MenuItem id="folder">Choose local project folder…</MenuItem></Menu></Popover></MenuTrigger></div>
-        <GenerationSettingsMenu providers={readyProviders} providerId={providerId} modelId={modelId} effort={effort} onChange={(selection) => { setProviderId(selection.providerId); setModelId(selection.modelId); setEffort(selection.effort) }} />
+        <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />
         <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy} onPress={() => void submit()}>
           {busy ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}
         </Button>
@@ -276,7 +297,9 @@ function Home({ designs, providers, busy, activity, onCreate, onOpen }: {
       <div className="home-content">
         <header className="page-heading"><h1>Start with an idea.</h1><p>Turn it into something you can see, use, and refine—without leaving your local workspace.</p></header>
         <NewDesignComposer providers={providers} busy={busy} onCreate={onCreate} />
-        {activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
+        {busy
+          ? <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>
+          : activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
         <section className="recent-section" aria-labelledby="recent-designs">
           <div className="section-heading"><h2 id="recent-designs">Continue designing</h2><span>{designs.length ? `${designs.length} local` : 'Nothing here yet'}</span></div>
           <div className="recent-rows">
@@ -337,9 +360,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const [draft, setDraft] = useState(design.draft)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
-  const [providerId, setProviderId] = useState<ProviderId>('mock')
-  const [modelId, setModelId] = useState('mock-v1')
-  const [effort, setEffort] = useState<string | null>(null)
+  const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
   const split = useRef<HTMLDivElement>(null)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
@@ -351,6 +372,11 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
+  useEffect(() => setSelection(design.lastSelection), [design.id])
+  const applySelection = (next: GenerationSelection) => {
+    setSelection(next)
+    void window.omnidesign?.workspace.saveSelection?.(design.id, next)
+  }
   useEffect(() => {
     if (!api) return
     const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft) }, 300)
@@ -370,7 +396,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
 
   const submit = async () => {
     if (!api || !draft.trim() || busy || !selectedIsHead) return
-    onChange(await api.generate(design.id, draft.trim(), providerId, modelId, effort ?? undefined))
+    onChange(await api.generate(design.id, draft.trim(), selection.providerId, selection.modelId, selection.effort ?? undefined))
     setDraft('')
   }
   const selectRevision = async (revisionId: string) => {
@@ -422,7 +448,9 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
       <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
         <section className="conversation-pane" aria-label="Design conversation">
           <div className="conversation-feed">
-            {design.messages.map((message) => <article className={`conversation-message message-${message.role}`} key={message.id}><span>{message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{message.text}</p></article>)}
+            {buildConversationFeed(design).map((item) => item.kind === 'message'
+              ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p></article>
+              : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
             {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
             {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
             {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
@@ -436,7 +464,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
             <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
             }} /></TextField>
-            <div className="workspace-composer-footer"><GenerationSettingsMenu providers={readyProviders} providerId={providerId} modelId={modelId} effort={effort} onChange={(selection) => { setProviderId(selection.providerId); setModelId(selection.modelId); setEffort(selection.effort) }} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+            <div className="workspace-composer-footer"><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
           </div>
         </section>
         <div
@@ -497,6 +525,7 @@ export function App() {
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
   const [activity, setActivity] = useState<GenerationActivity | null>(null)
   const [busy, setBusy] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [providersOpen, setProvidersOpen] = useState(false)
   const [generationsOpen, setGenerationsOpen] = useState(false)
@@ -549,13 +578,13 @@ export function App() {
 
   const create = async (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, sourceProjectPath: string | null) => {
     if (!workspaceApi) return
-    setBusy(true)
+    setCreating(true)
     try {
       const design = await workspaceApi.create(prompt, providerId, modelId, effort ?? undefined, sourceProjectPath)
       setActiveDesign(design)
       await refresh()
     } finally {
-      setBusy(false)
+      setCreating(false)
     }
   }
   const changeTheme = (nextTheme: 'dark' | 'light') => {
@@ -584,7 +613,7 @@ export function App() {
         ? <Settings theme={theme} onThemeChange={changeTheme} />
         : activeDesign
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={home} onChange={updateDesign} />
-        : <Home designs={designs} providers={providerState.providers} busy={false} activity={activity} onCreate={create} onOpen={openDesign} />}
+        : <Home designs={designs} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpen={openDesign} />}
     </div>
   )
 }

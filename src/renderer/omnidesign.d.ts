@@ -70,6 +70,20 @@ interface InvalidCandidate {
   readonly createdAt: string
 }
 
+interface GenerationSelection {
+  readonly providerId: 'mock' | 'codex' | 'claude'
+  readonly modelId: string
+  readonly effort: string | null
+}
+
+interface GenerationStep {
+  readonly id: string
+  readonly stage: string
+  readonly label: string
+  readonly detail: string | null
+  readonly createdAt: string
+}
+
 interface GenerationJob {
   readonly id: string
   readonly designId: string
@@ -96,6 +110,8 @@ interface OmniDesignDocument {
   readonly draft: string
   readonly thumbnailDataUrl: string | null
   readonly queuePaused: boolean
+  readonly lastSelection: GenerationSelection
+  readonly generationSteps: readonly GenerationStep[]
   readonly layout: { readonly conversationWidth: number }
   readonly messages: readonly DesignMessage[]
   readonly invalidCandidates: readonly InvalidCandidate[]
@@ -135,12 +151,15 @@ interface Window {
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string): Promise<void>
       saveLayout(designId: string, layout: { readonly conversationWidth: number }): Promise<void>
+      saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
     }
     readonly settings: {
       getTheme(): Promise<'dark' | 'light'>
       saveTheme(theme: 'dark' | 'light'): Promise<void>
+      getGenerationDefaults(): Promise<GenerationSelection>
+      saveGenerationDefaults(selection: GenerationSelection): Promise<void>
     }
     readonly preview: {
       show(request: { readonly designId: string; readonly revisionId: string; readonly bounds: PreviewBounds }): Promise<void>

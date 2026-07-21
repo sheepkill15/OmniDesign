@@ -43,6 +43,20 @@ export const layoutSchema = z.object({
 
 export const themeSchema = z.enum(['dark', 'light'])
 
+export const generationSelectionSchema = z.object({
+  providerId: z.enum(['mock', 'codex', 'claude']).catch('mock'),
+  modelId: z.string().trim().min(1).max(200).catch('mock-v1'),
+  effort: z.string().trim().min(1).max(100).nullable().catch(null),
+})
+
+export const generationStepSchema = z.object({
+  id: z.string().min(1),
+  stage: z.string().min(1),
+  label: z.string().min(1),
+  detail: z.string().nullable(),
+  createdAt: z.string().datetime(),
+})
+
 export const generationJobStateSchema = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted'])
 
 export const generationJobSchema = z.object({
@@ -72,6 +86,8 @@ export const designSchema = z.object({
   draft: z.string(),
   thumbnailDataUrl: z.string().nullable(),
   queuePaused: z.boolean(),
+  lastSelection: generationSelectionSchema,
+  generationSteps: z.array(generationStepSchema),
   layout: layoutSchema,
   messages: z.array(messageSchema),
   invalidCandidates: z.array(invalidCandidateSchema),
@@ -114,6 +130,10 @@ export const saveLayoutRequestSchema = designIdRequestSchema.extend({
   layout: layoutSchema,
 })
 
+export const saveDesignSelectionRequestSchema = designIdRequestSchema.extend({
+  selection: generationSelectionSchema,
+})
+
 export const previewRequestSchema = selectRevisionRequestSchema.extend({
   bounds: z.object({
     x: z.number().int().nonnegative(),
@@ -139,6 +159,9 @@ export type SaveLayoutRequest = z.infer<typeof saveLayoutRequestSchema>
 export type Theme = z.infer<typeof themeSchema>
 export type GenerationJob = z.infer<typeof generationJobSchema>
 export type GenerationJobState = z.infer<typeof generationJobStateSchema>
+export type GenerationSelection = z.infer<typeof generationSelectionSchema>
+export type GenerationStep = z.infer<typeof generationStepSchema>
+export type SaveDesignSelectionRequest = z.infer<typeof saveDesignSelectionRequestSchema>
 export type PreviewRequest = z.infer<typeof previewRequestSchema>
 export type ExportRequest = z.infer<typeof exportRequestSchema>
 
@@ -146,4 +169,21 @@ export interface GenerationActivity {
   readonly designId: string
   readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'repairing' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
   readonly detail: string
+}
+
+const generationStageLabels: Record<GenerationActivity['stage'], string> = {
+  queued: 'Queued',
+  generating: 'Generating design',
+  compiling: 'Compiling styles',
+  validating: 'Validating output',
+  repairing: 'Repairing candidate',
+  saving: 'Saving revision',
+  complete: 'Revision ready',
+  failed: 'Generation failed',
+  cancelled: 'Generation cancelled',
+  interrupted: 'Generation interrupted',
+}
+
+export function generationStageLabel(stage: string): string {
+  return generationStageLabels[stage as GenerationActivity['stage']] ?? stage
 }

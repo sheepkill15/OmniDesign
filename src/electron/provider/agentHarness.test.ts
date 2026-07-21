@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { createDesignAgentInstructions, parseAgentCompletionPayload } from './agentHarness.js'
 
 describe('agent completion payload', () => {
-  it('accepts only the conversational response field', () => {
+  it('extracts the conversational response even when the model adds extra keys or formatting', () => {
     expect(parseAgentCompletionPayload('{"response":"I updated the design."}')).toEqual({ response: 'I updated the design.' })
-    expect(() => parseAgentCompletionPayload('{"response":"Done","changedFiles":["index.html"]}')).toThrow('required JSON completion payload')
+    // Extra keys are tolerated rather than rejected — only `response` is required.
+    expect(parseAgentCompletionPayload('{"response":"Done","changedFiles":["index.html"]}')).toEqual({ response: 'Done' })
+    // Markdown code fences and surrounding prose are stripped.
+    expect(parseAgentCompletionPayload('Here you go:\n```json\n{"response":"Fenced reply"}\n```')).toEqual({ response: 'Fenced reply' })
+    // As a last resort the raw text becomes the response so a valid revision is not discarded.
+    expect(parseAgentCompletionPayload('Just a plain sentence.')).toEqual({ response: 'Just a plain sentence.' })
   })
 
   it('directs the agent to work in the prepared repository without self-reporting Git evidence', () => {

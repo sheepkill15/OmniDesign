@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ProviderActivity, ProviderPrompt } from '../provider/types.js'
-import type { GenerationActivity, Layout, PreviewRequest } from '../workspace/contracts.js'
+import type { GenerationActivity, GenerationSelection, Layout, PreviewRequest } from '../workspace/contracts.js'
 
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     restoreRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:restore-revision', { designId, revisionId }),
     saveDraft: (designId: string, draft: string) => ipcRenderer.invoke('workspace:save-draft', { designId, draft }),
     saveLayout: (designId: string, layout: Layout) => ipcRenderer.invoke('workspace:save-layout', { designId, layout }),
+    saveSelection: (designId: string, selection: GenerationSelection) => ipcRenderer.invoke('workspace:save-design-selection', { designId, selection }),
     exportRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:export', { designId, revisionId }),
     onActivity: (listener: (activity: GenerationActivity) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, activity: GenerationActivity) => listener(activity)
@@ -34,6 +35,8 @@ contextBridge.exposeInMainWorld('omnidesign', {
   settings: {
     getTheme: () => ipcRenderer.invoke('settings:get-theme'),
     saveTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('settings:save-theme', theme),
+    getGenerationDefaults: () => ipcRenderer.invoke('settings:get-generation-defaults'),
+    saveGenerationDefaults: (selection: GenerationSelection) => ipcRenderer.invoke('settings:save-generation-defaults', selection),
   },
   preview: {
     show: (request: PreviewRequest) => ipcRenderer.invoke('preview:show', request),

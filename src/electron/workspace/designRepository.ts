@@ -8,8 +8,10 @@ const initialHtml = `<!doctype html>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OmniDesign</title>
+    <!-- Tailwind and Alpine.js are provided locally by OmniDesign when the design is compiled; no
+         imports are needed. Use Tailwind utility classes and Alpine directives directly. -->
   </head>
-  <body>
+  <body class="min-h-screen bg-white text-slate-900 antialiased">
   </body>
 </html>
 `

@@ -458,7 +458,10 @@ button:disabled,
 
 .generation-settings-button {
   height: 34px;
-  max-width: 280px;
+  /* Fixed width keeps the button's edges stable so the settings popover (anchored to the button)
+     does not drift sideways when the selected provider/model label changes length. */
+  width: 248px;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -473,7 +476,7 @@ button:disabled,
 }
 
 .generation-settings-button:hover { background: var(--surface-3); color: var(--text); }
-.generation-settings-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.generation-settings-button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .generation-settings-button svg { width: 15px; flex: 0 0 auto; stroke-width: 1.8; }
 .generation-settings-button svg:last-child { width: 12px; }
 
@@ -1215,6 +1218,32 @@ button:disabled,
   color: var(--text);
   font-size: 16px;
 }
+
+.conversation-step {
+  margin: 0 0 26px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+}
+
+.conversation-step-label {
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.conversation-step-detail {
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.conversation-step.step-failed { border-left-color: var(--danger, #d66); }
+.conversation-step.step-failed .conversation-step-label { color: var(--danger, #d66); }
+.conversation-step.step-complete { border-left-color: var(--success); }
 
 .generation-progress {
   padding: 12px 0;

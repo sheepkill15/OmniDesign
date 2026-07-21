@@ -14,7 +14,8 @@
     "start": "electron .",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json",
     "test": "vitest run --environment jsdom --exclude=dist-electron/** --exclude=tests/e2e/**",
-    "test:e2e": "pnpm build && playwright test -c playwright.e2e.config.ts"
+    "test:e2e": "pnpm build && playwright test -c playwright.e2e.config.ts",
+    "vendor:alpine": "node scripts/vendor-alpine.mjs"
   },
   "dependencies": {
     "@heroicons/react": "2.2.0",
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
+    "alpinejs": "^3.15.12",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^26.1.1",

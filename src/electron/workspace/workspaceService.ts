@@ -1,5 +1,5 @@
 import { compileDesignHtml, validateCompiledDesign } from './compiler.js'
-import type { Design, GenerationActivity, Layout, Theme } from './contracts.js'
+import type { Design, GenerationActivity, GenerationSelection, Layout, Theme } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
@@ -31,15 +31,17 @@ export class WorkspaceService {
     const design = sourceProjectPath
       ? this.store.createLinkedDesign(prompt, generated.title, sourceProjectPath)
       : this.store.createStandaloneDesign(prompt, generated.title)
+    onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up design repository…' })
     this.repositories.initialize(design.id)
     return this.generate(design.id, prompt, onActivity, generated.html, false)
   }
 
-  public createAgentDesignShell(prompt: string, sourceProjectPath?: string | null): Design {
+  public createAgentDesignShell(prompt: string, onActivity: ActivityListener, sourceProjectPath?: string | null): Design {
     const generated = generateMockDesign(prompt)
     const design = sourceProjectPath
       ? this.store.createLinkedDesign('', generated.title, sourceProjectPath)
       : this.store.createStandaloneDesign('', generated.title)
+    onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up design repository…' })
     this.repositories.initialize(design.id)
     return design
   }
@@ -144,6 +146,24 @@ export class WorkspaceService {
 
   public saveTheme(theme: Theme): void {
     this.store.saveTheme(theme)
+  }
+
+  public getGenerationDefaults(): GenerationSelection {
+    return this.store.getGenerationDefaults()
+  }
+
+  public saveGenerationDefaults(selection: GenerationSelection): void {
+    this.store.saveGenerationDefaults(selection)
+  }
+
+  public saveDesignSelection(designId: string, selection: GenerationSelection): void {
+    this.store.saveDesignSelection(designId, selection)
+  }
+
+  /** Persist a design's most-recent generation selection and update the global default in one step. */
+  public rememberSelection(designId: string, selection: GenerationSelection): void {
+    this.store.saveDesignSelection(designId, selection)
+    this.store.saveGenerationDefaults(selection)
   }
 
   private throwIfCancelled(signal: AbortSignal | undefined): void {

@@ -11,8 +11,6 @@ import type {
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
 import { isObject, titleCase } from './providerUtils.js'
 
-const PROMPT_TIMEOUT_MS = 120_000
-
 export class CodexAdapter implements ProviderAdapter {
   public readonly id = 'codex' as const
 
@@ -51,7 +49,9 @@ export class CodexAdapter implements ProviderAdapter {
     if (request.signal?.aborted) throw new Error('Codex generation was cancelled.')
     this.emit(onActivity, 'status', 'Starting Codex app-server')
     const command = await resolveProviderCommand('codex')
-    const rpc = startJsonRpcProcess(command, ['app-server'])
+    // Run the app-server itself inside the design's Git repository so Codex operates on the design
+    // (never OmniDesign's own source tree) even if it falls back to its process cwd.
+    const rpc = startJsonRpcProcess(command, ['app-server'], request.workspacePath ? { cwd: request.workspacePath } : {})
     const cancel = () => rpc.close(new Error('Codex generation was cancelled.'))
     request.signal?.addEventListener('abort', cancel, { once: true })
     try {
@@ -123,7 +123,8 @@ export class CodexAdapter implements ProviderAdapter {
   ): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       let output = ''
-      const timeout = setTimeout(() => done(new Error('Codex did not complete within two minutes.')), PROMPT_TIMEOUT_MS)
+      // No completion timeout: agents run until the turn completes, the process exits, or the user
+      // cancels via the abort signal. A hung run is ended by Stop, not by an arbitrary clock.
       const unsubscribe = rpc.onNotification((method, params) => {
         const textDelta = method === 'item/agentMessage/delta' && isObject(params) && typeof params.delta === 'string'
           ? params.delta
@@ -137,7 +138,6 @@ export class CodexAdapter implements ProviderAdapter {
         if (method === 'turn/completed') done()
       })
       const done = (error?: Error) => {
-        clearTimeout(timeout)
         unsubscribe()
         if (error) reject(error)
         else resolve(output || 'Codex completed without a text response.')

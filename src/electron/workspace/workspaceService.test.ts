@@ -27,14 +27,14 @@ describe('WorkspaceService', () => {
     expect(first.revisions).toHaveLength(1)
     expect(second.revisions).toHaveLength(2)
     expect(second.revisions[1].parentRevisionId).toBe(first.activeRevisionId)
-    expect(second.revisions[1].html).toContain('<style>')
+    expect(second.revisions[1].html).toContain('<style data-omnidesign-tailwind>')
     expect(second.revisions[0].gitCommit).toMatch(/^[0-9a-f]{40}$/)
     expect(second.revisions[1].gitCommit).toMatch(/^[0-9a-f]{40}$/)
     const repositoryPath = path.join(directory, 'designs', first.id, 'repository')
     expect(existsSync(path.join(repositoryPath, '.git'))).toBe(true)
     expect(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repositoryPath, encoding: 'utf8' }).trim()).toBe('3')
     expect(activity.map((event) => event.stage)).toEqual([
-      'generating', 'compiling', 'validating', 'saving', 'complete',
+      'queued', 'generating', 'compiling', 'validating', 'saving', 'complete',
       'generating', 'compiling', 'validating', 'saving', 'complete',
     ])
     store.close()
@@ -46,12 +46,12 @@ describe('WorkspaceService', () => {
     const store = new WorkspaceStore(directory)
     const service = new WorkspaceService(store)
     const first = await service.createDesign('A calm analytics dashboard', () => undefined)
-    const failed = await service.generate(first.id, 'Add unsafe behavior', () => undefined, '<html><body><script>alert(1)</script></body></html>')
+    const failed = await service.generate(first.id, 'Reference a local file', () => undefined, '<html><body><img src="file:///C:/secret.png"></body></html>')
 
     expect(failed.activeRevisionId).toBe(first.activeRevisionId)
     expect(failed.revisions).toHaveLength(1)
-    expect(failed.invalidCandidates).toMatchObject([{ prompt: 'Add unsafe behavior', diagnostic: expect.stringMatching(/unsafe/) }])
-    expect(failed.invalidCandidates[0].html).toContain('<script>')
+    expect(failed.invalidCandidates).toMatchObject([{ prompt: 'Reference a local file', diagnostic: expect.stringMatching(/file:/) }])
+    expect(failed.invalidCandidates[0].html).toContain('file:')
     store.close()
   })
 
@@ -65,9 +65,9 @@ describe('WorkspaceService', () => {
 
     const repaired = await service.generate(
       first.id,
-      'Add unsafe behavior',
+      'Reference a local file',
       (event) => activity.push(event),
-      '<html><body><script>alert(1)</script></body></html>',
+      '<html><body><img src="file:///C:/secret.png"></body></html>',
       true,
       undefined,
       3,
@@ -76,7 +76,7 @@ describe('WorkspaceService', () => {
     expect(repaired.revisions).toHaveLength(2)
     expect(repaired.invalidCandidates).toHaveLength(0)
     expect(activity.map((event) => event.stage)).toContain('repairing')
-    expect(repaired.revisions.at(-1)?.html).not.toContain('<script>')
+    expect(repaired.revisions.at(-1)?.html).not.toContain('file:///')
     store.close()
   })
 
@@ -116,7 +116,7 @@ describe('WorkspaceService', () => {
     const store = new WorkspaceStore(directory)
     const service = new WorkspaceService(store)
 
-    const design = service.createAgentDesignShell('A calm analytics dashboard')
+    const design = service.createAgentDesignShell('A calm analytics dashboard', () => undefined)
 
     expect(design.revisions).toHaveLength(0)
     expect(design.messages).toHaveLength(0)
