@@ -6,7 +6,11 @@ import type {
   ProviderStatus,
 } from './types.js'
 
-export type ProviderAdapterPrompt = Pick<ProviderPrompt, 'modelId' | 'effort' | 'prompt'>
+export type ProviderAdapterPrompt = Pick<ProviderPrompt, 'modelId' | 'effort' | 'prompt'> & {
+  readonly workspacePath?: string
+  readonly instructions?: string
+  readonly outputSchema?: Record<string, unknown>
+}
 export type ProviderAdapterReply = Omit<ProviderReply, 'providerId'>
 export type ProviderAdapterActivity = Omit<ProviderActivity, 'requestId' | 'providerId'>
 export type ProviderAdapterStatus = Omit<ProviderStatus, 'id'>

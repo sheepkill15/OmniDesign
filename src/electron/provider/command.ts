@@ -37,6 +37,7 @@ export async function runCommand(
   resolved: ResolvedCommand,
   args: readonly string[],
   options: {
+    readonly cwd?: string
     readonly input?: string
     readonly timeoutMs?: number
     readonly onStdoutLine?: (line: string) => void
@@ -45,6 +46,7 @@ export async function runCommand(
 ): Promise<CommandResult> {
   const invocation = resolveSpawnInvocation(resolved, args)
   const child = spawn(invocation.command, invocation.args, {
+    ...(options.cwd ? { cwd: options.cwd } : {}),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,

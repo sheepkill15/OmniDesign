@@ -75,10 +75,13 @@ export class ClaudeAdapter implements ProviderAdapter {
       '--include-partial-messages',
       '--model', request.modelId,
       ...(request.effort ? ['--effort', request.effort] : []),
-      '--permission-mode', 'plan',
+      '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
       '--no-session-persistence',
+      ...(request.instructions ? ['--append-system-prompt', request.instructions] : []),
+      ...(request.outputSchema ? ['--json-schema', JSON.stringify(request.outputSchema)] : []),
     ]
     const result = await runCommand(command, args, {
+      ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
       input: request.prompt,
       timeoutMs: PROMPT_TIMEOUT_MS,
       onStdoutLine: (line) => {

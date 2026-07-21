@@ -54,10 +54,12 @@ export class CodexAdapter implements ProviderAdapter {
     try {
       await this.initialize(rpc)
       const thread = await rpc.request('thread/start', {
-        cwd: process.cwd(),
+        cwd: request.workspacePath ?? process.cwd(),
         model: request.modelId,
-        sandbox: 'read-only',
+        sandbox: request.workspacePath ? 'workspace-write' : 'read-only',
         approvalPolicy: 'never',
+        ...(request.workspacePath ? { runtimeWorkspaceRoots: [request.workspacePath] } : {}),
+        ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       })
       if (!isObject(thread) || !isObject(thread.thread) || typeof thread.thread.id !== 'string') {
         throw new Error('Codex did not create a conversation.')
@@ -141,7 +143,11 @@ export class CodexAdapter implements ProviderAdapter {
         model: request.modelId,
         ...(request.effort ? { effort: request.effort } : {}),
         approvalPolicy: 'never',
-        sandboxPolicy: { type: 'readOnly', networkAccess: true },
+        sandboxPolicy: request.workspacePath
+          ? { type: 'workspaceWrite', networkAccess: true, writableRoots: [] }
+          : { type: 'readOnly', networkAccess: true },
+        ...(request.workspacePath ? { cwd: request.workspacePath, runtimeWorkspaceRoots: [request.workspacePath] } : {}),
+        ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
         input: [{ type: 'text', text: request.prompt }],
       }).catch((error: unknown) => done(error instanceof Error ? error : new Error('Codex failed to start the turn.')))
     })
