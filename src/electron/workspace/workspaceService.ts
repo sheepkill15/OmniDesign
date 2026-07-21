@@ -26,16 +26,20 @@ export class WorkspaceService {
     return this.repositories.getPath(designId)
   }
 
-  public async createDesign(prompt: string, onActivity: ActivityListener): Promise<Design> {
+  public async createDesign(prompt: string, onActivity: ActivityListener, sourceProjectPath?: string | null): Promise<Design> {
     const generated = generateMockDesign(prompt)
-    const design = this.store.createStandaloneDesign(prompt, generated.title)
+    const design = sourceProjectPath
+      ? this.store.createLinkedDesign(prompt, generated.title, sourceProjectPath)
+      : this.store.createStandaloneDesign(prompt, generated.title)
     this.repositories.initialize(design.id)
     return this.generate(design.id, prompt, onActivity, generated.html, false)
   }
 
-  public createAgentDesignShell(prompt: string): Design {
+  public createAgentDesignShell(prompt: string, sourceProjectPath?: string | null): Design {
     const generated = generateMockDesign(prompt)
-    const design = this.store.createStandaloneDesign('', generated.title)
+    const design = sourceProjectPath
+      ? this.store.createLinkedDesign('', generated.title, sourceProjectPath)
+      : this.store.createStandaloneDesign('', generated.title)
     this.repositories.initialize(design.id)
     return design
   }

@@ -35,6 +35,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       get: vi.fn().mockResolvedValue(createdDesign),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
+      chooseProjectFolder: vi.fn().mockResolvedValue(null),
       cancelGeneration: vi.fn().mockResolvedValue(undefined),
       retryGeneration: vi.fn().mockResolvedValue(undefined),
       selectRevision: vi.fn().mockResolvedValue(design),
@@ -79,7 +80,7 @@ describe('Phase 1 walking skeleton UI', () => {
     installBridge()
     render(<App />)
 
-    await waitFor(() => expect(screen.getByText('Development provider')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Generation settings' })).toHaveTextContent('Development provider'))
   })
 
   it('opens provider availability and refreshes local provider discovery', async () => {
@@ -124,10 +125,49 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
-    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A calm dashboard', 'mock', 'mock-v1'))
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A calm dashboard', 'mock', 'mock-v1', undefined, null))
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
+  })
+
+  it('selects the provider, model, and effort from the composer settings menu', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.providers.discover).mockResolvedValue([{
+      id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [{
+        id: 'gpt-5.6', name: 'GPT-5.6', effortLevels: [
+          { id: 'low', name: 'Low', isDefault: false },
+          { id: 'high', name: 'High', isDefault: true },
+        ],
+      }],
+    }])
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Generation settings' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Codex' }))
+    const effort = screen.getByRole('slider', { name: 'Reasoning effort' })
+    fireEvent.keyDown(effort, { key: 'End' })
+    fireEvent.keyDown(effort, { key: 'Escape' })
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A precise dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A precise dashboard', 'codex', 'gpt-5.6', 'high', null))
+  })
+
+  it('opens the project context menu and uses a chosen local folder', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.chooseProjectFolder).mockResolvedValue('C:\\Projects\\Aurora')
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Standalone design/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose local project folder…' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Aurora/ })).toBeInTheDocument())
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A linked dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A linked dashboard', 'mock', 'mock-v1', undefined, 'C:\\Projects\\Aurora'))
   })
 
   it('keeps the native preview visible while revision history stays in the conversation-side toolbar', async () => {

@@ -6,6 +6,7 @@ import {
   BellIcon,
   BoltIcon,
   CheckCircleIcon,
+  ChevronDownIcon,
   ClockIcon,
   Cog6ToothIcon,
   CommandLineIcon,
@@ -20,7 +21,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, Radio, RadioGroup, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Menu, MenuItem, MenuTrigger, Popover, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -167,20 +168,64 @@ function Settings({ theme, onThemeChange }: { readonly theme: 'dark' | 'light'; 
   )
 }
 
+type ProviderId = 'mock' | 'codex' | 'claude'
+
+function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChange }: {
+  readonly providers: readonly ProviderStatus[]
+  readonly providerId: ProviderId
+  readonly modelId: string
+  readonly effort: string | null
+  readonly onChange: (selection: { providerId: ProviderId; modelId: string; effort: string | null }) => void
+}) {
+  const available = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
+  const provider = providerId === 'mock' ? undefined : available.find((candidate) => candidate.id === providerId)
+  const model = provider?.models.find((candidate) => candidate.id === modelId) ?? provider?.models[0]
+  const efforts = model?.effortLevels ?? []
+  const effortIndex = Math.max(0, efforts.findIndex((candidate) => candidate.id === effort) + 1)
+  const selectProvider = (nextProviderId: ProviderId) => {
+    const nextProvider = available.find((candidate) => candidate.id === nextProviderId)
+    onChange({ providerId: nextProviderId, modelId: nextProvider?.models[0]?.id ?? 'mock-v1', effort: null })
+  }
+
+  return (
+    <MenuTrigger>
+      <Button className="generation-settings-button" aria-label="Generation settings"><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span><ChevronDownIcon aria-hidden="true" /></Button>
+      <Popover className="generation-settings-popover" placement="top end">
+        <Menu aria-label="Generation settings" className="generation-settings-menu" shouldCloseOnSelect={false}>
+          <MenuItem id="provider-heading" isDisabled>Provider</MenuItem>
+          <MenuItem id="mock" onAction={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+          {available.map((candidate) => <MenuItem id={candidate.id} key={candidate.id} onAction={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+          <MenuItem id="model-heading" isDisabled>Model</MenuItem>
+          {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: null })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+          {!provider && <MenuItem id="mock-model" isDisabled>Mock v1</MenuItem>}
+        </Menu>
+        <div className="effort-control" data-disabled={!efforts.length || undefined}>
+          <div><strong>Effort</strong><span>{effort ? efforts.find((candidate) => candidate.id === effort)?.name ?? effort : 'Provider default'}</span></div>
+          <Slider aria-label="Reasoning effort" className="effort-slider" minValue={0} maxValue={efforts.length} step={1} value={effortIndex} isDisabled={!efforts.length} onChange={(value) => onChange({ providerId, modelId: model?.id ?? 'mock-v1', effort: efforts[Number(value) - 1]?.id ?? null })}>
+            <SliderTrack className="effort-slider-track"><span /><SliderThumb className="effort-slider-thumb" /></SliderTrack>
+          </Slider>
+          {efforts.length > 0 && <div className="effort-labels"><span>Default</span><span>{efforts.at(-1)?.name}</span></div>}
+        </div>
+      </Popover>
+    </MenuTrigger>
+  )
+}
+
 function NewDesignComposer({ providers, busy, onCreate }: {
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
-  readonly onCreate: (prompt: string, providerId: 'mock' | 'codex' | 'claude', modelId: string) => Promise<void>
+  readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, sourceProjectPath: string | null) => Promise<void>
 }) {
   const [prompt, setPrompt] = useState('')
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
-  const [providerId, setProviderId] = useState<'mock' | 'codex' | 'claude'>('mock')
-  const provider = readyProviders.find((candidate) => candidate.id === providerId)
-  const modelId = provider?.models[0]?.id ?? 'mock-v1'
+  const [providerId, setProviderId] = useState<ProviderId>('mock')
+  const [modelId, setModelId] = useState('mock-v1')
+  const [effort, setEffort] = useState<string | null>(null)
+  const [sourceProjectPath, setSourceProjectPath] = useState<string | null>(null)
   const submit = async () => {
     const value = prompt.trim()
     if (!value || busy) return
-    await onCreate(value, providerId, modelId)
+    await onCreate(value, providerId, modelId, effort, sourceProjectPath)
     setPrompt('')
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -196,11 +241,8 @@ function NewDesignComposer({ providers, busy, onCreate }: {
         <TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onKeyDown} placeholder="What would you like to design?" />
       </TextField>
       <div className="composer-footer">
-        <div className="composer-leading"><IconButton label="Attach files or folders" icon={PaperClipIcon} /><span className="project-context"><FolderIcon aria-hidden="true" />Standalone design</span></div>
-        <RadioGroup aria-label="Generation provider" className="composer-controls" value={providerId} onChange={(value) => setProviderId(value as 'mock' | 'codex' | 'claude')}>
-          <Radio className="control-button" value="mock"><SparklesIcon aria-hidden="true" />Development provider</Radio>
-          {readyProviders.map((candidate) => <Radio className="control-button" value={candidate.id} key={candidate.id}><CommandLineIcon aria-hidden="true" />{candidate.name} · {candidate.models[0].name}</Radio>)}
-        </RadioGroup>
+        <div className="composer-leading"><IconButton label="Attach files or folders" icon={PaperClipIcon} /><MenuTrigger><Button className="project-context"><FolderIcon aria-hidden="true" />{sourceProjectPath ? sourceProjectPath.split(/[\\/]/).filter(Boolean).at(-1) : 'Standalone design'}<ChevronDownIcon aria-hidden="true" /></Button><Popover className="project-popover" placement="top start"><Menu aria-label="Design project" onAction={(key) => { if (key === 'standalone') setSourceProjectPath(null); if (key === 'folder') void window.omnidesign?.workspace.chooseProjectFolder().then((path) => { if (path) setSourceProjectPath(path) }) }}><MenuItem id="standalone">Standalone design</MenuItem><MenuItem id="folder">Choose local project folder…</MenuItem></Menu></Popover></MenuTrigger></div>
+        <GenerationSettingsMenu providers={readyProviders} providerId={providerId} modelId={modelId} effort={effort} onChange={(selection) => { setProviderId(selection.providerId); setModelId(selection.modelId); setEffort(selection.effort) }} />
         <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy} onPress={() => void submit()}>
           {busy ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}
         </Button>
@@ -214,7 +256,7 @@ function Home({ designs, providers, busy, activity, onCreate, onOpen }: {
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly activity: GenerationActivity | null
-  readonly onCreate: (prompt: string, providerId: 'mock' | 'codex' | 'claude', modelId: string) => Promise<void>
+  readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, sourceProjectPath: string | null) => Promise<void>
   readonly onOpen: (design: OmniDesignDocument) => void
 }) {
   return (
@@ -283,7 +325,9 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const [draft, setDraft] = useState(design.draft)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
-  const [providerId, setProviderId] = useState<'mock' | 'codex' | 'claude'>('mock')
+  const [providerId, setProviderId] = useState<ProviderId>('mock')
+  const [modelId, setModelId] = useState('mock-v1')
+  const [effort, setEffort] = useState<string | null>(null)
   const split = useRef<HTMLDivElement>(null)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
@@ -292,8 +336,6 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const retryableJob = [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
   const api = window.omnidesign?.workspace
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
-  const selectedProvider = readyProviders.find((provider) => provider.id === providerId)
-  const modelId = selectedProvider?.models[0]?.id ?? 'mock-v1'
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
@@ -316,7 +358,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
 
   const submit = async () => {
     if (!api || !draft.trim() || busy || !selectedIsHead) return
-    onChange(await api.generate(design.id, draft.trim(), providerId, modelId))
+    onChange(await api.generate(design.id, draft.trim(), providerId, modelId, effort ?? undefined))
     setDraft('')
   }
   const selectRevision = async (revisionId: string) => {
@@ -382,7 +424,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
             <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
             }} /></TextField>
-            <div className="workspace-composer-footer"><RadioGroup aria-label="Change provider" className="composer-controls" value={providerId} onChange={(value) => setProviderId(value as 'mock' | 'codex' | 'claude')}><Radio className="control-button" value="mock">Development provider</Radio>{readyProviders.map((provider) => <Radio className="control-button" value={provider.id} key={provider.id}>{provider.name} · {provider.models[0].name}</Radio>)}</RadioGroup><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+            <div className="workspace-composer-footer"><GenerationSettingsMenu providers={readyProviders} providerId={providerId} modelId={modelId} effort={effort} onChange={(selection) => { setProviderId(selection.providerId); setModelId(selection.modelId); setEffort(selection.effort) }} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
           </div>
         </section>
         <div
@@ -493,11 +535,11 @@ export function App() {
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
   }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
 
-  const create = async (prompt: string, providerId: 'mock' | 'codex' | 'claude', modelId: string) => {
+  const create = async (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, sourceProjectPath: string | null) => {
     if (!workspaceApi) return
     setBusy(true)
     try {
-      const design = await workspaceApi.create(prompt, providerId, modelId)
+      const design = await workspaceApi.create(prompt, providerId, modelId, effort ?? undefined, sourceProjectPath)
       setActiveDesign(design)
       await refresh()
     } finally {

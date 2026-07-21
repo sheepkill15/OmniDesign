@@ -84,11 +84,11 @@ describe('GenerationQueue', () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')
     const queue = new GenerationQueue(store, async () => { throw new Error('Unavailable') }, () => undefined)
-    const queued = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6')
+    const queued = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6', 'high')
 
     await waitFor(() => store.getGenerationJob(queued.id)?.state === 'failed')
     const retried = queue.retry(queued.id)
-    expect(retried).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6' })
+    expect(retried).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6', effort: 'high' })
     await waitFor(() => store.getGenerationJob(retried.id)?.state === 'failed')
     store.close()
   })

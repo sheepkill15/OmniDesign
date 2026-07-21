@@ -76,6 +76,7 @@ interface GenerationJob {
   readonly prompt: string
   readonly providerId: 'mock' | 'codex' | 'claude'
   readonly modelId: string
+  readonly effort?: string | null
   readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   readonly createdAt: string
   readonly startedAt: string | null
@@ -125,8 +126,9 @@ interface Window {
     readonly workspace: {
       list(): Promise<OmniDesignDocument[]>
       get(designId: string): Promise<OmniDesignDocument | null>
-      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string): Promise<OmniDesignDocument>
-      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string): Promise<OmniDesignDocument>
+      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, sourceProjectPath?: string | null): Promise<OmniDesignDocument>
+      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string): Promise<OmniDesignDocument>
+      chooseProjectFolder(): Promise<string | null>
       cancelGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>

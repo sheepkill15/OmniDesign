@@ -15,8 +15,9 @@ contextBridge.exposeInMainWorld('omnidesign', {
   workspace: {
     list: () => ipcRenderer.invoke('workspace:list'),
     get: (designId: string) => ipcRenderer.invoke('workspace:get', { designId }),
-    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1') => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId }),
-    generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1') => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId }),
+    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, sourceProjectPath?: string | null) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: sourceProjectPath ?? null }),
+    generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null }),
+    chooseProjectFolder: () => ipcRenderer.invoke('workspace:choose-project-folder'),
     cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),
     retryGeneration: (jobId: string) => ipcRenderer.invoke('workspace:retry-generation', { jobId }),
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),

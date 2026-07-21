@@ -131,15 +131,15 @@ function registerIpc(): void {
   ipcMain.handle('workspace:create', (event, value: unknown) => {
     authorize(event)
     const request = createDesignRequestSchema.parse(value)
-    if (request.providerId === 'mock') return requireWorkspace().createDesign(request.prompt, sendGenerationActivity)
-    const design = requireWorkspace().createAgentDesignShell(request.prompt)
-    requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId)
+    if (request.providerId === 'mock') return requireWorkspace().createDesign(request.prompt, sendGenerationActivity, request.sourceProjectPath)
+    const design = requireWorkspace().createAgentDesignShell(request.prompt, request.sourceProjectPath)
+    requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort)
     return design
   })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
-    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort)
     return requireWorkspace().getDesign(request.designId)
   })
   ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
@@ -149,6 +149,11 @@ function registerIpc(): void {
   ipcMain.handle('workspace:retry-generation', (event, value: unknown) => {
     authorize(event)
     return requireGenerationQueue().retry(generationJobIdRequestSchema.parse(value).jobId)
+  })
+  ipcMain.handle('workspace:choose-project-folder', async (event) => {
+    authorize(event)
+    const selection = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
+    return selection.canceled ? null : selection.filePaths[0] ?? null
   })
   ipcMain.handle('workspace:select-revision', (event, value: unknown) => {
     authorize(event)
@@ -229,6 +234,7 @@ void app.whenReady().then(() => {
         requestId: job.id,
         providerId: job.providerId,
         modelId: job.modelId,
+        ...(job.effort ? { effort: job.effort } : {}),
         prompt: job.prompt,
         signal,
         workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
