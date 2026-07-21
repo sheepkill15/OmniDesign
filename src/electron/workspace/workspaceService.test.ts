@@ -95,4 +95,18 @@ describe('WorkspaceService', () => {
     expect(restored.revisions.at(-1)?.html).toBe(first.revisions[0].html)
     store.close()
   })
+
+  it('preserves an agent response without creating a design revision', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm analytics dashboard', () => undefined)
+
+    const responded = service.recordAgentResponse(first.id, 'I can explain the layout without changing it.')
+
+    expect(responded.revisions).toHaveLength(1)
+    expect(responded.messages.at(-1)).toMatchObject({ role: 'assistant', text: 'I can explain the layout without changing it.' })
+    store.close()
+  })
 })

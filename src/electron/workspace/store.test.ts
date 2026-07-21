@@ -52,6 +52,22 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('persists assistant-only responses without adding a revision', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    store.addAssistantResponse(created.id, 'I can discuss this design without changing it.')
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    const recovered = reopened.getDesign(created.id)
+    expect(recovered?.revisions).toHaveLength(0)
+    expect(recovered?.messages).toMatchObject([
+      { role: 'user', text: 'First' },
+      { role: 'assistant', text: 'I can discuss this design without changing it.' },
+    ])
+    reopened.close()
+  })
+
   it('persists preview diagnostics with the immutable revision that produced them', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')

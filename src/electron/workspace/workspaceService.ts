@@ -82,6 +82,10 @@ export class WorkspaceService {
     this.store.saveDraft(designId, draft)
   }
 
+  public recordAgentResponse(designId: string, response: string): Design {
+    return this.store.addAssistantResponse(designId, response)
+  }
+
   public saveLayout(designId: string, layout: Layout): void {
     this.store.saveLayout(designId, layout)
   }

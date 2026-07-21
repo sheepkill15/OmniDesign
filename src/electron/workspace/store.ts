@@ -271,6 +271,17 @@ export class WorkspaceStore {
     })
   }
 
+  public addAssistantResponse(designId: string, response: string): Design {
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.requireDesign(designId)
+      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(randomUUID(), designId, 'assistant', response, now)
+      this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
+    })
+    return this.requireDesign(designId)
+  }
+
   public addRevision(designId: string, prompt: string, html: string, providerId = 'mock', modelId = 'mock-v1', gitCommit: string | null = null): Design {
     const design = this.requireDesign(designId)
     const revisionId = randomUUID()
