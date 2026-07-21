@@ -30,6 +30,24 @@ import { Button, Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover, Radi
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
+// The isolated preview is a native layer composited above the DOM, so trusted-UI overlays that sit
+// over the docked preview would otherwise be hidden behind it. While any such overlay is open we ask
+// the main process to stop compositing the preview layer; a small counter keeps nested/overlapping
+// overlays correct.
+let openPreviewOverlayCount = 0
+function reportPreviewOverlay(open: boolean): void {
+  openPreviewOverlayCount = Math.max(0, openPreviewOverlayCount + (open ? 1 : -1))
+  void window.omnidesign?.preview.setSuspended?.(openPreviewOverlayCount > 0)
+}
+
+function useSuspendPreviewWhileOpen(isOpen: boolean): void {
+  useEffect(() => {
+    if (!isOpen) return
+    reportPreviewOverlay(true)
+    return () => reportPreviewOverlay(false)
+  }, [isOpen])
+}
+
 function IconButton({ label, icon: IconComponent, onPress }: { readonly label: string; readonly icon: Icon; readonly onPress?: () => void }) {
   return (
     <TooltipTrigger delay={350}>
@@ -518,10 +536,12 @@ const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; r
 ]
 
 function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
+  const [open, setOpen] = useState(false)
+  useSuspendPreviewWhileOpen(open)
   const current = layoutModes.find((candidate) => candidate.id === mode) ?? layoutModes[0]
   const CurrentIcon = current.icon
   return (
-    <MenuTrigger>
+    <MenuTrigger isOpen={open} onOpenChange={setOpen}>
       <Button className="toolbar-button" aria-label={`Layout: ${current.label}`}><CurrentIcon aria-hidden="true" />{current.label}<ChevronDownIcon aria-hidden="true" /></Button>
       <Popover className="project-popover" placement="bottom end">
         <Menu aria-label="Workspace layout" onAction={(key) => onChange(String(key) as LayoutMode)}>
@@ -557,6 +577,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const api = window.omnidesign?.workspace
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
 
+  useSuspendPreviewWhileOpen(historyOpen)
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])

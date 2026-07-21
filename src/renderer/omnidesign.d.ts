@@ -193,6 +193,7 @@ interface Window {
       resize(bounds: PreviewBounds): Promise<void>
       hide(): Promise<void>
       popOut(request: { readonly designId: string; readonly revisionId: string }): Promise<void>
+      setSuspended(suspended: boolean): Promise<void>
       onDiagnostic(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
       onThumbnail(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
       onPoppedIn(listener: (event: { readonly designId: string }) => void): () => void

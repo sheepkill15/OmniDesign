@@ -51,7 +51,16 @@ export class PreviewController {
       this.window.contentView.addChildView(view)
       this.attached = true
     }
+    view.setVisible(true)
     view.setBounds(bounds)
+  }
+
+  // Temporarily stop compositing the native preview layer so trusted-UI overlays (menus, popovers)
+  // that sit above the docked preview can paint over it. Only affects a docked preview; a detached or
+  // popped-out view is unchanged.
+  public setSuspended(suspended: boolean): void {
+    if (!this.attached || !this.view || this.view.webContents.isDestroyed()) return
+    this.view.setVisible(!suspended)
   }
 
   // Move the shared preview view into a dedicated top-level window, leaving the main workspace free for
@@ -78,6 +87,7 @@ export class PreviewController {
       backgroundColor: '#151315',
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
     })
+    view.setVisible(true)
     this.popWindow = popWindow
     popWindow.setMenuBarVisibility(false)
     popWindow.contentView.addChildView(view)

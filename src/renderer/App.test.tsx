@@ -79,6 +79,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       resize: vi.fn().mockResolvedValue(undefined),
       hide: vi.fn().mockResolvedValue(undefined),
       popOut: vi.fn().mockResolvedValue(undefined),
+      setSuspended: vi.fn().mockResolvedValue(undefined),
       onDiagnostic: vi.fn().mockReturnValue(() => undefined),
       onThumbnail: vi.fn().mockReturnValue(() => undefined),
       onPoppedIn: vi.fn().mockReturnValue(() => undefined),
@@ -374,6 +375,21 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dock preview' }))
     expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
+  })
+
+  it('suspends the native preview layer while a header overlay covers it', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenCalledWith(true))
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenLastCalledWith(false))
   })
 
   it('recovers saved designs into the home list', async () => {

@@ -263,6 +263,10 @@ function registerIpc(): void {
     authorize(event)
     preview?.hide()
   })
+  ipcMain.handle('preview:set-suspended', (event, value: unknown) => {
+    authorize(event)
+    preview?.setSuspended(value === true)
+  })
   ipcMain.handle('workspace:export', async (event, value: unknown) => {
     authorize(event)
     const request = exportRequestSchema.parse(value)
