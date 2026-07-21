@@ -139,6 +139,11 @@ describe('Phase 1 walking skeleton UI', () => {
           { id: 'low', name: 'Low', isDefault: false },
           { id: 'high', name: 'High', isDefault: true },
         ],
+      }, {
+        id: 'gpt-5.6-fast', name: 'GPT-5.6 Fast', effortLevels: [
+          { id: 'low', name: 'Low', isDefault: true },
+          { id: 'high', name: 'High', isDefault: false },
+        ],
       }],
     }])
     render(<App />)
@@ -152,12 +157,13 @@ describe('Phase 1 walking skeleton UI', () => {
     const effort = screen.getByRole('slider', { name: 'Reasoning effort' })
     expect(effort).toHaveAttribute('aria-orientation', 'vertical')
     fireEvent.keyDown(effort, { key: 'End' })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'GPT-5.6 Fast' }))
     fireEvent.keyDown(effort, { key: 'Escape' })
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A precise dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
-    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A precise dashboard', 'codex', 'gpt-5.6', 'high', null))
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A precise dashboard', 'codex', 'gpt-5.6-fast', 'high', null))
   })
 
   it('opens the project context menu and uses a chosen local folder', async () => {

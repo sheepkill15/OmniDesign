@@ -182,6 +182,7 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
   const model = provider?.models.find((candidate) => candidate.id === modelId) ?? provider?.models[0]
   const efforts = model?.effortLevels ?? []
   const defaultEffort = (levels: readonly ProviderEffortLevel[]) => levels.find((candidate) => candidate.isDefault)?.id ?? levels[0]?.id ?? null
+  const effortForModel = (levels: readonly ProviderEffortLevel[]) => effort && levels.some((candidate) => candidate.id === effort) ? effort : defaultEffort(levels)
   const activeEffort = effort ?? defaultEffort(efforts)
   const effortIndex = Math.max(0, efforts.findIndex((candidate) => candidate.id === activeEffort))
   const selectProvider = (nextProviderId: ProviderId) => {
@@ -200,7 +201,7 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
             {available.map((candidate) => <MenuItem id={candidate.id} key={candidate.id} onAction={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
           </Menu></section>
           <section className="generation-settings-column"><h2>Model</h2><Menu aria-label="Model" className="generation-settings-menu" shouldCloseOnSelect={false}>
-            {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: defaultEffort(candidate.effortLevels) })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+            {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: effortForModel(candidate.effortLevels) })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
             {!provider && <MenuItem id="mock-model" isDisabled>Mock v1</MenuItem>}
           </Menu></section>
           <section className="generation-settings-column effort-control" data-disabled={!efforts.length || undefined}>
