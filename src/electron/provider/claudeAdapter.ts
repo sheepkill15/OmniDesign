@@ -84,6 +84,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
       input: request.prompt,
       timeoutMs: PROMPT_TIMEOUT_MS,
+      ...(request.signal ? { signal: request.signal } : {}),
       onStdoutLine: (line) => {
         const parsed = this.readEvent(line)
         if (!parsed) {

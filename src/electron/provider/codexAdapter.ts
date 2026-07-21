@@ -48,9 +48,12 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   public async prompt(request: ProviderAdapterPrompt, onActivity: ProviderAdapterActivityListener): Promise<ProviderAdapterReply> {
+    if (request.signal?.aborted) throw new Error('Codex generation was cancelled.')
     this.emit(onActivity, 'status', 'Starting Codex app-server')
     const command = await resolveProviderCommand('codex')
     const rpc = startJsonRpcProcess(command, ['app-server'])
+    const cancel = () => rpc.close(new Error('Codex generation was cancelled.'))
+    request.signal?.addEventListener('abort', cancel, { once: true })
     try {
       await this.initialize(rpc)
       const thread = await rpc.request('thread/start', {
@@ -67,6 +70,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit(onActivity, 'status', 'Codex thread started', thread.thread.id)
       return { modelId: request.modelId, text: await this.collectReply(rpc, thread.thread.id, request, onActivity) }
     } finally {
+      request.signal?.removeEventListener('abort', cancel)
       rpc.close()
     }
   }

@@ -48,7 +48,10 @@ export class JsonRpcProcess {
     return () => this.listeners.delete(listener)
   }
 
-  public close(): void { this.child.kill() }
+  public close(reason = new Error('Provider process was closed.')): void {
+    this.finish(reason)
+    this.child.kill()
+  }
 
   private read(chunk: string): void {
     this.buffer += chunk

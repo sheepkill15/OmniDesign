@@ -77,6 +77,22 @@ describe('ProviderService', () => {
     })
   })
 
+  it('forwards cancellation through the provider-neutral prompt contract', async () => {
+    const claude = createAdapter('claude')
+    const controller = new AbortController()
+    const service = new ProviderService([claude])
+
+    await service.prompt({
+      requestId: 'request-cancel',
+      providerId: 'claude',
+      modelId: 'model-1',
+      prompt: 'Build it',
+      signal: controller.signal,
+    })
+
+    expect(claude.prompt).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }), expect.any(Function))
+  })
+
   it('runs a design agent in its managed workspace and validates its conversational completion payload', async () => {
     const codex = createAdapter('codex')
     const service = new ProviderService([codex])

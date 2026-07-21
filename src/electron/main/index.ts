@@ -230,6 +230,7 @@ void app.whenReady().then(() => {
         providerId: job.providerId,
         modelId: job.modelId,
         prompt: job.prompt,
+        signal,
         workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
       }, (activity) => {
         onActivity({ designId: job.designId, stage: 'generating', detail: activity.detail ?? activity.label })

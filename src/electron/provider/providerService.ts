@@ -36,6 +36,7 @@ export class ProviderService {
     const adapterRequest: ProviderAdapterPrompt = {
       modelId: request.modelId,
       prompt: request.prompt,
+      ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
     }
     const reply = await adapter.prompt(adapterRequest, (activity) => {
@@ -54,6 +55,7 @@ export class ProviderService {
     const reply = await adapter.prompt({
       modelId: request.modelId,
       prompt: request.prompt,
+      ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
       workspacePath: request.workspacePath,
       instructions: createDesignAgentInstructions(request.workspacePath),
