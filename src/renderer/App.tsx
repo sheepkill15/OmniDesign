@@ -191,20 +191,22 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
     <MenuTrigger>
       <Button className="generation-settings-button" aria-label="Generation settings"><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span><ChevronDownIcon aria-hidden="true" /></Button>
       <Popover className="generation-settings-popover" placement="top end">
-        <Menu aria-label="Generation settings" className="generation-settings-menu" shouldCloseOnSelect={false}>
-          <MenuItem id="provider-heading" isDisabled>Provider</MenuItem>
-          <MenuItem id="mock" onAction={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
-          {available.map((candidate) => <MenuItem id={candidate.id} key={candidate.id} onAction={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
-          <MenuItem id="model-heading" isDisabled>Model</MenuItem>
-          {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: null })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
-          {!provider && <MenuItem id="mock-model" isDisabled>Mock v1</MenuItem>}
-        </Menu>
-        <div className="effort-control" data-disabled={!efforts.length || undefined}>
-          <div><strong>Effort</strong><span>{effort ? efforts.find((candidate) => candidate.id === effort)?.name ?? effort : 'Provider default'}</span></div>
-          <Slider aria-label="Reasoning effort" className="effort-slider" minValue={0} maxValue={efforts.length} step={1} value={effortIndex} isDisabled={!efforts.length} onChange={(value) => onChange({ providerId, modelId: model?.id ?? 'mock-v1', effort: efforts[Number(value) - 1]?.id ?? null })}>
-            <SliderTrack className="effort-slider-track"><span /><SliderThumb className="effort-slider-thumb" /></SliderTrack>
-          </Slider>
-          {efforts.length > 0 && <div className="effort-labels"><span>Default</span><span>{efforts.at(-1)?.name}</span></div>}
+        <div className="generation-settings-columns">
+          <section className="generation-settings-column"><h2>Provider</h2><Menu aria-label="Provider" className="generation-settings-menu" shouldCloseOnSelect={false}>
+            <MenuItem id="mock" onAction={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+            {available.map((candidate) => <MenuItem id={candidate.id} key={candidate.id} onAction={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+          </Menu></section>
+          <section className="generation-settings-column"><h2>Model</h2><Menu aria-label="Model" className="generation-settings-menu" shouldCloseOnSelect={false}>
+            {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: null })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+            {!provider && <MenuItem id="mock-model" isDisabled>Mock v1</MenuItem>}
+          </Menu></section>
+          <section className="generation-settings-column effort-control" data-disabled={!efforts.length || undefined}>
+            <h2>Effort</h2><span>{effort ? efforts.find((candidate) => candidate.id === effort)?.name ?? effort : 'Provider default'}</span>
+            <Slider aria-label="Reasoning effort" className="effort-slider" minValue={0} maxValue={efforts.length} step={1} value={effortIndex} isDisabled={!efforts.length} onChange={(value) => onChange({ providerId, modelId: model?.id ?? 'mock-v1', effort: efforts[Number(value) - 1]?.id ?? null })}>
+              <SliderTrack className="effort-slider-track"><span /><SliderThumb className="effort-slider-thumb" /></SliderTrack>
+            </Slider>
+            {efforts.length > 0 && <div className="effort-labels"><span>Default</span><span>{efforts.at(-1)?.name}</span></div>}
+          </section>
         </div>
       </Popover>
     </MenuTrigger>

@@ -479,13 +479,24 @@ button:disabled,
 
 .generation-settings-popover,
 .project-popover {
-  min-width: 260px;
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--surface-1);
   box-shadow: 0 18px 40px rgb(0 0 0 / 22%);
 }
+
+.generation-settings-popover { min-width: 660px; }
+.project-popover { min-width: 260px; }
+
+.generation-settings-columns {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(190px, 1.2fr) minmax(190px, 1.1fr);
+}
+
+.generation-settings-column { min-width: 0; padding: 12px 9px; }
+.generation-settings-column + .generation-settings-column { border-left: 1px solid var(--border); }
+.generation-settings-column h2 { margin: 0 5px 8px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
 .generation-settings-menu,
 .project-popover [role='menu'] { padding: 5px; outline: none; }
@@ -507,13 +518,11 @@ button:disabled,
 
 .generation-settings-menu [role='menuitem'][data-focused],
 .project-popover [role='menuitem'][data-focused] { background: var(--surface-3); color: var(--text); }
-.generation-settings-menu [role='menuitem'][data-disabled] { min-height: 25px; color: var(--text-faint); cursor: default; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.generation-settings-menu [role='menuitem'][data-disabled] { color: var(--text-faint); cursor: default; }
 .generation-settings-menu svg { width: 15px; color: var(--success); }
 
-.effort-control { display: grid; gap: 10px; padding: 12px 14px 13px; border-top: 1px solid var(--border); }
-.effort-control > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.effort-control strong { color: var(--text); font-size: 12px; }
-.effort-control > div:first-child span, .effort-labels { color: var(--text-subtle); font-size: 11px; }
+.effort-control { display: grid; align-content: start; gap: 10px; }
+.effort-control > span, .effort-labels { color: var(--text-subtle); font-size: 11px; }
 .effort-slider { width: 100%; }
 .effort-slider-track { position: relative; height: 20px; display: flex; align-items: center; }
 .effort-slider-track > span { width: 100%; height: 4px; border-radius: 999px; background: var(--surface-4); }
