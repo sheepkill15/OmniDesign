@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     hide: () => ipcRenderer.invoke('preview:hide'),
     popOut: (request: { designId: string; revisionId: string }) => ipcRenderer.invoke('preview:pop-out', request),
     setSuspended: (suspended: boolean) => ipcRenderer.invoke('preview:set-suspended', suspended),
+    freeze: () => ipcRenderer.invoke('preview:freeze'),
     onDiagnostic: (listener: (event: { designId: string; revisionId: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, diagnostic: { designId: string; revisionId: string }) => listener(diagnostic)
       ipcRenderer.on('preview:diagnostic', handler)

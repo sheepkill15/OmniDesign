@@ -30,24 +30,6 @@ import { Button, Header, Menu, MenuItem, MenuSection, MenuTrigger, Popover, Radi
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
-// The isolated preview is a native layer composited above the DOM, so trusted-UI overlays that sit
-// over the docked preview would otherwise be hidden behind it. While any such overlay is open we ask
-// the main process to stop compositing the preview layer; a small counter keeps nested/overlapping
-// overlays correct.
-let openPreviewOverlayCount = 0
-function reportPreviewOverlay(open: boolean): void {
-  openPreviewOverlayCount = Math.max(0, openPreviewOverlayCount + (open ? 1 : -1))
-  void window.omnidesign?.preview.setSuspended?.(openPreviewOverlayCount > 0)
-}
-
-function useSuspendPreviewWhileOpen(isOpen: boolean): void {
-  useEffect(() => {
-    if (!isOpen) return
-    reportPreviewOverlay(true)
-    return () => reportPreviewOverlay(false)
-  }, [isOpen])
-}
-
 function IconButton({ label, icon: IconComponent, onPress }: { readonly label: string; readonly icon: Icon; readonly onPress?: () => void }) {
   return (
     <TooltipTrigger delay={350}>
@@ -500,7 +482,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   )
 }
 
-function PreviewSurface({ design }: { readonly design: OmniDesignDocument }) {
+function PreviewSurface({ design, freezeFrame }: { readonly design: OmniDesignDocument; readonly freezeFrame: string | null }) {
   const surface = useRef<HTMLDivElement>(null)
   const revisionId = design.selectedRevisionId
 
@@ -525,7 +507,12 @@ function PreviewSurface({ design }: { readonly design: OmniDesignDocument }) {
     }
   }, [design.id, revisionId])
 
-  return <div className="preview-surface" ref={surface}>{!revisionId && <p>Preview appears after the first valid revision.</p>}</div>
+  return (
+    <div className="preview-surface" ref={surface}>
+      {!revisionId && <p>Preview appears after the first valid revision.</p>}
+      {freezeFrame && <img className="preview-freeze" src={freezeFrame} alt="" aria-hidden="true" />}
+    </div>
+  )
 }
 
 const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; readonly icon: Icon }[] = [
@@ -535,13 +522,11 @@ const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; r
   { id: 'popped', label: 'Pop out preview', icon: ArrowTopRightOnSquareIcon },
 ]
 
-function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
-  const [open, setOpen] = useState(false)
-  useSuspendPreviewWhileOpen(open)
+function LayoutMenu({ mode, isOpen, onOpenChange, onChange }: { readonly mode: LayoutMode; readonly isOpen: boolean; readonly onOpenChange: (open: boolean) => void; readonly onChange: (mode: LayoutMode) => void }) {
   const current = layoutModes.find((candidate) => candidate.id === mode) ?? layoutModes[0]
   const CurrentIcon = current.icon
   return (
-    <MenuTrigger isOpen={open} onOpenChange={setOpen}>
+    <MenuTrigger isOpen={isOpen} onOpenChange={onOpenChange}>
       <Button className="toolbar-button" aria-label={`Layout: ${current.label}`}><CurrentIcon aria-hidden="true" />{current.label}<ChevronDownIcon aria-hidden="true" /></Button>
       <Popover className="project-popover" placement="bottom end">
         <Menu aria-label="Workspace layout" onAction={(key) => onChange(String(key) as LayoutMode)}>
@@ -565,6 +550,8 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
+  const [freezeFrame, setFreezeFrame] = useState<string | null>(null)
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
@@ -577,7 +564,26 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const api = window.omnidesign?.workspace
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
 
-  useSuspendPreviewWhileOpen(historyOpen)
+  // The isolated preview is a native layer painted above the DOM. While a header overlay sits over the
+  // docked preview, capture its current frame, show that still image on the preview surface, then hide
+  // the native layer so the overlay paints cleanly over the frozen frame — with no visible gap.
+  const overlayCoversPreview = historyOpen || layoutMenuOpen
+  useEffect(() => {
+    const preview = window.omnidesign?.preview
+    if (!preview) return
+    if (!overlayCoversPreview) {
+      void preview.setSuspended(false)
+      setFreezeFrame(null)
+      return
+    }
+    let cancelled = false
+    void preview.freeze().then((frame) => {
+      if (cancelled) return
+      setFreezeFrame(frame)
+      requestAnimationFrame(() => { if (!cancelled) void preview.setSuspended(true) })
+    })
+    return () => { cancelled = true }
+  }, [overlayCoversPreview])
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
@@ -689,7 +695,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
   const previewPane = (
     <section className="preview-pane" aria-label="Generated design preview">
       <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{previewStatus}</small></div>
-      <PreviewSurface design={design} />
+      <PreviewSurface design={design} freezeFrame={freezeFrame} />
     </section>
   )
 
@@ -699,7 +705,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
         <span className="workspace-title"><strong>{design.title}</strong><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
-          <LayoutMenu mode={mode} onChange={setMode} />
+          <LayoutMenu mode={mode} isOpen={layoutMenuOpen} onOpenChange={setLayoutMenuOpen} onChange={setMode} />
           <Button className="toolbar-button" onPress={() => setHistoryOpen(!historyOpen)}><ClockIcon aria-hidden="true" />History · {design.revisions.length}</Button>
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
         </div>

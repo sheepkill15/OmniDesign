@@ -63,6 +63,19 @@ export class PreviewController {
     this.view.setVisible(!suspended)
   }
 
+  // Capture the docked preview's current frame so the renderer can show it as a still image while the
+  // native layer is suspended, avoiding any visible gap. Returns null when no docked preview is shown.
+  public async freeze(): Promise<string | null> {
+    if (!this.attached || !this.view || this.view.webContents.isDestroyed()) return null
+    try {
+      const image = await this.view.webContents.capturePage()
+      if (image.isEmpty()) return null
+      return image.toDataURL()
+    } catch {
+      return null
+    }
+  }
+
   // Move the shared preview view into a dedicated top-level window, leaving the main workspace free for
   // the conversation. The view keeps its loaded revision as it moves between windows.
   public popOut(designId: string, revisionId: string, files: RevisionFiles): void {
