@@ -147,6 +147,7 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('heading', { name: 'Provider' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Model' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Effort' })).toBeInTheDocument()
+    expect(screen.queryByText('Provider default')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Codex' }))
     const effort = screen.getByRole('slider', { name: 'Reasoning effort' })
     fireEvent.keyDown(effort, { key: 'End' })

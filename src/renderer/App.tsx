@@ -181,10 +181,13 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
   const provider = providerId === 'mock' ? undefined : available.find((candidate) => candidate.id === providerId)
   const model = provider?.models.find((candidate) => candidate.id === modelId) ?? provider?.models[0]
   const efforts = model?.effortLevels ?? []
-  const effortIndex = Math.max(0, efforts.findIndex((candidate) => candidate.id === effort) + 1)
+  const defaultEffort = (levels: readonly ProviderEffortLevel[]) => levels.find((candidate) => candidate.isDefault)?.id ?? levels[0]?.id ?? null
+  const activeEffort = effort ?? defaultEffort(efforts)
+  const effortIndex = Math.max(0, efforts.findIndex((candidate) => candidate.id === activeEffort))
   const selectProvider = (nextProviderId: ProviderId) => {
     const nextProvider = available.find((candidate) => candidate.id === nextProviderId)
-    onChange({ providerId: nextProviderId, modelId: nextProvider?.models[0]?.id ?? 'mock-v1', effort: null })
+    const nextModel = nextProvider?.models[0]
+    onChange({ providerId: nextProviderId, modelId: nextModel?.id ?? 'mock-v1', effort: defaultEffort(nextModel?.effortLevels ?? []) })
   }
 
   return (
@@ -197,15 +200,15 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
             {available.map((candidate) => <MenuItem id={candidate.id} key={candidate.id} onAction={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
           </Menu></section>
           <section className="generation-settings-column"><h2>Model</h2><Menu aria-label="Model" className="generation-settings-menu" shouldCloseOnSelect={false}>
-            {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: null })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+            {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: defaultEffort(candidate.effortLevels) })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
             {!provider && <MenuItem id="mock-model" isDisabled>Mock v1</MenuItem>}
           </Menu></section>
           <section className="generation-settings-column effort-control" data-disabled={!efforts.length || undefined}>
-            <h2>Effort</h2><span>{effort ? efforts.find((candidate) => candidate.id === effort)?.name ?? effort : 'Provider default'}</span>
-            <Slider aria-label="Reasoning effort" className="effort-slider" minValue={0} maxValue={efforts.length} step={1} value={effortIndex} isDisabled={!efforts.length} onChange={(value) => onChange({ providerId, modelId: model?.id ?? 'mock-v1', effort: efforts[Number(value) - 1]?.id ?? null })}>
+            <h2>Effort</h2><span>{efforts[effortIndex]?.name ?? 'Not supported by this model'}</span>
+            <Slider aria-label="Reasoning effort" className="effort-slider" minValue={0} maxValue={Math.max(0, efforts.length - 1)} step={1} value={effortIndex} isDisabled={!efforts.length} onChange={(value) => onChange({ providerId, modelId: model?.id ?? 'mock-v1', effort: efforts[Number(value)]?.id ?? null })}>
               <SliderTrack className="effort-slider-track"><span /><SliderThumb className="effort-slider-thumb" /></SliderTrack>
             </Slider>
-            {efforts.length > 0 && <div className="effort-labels"><span>Default</span><span>{efforts.at(-1)?.name}</span></div>}
+            {efforts.length > 1 && <div className="effort-labels"><span>{efforts[0]?.name}</span><span>{efforts.at(-1)?.name}</span></div>}
           </section>
         </div>
       </Popover>
