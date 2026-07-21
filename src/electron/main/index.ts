@@ -215,7 +215,7 @@ void app.whenReady().then(() => {
   workspace = new WorkspaceService(store)
   generationQueue = new GenerationQueue(
     store,
-    async (job, signal, onActivity) => { await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal) },
+    async (job, signal, onActivity) => { await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3) },
     sendGenerationActivity,
   )
   generationQueue.recoverAfterRestart()

@@ -22,39 +22,41 @@ export class WorkspaceService {
     return this.generate(design.id, prompt, onActivity, generated.html, false)
   }
 
-  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal): Promise<Design> {
-    let candidate: string | null = null
-    try {
-      this.throwIfCancelled(signal)
-      if (savePrompt) this.store.addPrompt(designId, prompt)
-      onActivity({ designId, stage: 'generating', detail: 'Mock provider is shaping the requested direction.' })
-      const current = this.store.getDesign(designId)
-      if (!current) throw new Error('Design not found.')
-      const previous = current.revisions.find((revision) => revision.id === current.activeRevisionId)?.html
-      candidate = generatedHtml ?? generateMockDesign(prompt, previous).html
-      this.throwIfCancelled(signal)
-      onActivity({ designId, stage: 'compiling', detail: 'Compiling the generated Tailwind classes.' })
-      const compiled = await compileDesignHtml(candidate)
-      this.throwIfCancelled(signal)
-      onActivity({ designId, stage: 'validating', detail: 'Checking document structure and preview security.' })
-      validateCompiledDesign(compiled)
-      onActivity({ designId, stage: 'saving', detail: 'Saving an immutable local revision.' })
-      const saved = this.store.addRevision(designId, prompt, compiled)
-      onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
-      return saved
-    } catch (error) {
-      if (signal?.aborted) {
-        onActivity({ designId, stage: 'cancelled', detail: 'Generation was cancelled.' })
-        const design = this.store.getDesign(designId)
-        if (!design) throw new Error('Design not found.')
-        return design
+  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0): Promise<Design> {
+    this.throwIfCancelled(signal)
+    if (savePrompt) this.store.addPrompt(designId, prompt)
+    onActivity({ designId, stage: 'generating', detail: 'Mock provider is shaping the requested direction.' })
+    const current = this.store.getDesign(designId)
+    if (!current) throw new Error('Design not found.')
+    const previous = current.revisions.find((revision) => revision.id === current.activeRevisionId)?.html
+    let candidate = generatedHtml ?? generateMockDesign(prompt, previous).html
+
+    for (let repairAttempt = 0; repairAttempt <= maxRepairAttempts; repairAttempt += 1) {
+      try {
+        this.throwIfCancelled(signal)
+        onActivity({ designId, stage: 'compiling', detail: 'Compiling the generated Tailwind classes.' })
+        const compiled = await compileDesignHtml(candidate)
+        this.throwIfCancelled(signal)
+        onActivity({ designId, stage: 'validating', detail: 'Checking document structure and preview security.' })
+        validateCompiledDesign(compiled)
+        onActivity({ designId, stage: 'saving', detail: 'Saving an immutable local revision.' })
+        const saved = this.store.addRevision(designId, prompt, compiled)
+        onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
+        return saved
+      } catch (error) {
+        if (signal?.aborted) return this.cancelledDesign(designId, onActivity)
+        const diagnostic = error instanceof Error ? error.message : 'Generation failed.'
+        if (repairAttempt === maxRepairAttempts) {
+          const rejected = this.store.addInvalidCandidate(designId, prompt, candidate, diagnostic)
+          onActivity({ designId, stage: 'failed', detail: diagnostic })
+          return rejected
+        }
+        onActivity({ designId, stage: 'repairing', detail: `Repairing the candidate (${repairAttempt + 1} of ${maxRepairAttempts}).` })
+        candidate = generateMockDesign(`Repair this design without unsafe code or external resources: ${diagnostic}`, previous).html
       }
-      const diagnostic = error instanceof Error ? error.message : 'Generation failed.'
-      const rejected = candidate ? this.store.addInvalidCandidate(designId, prompt, candidate, diagnostic) : null
-      onActivity({ designId, stage: 'failed', detail: diagnostic })
-      if (rejected) return rejected
-      throw error
     }
+
+    throw new Error('Generation repair loop ended unexpectedly.')
   }
 
   public selectRevision(designId: string, revisionId: string): Design {
@@ -83,5 +85,12 @@ export class WorkspaceService {
 
   private throwIfCancelled(signal: AbortSignal | undefined): void {
     if (signal?.aborted) throw new Error('Generation was cancelled.')
+  }
+
+  private cancelledDesign(designId: string, onActivity: ActivityListener): Design {
+    onActivity({ designId, stage: 'cancelled', detail: 'Generation was cancelled.' })
+    const design = this.store.getDesign(designId)
+    if (!design) throw new Error('Design not found.')
+    return design
   }
 }

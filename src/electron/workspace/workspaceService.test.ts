@@ -48,4 +48,29 @@ describe('WorkspaceService', () => {
     expect(failed.invalidCandidates[0].html).toContain('<script>')
     store.close()
   })
+
+  it('repairs an invalid candidate before replacing the active revision when repair is enabled', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const activity: GenerationActivity[] = []
+
+    const repaired = await service.generate(
+      first.id,
+      'Add unsafe behavior',
+      (event) => activity.push(event),
+      '<html><body><script>alert(1)</script></body></html>',
+      true,
+      undefined,
+      3,
+    )
+
+    expect(repaired.revisions).toHaveLength(2)
+    expect(repaired.invalidCandidates).toHaveLength(0)
+    expect(activity.map((event) => event.stage)).toContain('repairing')
+    expect(repaired.revisions.at(-1)?.html).not.toContain('<script>')
+    store.close()
+  })
 })

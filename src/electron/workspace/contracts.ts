@@ -131,6 +131,6 @@ export type ExportRequest = z.infer<typeof exportRequestSchema>
 
 export interface GenerationActivity {
   readonly designId: string
-  readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
+  readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'repairing' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
   readonly detail: string
 }
