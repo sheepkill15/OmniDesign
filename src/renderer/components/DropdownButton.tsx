@@ -1,55 +1,34 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
+import { Button, MenuTrigger, Popover } from 'react-aria-components'
 import { ChevronDownIcon } from '@heroicons/react/24/outline'
 
-type Placement = 'bottom start' | 'bottom end' | 'top start' | 'top end'
+type Placement = ComponentProps<typeof Popover>['placement']
 
-// A trigger button with a plain DOM popover panel and a caret that rotates while open. Unlike a React
-// Aria menu, it is non-modal by nature (the rest of the workspace stays interactive), its rows use
-// ordinary CSS :hover rather than focus-driven highlighting, and it dismisses on an outside pointer or
-// Escape. This behaves correctly above the isolated preview's native layer, where React Aria's modal
-// overlays contend for focus. onOpenChange lets the workspace freeze the preview while the panel is up.
-export function DropdownButton({ trigger, children, label, panelLabel, triggerClassName, panelClassName, placement = 'bottom start', onOpenChange }: {
+// The shared button-with-dropdown for the trusted UI, built on React Aria's MenuTrigger: uncontrolled
+// and modal (the default). Modal is intentional — a modal popover dismisses on any outside click via
+// its underlay and gives consistent keyboard/focus behavior; the trade-off is that the rest of the
+// workspace is inert while a menu is open, which is acceptable. A caret is appended to the trigger and
+// rotates while open (see the [aria-expanded] rule in styles.css). onOpenChange lets a caller freeze
+// and detach the isolated preview while a menu sits over it, which removes the focus contention that
+// would otherwise disrupt React Aria's focus-driven menu behavior.
+export function DropdownButton({ trigger, children, label, triggerClassName, popoverClassName, placement = 'bottom start', onOpenChange }: {
   readonly trigger: ReactNode
-  readonly children: ReactNode | ((close: () => void) => ReactNode)
+  readonly children: ReactNode
   readonly label?: string
-  readonly panelLabel?: string
   readonly triggerClassName?: string
-  readonly panelClassName?: string
+  readonly popoverClassName?: string
   readonly placement?: Placement
-  readonly onOpenChange?: (open: boolean) => void
+  readonly onOpenChange?: (isOpen: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const container = useRef<HTMLDivElement>(null)
-  const change = (next: boolean) => { setOpen(next); onOpenChange?.(next) }
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: globalThis.PointerEvent) => {
-      if (container.current && !container.current.contains(event.target as Node)) change(false)
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') change(false) }
-    // Capture phase so the panel still closes when the press opens another overlay whose own handlers
-    // stop the event before it reaches a bubble-phase listener.
-    document.addEventListener('pointerdown', onPointerDown, true)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
-
   return (
-    <div className="dropdown" data-placement={placement} ref={container}>
-      <button type="button" className={triggerClassName} aria-label={label} aria-haspopup="true" aria-expanded={open} onClick={() => change(!open)}>
+    <MenuTrigger onOpenChange={onOpenChange}>
+      <Button className={triggerClassName} aria-label={label}>
         {trigger}
-        <ChevronDownIcon className="dropdown-caret" data-open={open || undefined} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className={panelClassName ? `dropdown-panel ${panelClassName}` : 'dropdown-panel'} aria-label={panelLabel}>
-          {typeof children === 'function' ? children(() => change(false)) : children}
-        </div>
-      )}
-    </div>
+        <ChevronDownIcon className="dropdown-caret" aria-hidden="true" />
+      </Button>
+      <Popover className={popoverClassName} placement={placement}>
+        {children}
+      </Popover>
+    </MenuTrigger>
   )
 }

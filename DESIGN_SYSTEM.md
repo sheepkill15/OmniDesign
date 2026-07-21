@@ -193,9 +193,7 @@ All selection primitives must implement the applicable WAI-ARIA pattern and be t
 - Pointer, keyboard, screen-reader, high-contrast, zoom, and reduced-motion behavior.
 - Popup collision handling and visibility in small or resized windows.
 
-Do not create feature-local dropdown implementations. Provider, model, project, history, and other selectors must share the same tested primitives, with modes or composition used for legitimate differences.
-
-Recorded exception (2026-07-21): the trusted UI's button-with-dropdown control (`DropdownButton`) is implemented as a plain-DOM popover rather than a React Aria overlay. React Aria's overlay modality cannot serve OmniDesign's dropdowns over the isolated generated-design preview: a modal popover dismisses on outside click but makes the surrounding workspace inert (controls lose hover, the window reads as unfocused), while a non-modal popover keeps the workspace interactive but only dismisses when focus leaves it (an outside click on a non-focusable region leaves it open). The product requires both an interactive background and dismissal on any outside click, so `DropdownButton` uses a capture-phase outside-pointer/Escape handler and CSS `:hover` rows. It remains a single shared primitive used by every dropdown; React Aria still backs other trusted-UI behaviors. Revisit if React Aria adds an overlay mode that provides both behaviors.
+Do not create feature-local dropdown implementations. Provider, model, project, history, and other selectors must share the same tested primitives, with modes or composition used for legitimate differences. The shared `DropdownButton` (a React Aria `MenuTrigger`/`Popover`) backs every trusted-UI dropdown. It is modal by default: while a menu is open the rest of the workspace is inert, which is accepted. Dropdowns that open over the isolated generated-design preview must freeze and detach the native preview layer while open (via `onOpenChange`) so the menu is not occluded and does not contend with the preview for focus.
 
 ### Buttons
 

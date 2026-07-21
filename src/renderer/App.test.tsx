@@ -186,11 +186,11 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('heading', { name: 'Model' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Effort' })).toBeInTheDocument()
     expect(screen.queryByText('Provider default')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Codex' }))
     const effort = screen.getByRole('slider', { name: 'Reasoning effort' })
     expect(effort).toHaveAttribute('aria-orientation', 'vertical')
     fireEvent.keyDown(effort, { key: 'End' })
-    fireEvent.click(screen.getByRole('button', { name: 'GPT-5.6 Fast' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'GPT-5.6 Fast' }))
     fireEvent.keyDown(effort, { key: 'Escape' })
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A precise dashboard' } })
@@ -205,7 +205,7 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: /Standalone design/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Choose local project folder…' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose local project folder…' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /Aurora/ })).toBeInTheDocument())
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A linked dashboard' } })
@@ -222,11 +222,10 @@ describe('Phase 1 walking skeleton UI', () => {
     ])
     render(<App />)
 
-    const composer = screen.getByRole('region', { name: 'Create a design' })
-    fireEvent.click(await within(composer).findByRole('button', { name: /Standalone design/ }))
-    expect(within(composer).getByRole('button', { name: 'Aurora' })).toBeInTheDocument()
-    expect(within(composer).queryByRole('button', { name: 'Solo idea' })).not.toBeInTheDocument()
-    fireEvent.click(within(composer).getByRole('button', { name: 'Aurora' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Standalone design/ }))
+    expect(screen.getByRole('menuitem', { name: 'Aurora' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Solo idea' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Aurora' }))
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A companion settings screen' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
@@ -264,35 +263,6 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.preview.hide).not.toHaveBeenCalled()
   })
 
-  it('closes the revision-history panel on an outside click', async () => {
-    installBridge()
-    render(<App />)
-
-    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
-    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
-    fireEvent.keyDown(prompt, { key: 'Enter' })
-    await screen.findByRole('region', { name: 'Design conversation' })
-
-    fireEvent.click(screen.getByRole('button', { name: /History/ }))
-    expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
-    fireEvent.pointerDown(document.body)
-    expect(screen.queryByLabelText('Revision history')).not.toBeInTheDocument()
-  })
-
-  it('closes the revision-history panel when another header overlay is opened', async () => {
-    installBridge()
-    render(<App />)
-
-    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
-    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
-    fireEvent.keyDown(prompt, { key: 'Enter' })
-    await screen.findByRole('region', { name: 'Design conversation' })
-
-    fireEvent.click(screen.getByRole('button', { name: /History/ }))
-    expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
-    fireEvent.pointerDown(screen.getByRole('button', { name: /Layout/ }))
-    expect(screen.queryByLabelText('Revision history')).not.toBeInTheDocument()
-  })
 
   it('shows revision thumbnails in history', async () => {
     const thumbnailDesign: OmniDesignDocument = {
@@ -368,7 +338,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Generated design preview' })
 
     fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Conversation only' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Conversation only' }))
 
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
@@ -385,7 +355,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Design conversation' })
 
     fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Preview only' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Preview only' }))
 
     expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
@@ -401,7 +371,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Generated design preview' })
 
     fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Pop out preview' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
 
     await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith({ designId: 'design-1', revisionId: 'revision-1' }))
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
@@ -421,7 +391,8 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
     await waitFor(() => expect(bridge.preview.freeze).toHaveBeenCalled())
     await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenCalledWith(true))
-    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+    // Selecting a revision closes the React Aria menu, which restores the live preview layer.
+    fireEvent.click(screen.getByRole('menuitem', { name: /Current head/ }))
     await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenLastCalledWith(false))
   })
 

@@ -654,13 +654,18 @@ button:disabled,
 .generation-settings-button svg { width: 15px; flex: 0 0 auto; stroke-width: 1.8; }
 .generation-settings-button svg:last-child { width: 12px; }
 
-/* Generation-settings is a wide multi-column dropdown; reset the base panel padding so its columns
-   and dividers reach the edges. */
-.dropdown-panel.generation-settings-popover {
-  min-width: 660px;
-  padding: 0;
+.generation-settings-popover,
+.project-popover {
   overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-overlay);
 }
+
+.generation-settings-popover { min-width: 660px; }
+.project-popover { min-width: 260px; }
+.project-popover.layout-menu { min-width: 208px; }
 
 .generation-settings-columns {
   display: grid;
@@ -668,14 +673,37 @@ button:disabled,
   max-height: min(460px, calc(100vh - 40px));
 }
 
-.generation-settings-column { min-width: 0; max-height: min(460px, calc(100vh - 40px)); box-sizing: border-box; padding: 12px 7px; overflow-y: auto; }
+.generation-settings-column { min-width: 0; max-height: min(460px, calc(100vh - 40px)); box-sizing: border-box; padding: 12px 9px; overflow-y: auto; }
 .generation-settings-column + .generation-settings-column { border-left: 1px solid var(--border); }
 .generation-settings-column h2 { margin: 0 5px 8px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.generation-settings-menu { display: grid; gap: 2px; }
 
-/* Compact project-target dropdown reuses the shared row styling. */
-.dropdown-panel.project-menu { min-width: 240px; }
-.dropdown-section-header { padding: 8px 9px 3px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.generation-settings-menu,
+.project-popover [role='menu'] { display: grid; gap: 2px; padding: 5px; outline: none; }
+
+.generation-settings-menu [role='menuitem'],
+.project-popover [role='menuitem'] {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 9px;
+  border-radius: 8px;
+  color: var(--text-subtle);
+  cursor: pointer;
+  font-size: 12px;
+  outline: none;
+}
+
+.generation-settings-menu [role='menuitem'][data-focused],
+.project-popover [role='menuitem'][data-focused] { background: var(--surface-3); color: var(--text); }
+.generation-settings-menu [role='menuitem'][data-disabled] { color: var(--text-faint); cursor: default; }
+.generation-settings-menu [role='menuitem'] svg,
+.project-popover [role='menuitem'] > svg { width: 15px; flex: 0 0 auto; color: var(--success); }
+.project-popover [role='menuitem'] > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.project-popover [role='menuitem'] > span svg { width: 16px; flex: 0 0 auto; color: var(--text-faint); }
+.project-popover-section { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+.project-popover-header { display: block; padding: 6px 9px 3px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
 .effort-control { display: grid; align-content: start; gap: 10px; padding-inline: 14px; }
 .effort-control > span, .effort-labels { color: var(--text-subtle); font-size: 11px; }
@@ -1340,90 +1368,30 @@ button:disabled,
   width: 15px;
 }
 
-.dropdown {
-  position: relative;
-  display: inline-flex;
-}
-
+/* Caret appended to every DropdownButton trigger; rotates while the React Aria menu is open. */
 .dropdown-caret {
   width: 14px;
   flex: 0 0 auto;
   transition: transform 140ms ease;
 }
 
-.dropdown-caret[data-open] {
+button[aria-expanded="true"] .dropdown-caret {
   transform: rotate(180deg);
 }
 
-.dropdown-panel {
-  position: absolute;
-  z-index: 20;
-  display: grid;
-  gap: 2px;
-  padding: 8px;
+/* Revision-history popover: its own base so the rich rows are not constrained by the generic
+   menu-item styling. Rows highlight via React Aria's data-focused (pointer hover and keyboard). */
+.history-popover {
+  min-width: 320px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
-  background: var(--surface-2);
+  background: var(--surface-1);
   box-shadow: var(--shadow-overlay);
 }
 
-.dropdown[data-placement$="end"] > .dropdown-panel { right: 0; }
-.dropdown[data-placement$="start"] > .dropdown-panel { left: 0; }
-.dropdown[data-placement^="bottom"] > .dropdown-panel { top: calc(100% + 6px); }
-.dropdown[data-placement^="top"] > .dropdown-panel { bottom: calc(100% + 6px); }
-
-.dropdown-panel-title {
-  padding: 5px 7px 8px;
-  font-size: 12px;
-}
-
-.dropdown-panel-history {
-  width: 320px;
-  max-height: min(70vh, 520px);
-  overflow-y: auto;
-}
-
-.dropdown-panel-menu {
-  min-width: 208px;
-}
-
-.dropdown-row {
-  width: 100%;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-subtle);
-  cursor: pointer;
-  text-align: left;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.dropdown-row:hover {
-  background: var(--surface-3);
-  color: var(--text);
-}
-
-.dropdown-row[data-active] {
-  color: var(--text);
-}
-
-.dropdown-row svg {
-  width: 16px;
-  flex: 0 0 auto;
-  color: var(--text-faint);
-}
-
-.dropdown-row .dropdown-row-check {
-  width: 15px;
-  margin-left: auto;
-  color: var(--success);
-}
+.history-popover [role='menu'] { display: grid; gap: 2px; padding: 6px; outline: none; }
 
 .history-row {
   display: grid;
@@ -1437,10 +1405,12 @@ button:disabled,
   color: var(--text-subtle);
   text-align: left;
   cursor: pointer;
+  outline: none;
 }
 
 .history-row:hover,
-.history-row[data-active] {
+.history-row[data-focused],
+.history-row-active {
   background: var(--surface-selected);
   color: var(--text);
 }

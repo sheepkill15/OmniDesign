@@ -25,7 +25,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Header, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { DropdownButton } from './components/DropdownButton'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
@@ -264,19 +264,19 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
     <DropdownButton
       label="Generation settings"
       triggerClassName="generation-settings-button"
-      panelClassName="generation-settings-popover"
+      popoverClassName="generation-settings-popover"
       placement="top end"
       trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span></>}
     >
         <div className="generation-settings-columns">
-          <section className="generation-settings-column"><h2>Provider</h2><div className="generation-settings-menu" role="group" aria-label="Provider">
-            <button type="button" className="dropdown-row" data-active={providerId === 'mock' || undefined} onClick={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon className="dropdown-row-check" aria-hidden="true" />}</button>
-            {available.map((candidate) => <button type="button" className="dropdown-row" data-active={providerId === candidate.id || undefined} key={candidate.id} onClick={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon className="dropdown-row-check" aria-hidden="true" />}</button>)}
-          </div></section>
-          <section className="generation-settings-column"><h2>Model</h2><div className="generation-settings-menu" role="group" aria-label="Model">
-            {(provider?.models ?? []).map((candidate) => <button type="button" className="dropdown-row" data-active={model?.id === candidate.id || undefined} key={candidate.id} onClick={() => onChange({ providerId, modelId: candidate.id, effort: effortForModel(candidate.effortLevels) })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon className="dropdown-row-check" aria-hidden="true" />}</button>)}
-            {!provider && <button type="button" className="dropdown-row" disabled><span>Mock v1</span></button>}
-          </div></section>
+          <section className="generation-settings-column"><h2>Provider</h2><Menu aria-label="Provider" className="generation-settings-menu" shouldCloseOnSelect={false}>
+            <MenuItem id="mock" onAction={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+            {available.map((candidate) => <MenuItem id={candidate.id} key={candidate.id} onAction={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+          </Menu></section>
+          <section className="generation-settings-column"><h2>Model</h2><Menu aria-label="Model" className="generation-settings-menu" shouldCloseOnSelect={false}>
+            {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: effortForModel(candidate.effortLevels) })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+            {!provider && <MenuItem id="mock-model" isDisabled>Mock v1</MenuItem>}
+          </Menu></section>
           <section className="generation-settings-column effort-control" data-disabled={!efforts.length || undefined}>
             <h2>Effort</h2><span>{efforts[effortIndex]?.name ?? 'Not supported by this model'}</span>
             <div className="effort-vertical-control">
@@ -363,15 +363,15 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
           <IconButton label="Attach files or folders" icon={PaperClipIcon} />
           {fixedProject
             ? <span className="project-context project-context-fixed">{fixedProject.kind === 'linked' ? <FolderIcon aria-hidden="true" /> : <DocumentDuplicateIcon aria-hidden="true" />}{fixedProject.name}</span>
-            : <DropdownButton triggerClassName="project-context" panelClassName="project-menu" panelLabel="Design project" placement="top start" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}</>}>
-                {(close) => <>
-                  <button type="button" className="dropdown-row" onClick={() => { chooseTarget('standalone'); close() }}>Standalone design</button>
-                  <button type="button" className="dropdown-row" onClick={() => { chooseTarget('folder'); close() }}>Choose local project folder…</button>
-                  {linkedProjects.length > 0 && <>
-                    <div className="dropdown-section-header">Add to a project</div>
-                    {linkedProjects.map((project) => <button type="button" className="dropdown-row" key={project.id} onClick={() => { chooseTarget(`project:${project.id}`); close() }}>{project.name}</button>)}
-                  </>}
-                </>}
+            : <DropdownButton triggerClassName="project-context" popoverClassName="project-popover" placement="top start" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}</>}>
+                <Menu aria-label="Design project" onAction={(key) => chooseTarget(String(key))}>
+                  <MenuItem id="standalone">Standalone design</MenuItem>
+                  <MenuItem id="folder">Choose local project folder…</MenuItem>
+                  {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
+                    <Header className="project-popover-header">Add to a project</Header>
+                    {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
+                  </MenuSection>}
+                </Menu>
               </DropdownButton>}
         </div>
         <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />
@@ -528,23 +528,18 @@ function LayoutMenu({ mode, onOpenChange, onChange }: { readonly mode: LayoutMod
   return (
     <DropdownButton
       label={`Layout: ${current.label}`}
-      panelLabel="Workspace layout"
       triggerClassName="toolbar-button"
-      panelClassName="dropdown-panel-menu"
+      popoverClassName="project-popover layout-menu"
       placement="bottom end"
       onOpenChange={onOpenChange}
       trigger={<><CurrentIcon aria-hidden="true" />{current.label}</>}
     >
-      {(close) => layoutModes.map((option) => {
-        const OptionIcon = option.icon
-        return (
-          <button type="button" className="dropdown-row" data-active={mode === option.id || undefined} key={option.id} onClick={() => { onChange(option.id); close() }}>
-            <OptionIcon aria-hidden="true" />
-            <span>{option.label}</span>
-            {mode === option.id && <CheckCircleIcon className="dropdown-row-check" aria-hidden="true" />}
-          </button>
-        )
-      })}
+      <Menu aria-label="Workspace layout" onAction={(key) => onChange(key as LayoutMode)}>
+        {layoutModes.map((option) => {
+          const OptionIcon = option.icon
+          return <MenuItem id={option.id} key={option.id} textValue={option.label}><span><OptionIcon aria-hidden="true" />{option.label}</span>{mode === option.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+        })}
+      </Menu>
     </DropdownButton>
   )
 }
@@ -648,10 +643,9 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
     onChange(await api.generate(design.id, draft.trim(), selection.providerId, selection.modelId, selection.effort ?? undefined))
     setDraft('')
   }
-  const selectRevision = async (revisionId: string, close: () => void) => {
+  const selectRevision = async (revisionId: string) => {
     if (!api) return
     onChange(await api.selectRevision(design.id, revisionId))
-    close()
   }
   const restore = async () => {
     if (!api || !design.selectedRevisionId) return
@@ -716,24 +710,22 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
         <div className="toolbar-actions">
           <LayoutMenu mode={mode} onOpenChange={setLayoutMenuOpen} onChange={setMode} />
           <DropdownButton
-            panelLabel="Revision history"
             triggerClassName="toolbar-button"
-            panelClassName="dropdown-panel-history"
+            popoverClassName="history-popover"
             placement="bottom end"
             onOpenChange={setHistoryOpen}
             trigger={<><ClockIcon aria-hidden="true" />History · {design.revisions.length}</>}
           >
-            {(close) => <>
-              <strong className="dropdown-panel-title">Revision history</strong>
+            <Menu aria-label="Revision history" onAction={(key) => void selectRevision(String(key))}>
               {[...design.revisions].reverse().map((revision, index) => (
-                <button type="button" className="history-row" data-active={revision.id === design.selectedRevisionId || undefined} key={revision.id} onClick={() => void selectRevision(revision.id, close)}>
+                <MenuItem id={revision.id} key={revision.id} textValue={revision.prompt} className={revision.id === design.selectedRevisionId ? 'history-row history-row-active' : 'history-row'}>
                   {revision.thumbnailDataUrl
                     ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
                     : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
                   <span><strong>{index === 0 ? 'Current head' : new Date(revision.createdAt).toLocaleString()}</strong><small>{revision.prompt}</small></span>
-                </button>
+                </MenuItem>
               ))}
-            </>}
+            </Menu>
           </DropdownButton>
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
         </div>
