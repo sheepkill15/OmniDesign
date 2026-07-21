@@ -28,6 +28,8 @@ describe('WorkspaceService', () => {
     expect(second.revisions).toHaveLength(2)
     expect(second.revisions[1].parentRevisionId).toBe(first.activeRevisionId)
     expect(second.revisions[1].html).toContain('<style>')
+    expect(second.revisions[0].gitCommit).toMatch(/^[0-9a-f]{40}$/)
+    expect(second.revisions[1].gitCommit).toMatch(/^[0-9a-f]{40}$/)
     const repositoryPath = path.join(directory, 'designs', first.id, 'repository')
     expect(existsSync(path.join(repositoryPath, '.git'))).toBe(true)
     expect(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repositoryPath, encoding: 'utf8' }).trim()).toBe('3')
@@ -75,6 +77,22 @@ describe('WorkspaceService', () => {
     expect(repaired.invalidCandidates).toHaveLength(0)
     expect(activity.map((event) => event.stage)).toContain('repairing')
     expect(repaired.revisions.at(-1)?.html).not.toContain('<script>')
+    store.close()
+  })
+
+  it('records the Git commit created by a non-destructive restoration', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const second = await service.generate(first.id, 'Use a warmer editorial direction', () => undefined)
+
+    const restored = service.restoreRevision(second.id, first.activeRevisionId!)
+
+    expect(restored.revisions).toHaveLength(3)
+    expect(restored.revisions.at(-1)?.gitCommit).toMatch(/^[0-9a-f]{40}$/)
+    expect(restored.revisions.at(-1)?.html).toBe(first.revisions[0].html)
     store.close()
   })
 })

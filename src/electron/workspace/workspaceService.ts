@@ -46,8 +46,8 @@ export class WorkspaceService {
         onActivity({ designId, stage: 'validating', detail: 'Checking document structure and preview security.' })
         validateCompiledDesign(compiled)
         onActivity({ designId, stage: 'saving', detail: 'Saving an immutable local revision.' })
-        this.repositories.commitIndexHtml(designId, compiled, `Apply design revision: ${prompt}`)
-        const saved = this.store.addRevision(designId, prompt, compiled)
+        const gitCommit = this.repositories.commitIndexHtml(designId, compiled, `Apply design revision: ${prompt}`)
+        const saved = this.store.addRevision(designId, prompt, compiled, 'mock', 'mock-v1', gitCommit)
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved
       } catch (error) {
@@ -71,7 +71,11 @@ export class WorkspaceService {
   }
 
   public restoreRevision(designId: string, revisionId: string): Design {
-    return this.store.restoreRevision(designId, revisionId)
+    const design = this.store.getDesign(designId)
+    const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
+    if (!revision) throw new Error('Revision not found.')
+    const gitCommit = this.repositories.commitIndexHtml(designId, revision.html, `Restore design revision: ${revision.prompt}`)
+    return this.store.restoreRevision(designId, revisionId, gitCommit)
   }
 
   public saveDraft(designId: string, draft: string): void {

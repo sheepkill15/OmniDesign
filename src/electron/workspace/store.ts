@@ -26,6 +26,7 @@ interface RevisionRow {
   prompt: string
   provider_id: string
   model_id: string
+  git_commit: string | null
   created_at: string
   html_path: string
 }
@@ -199,6 +200,10 @@ const migrationTen = `
 ALTER TABLE designs ADD COLUMN queue_paused INTEGER NOT NULL DEFAULT 0 CHECK (queue_paused IN (0, 1));
 `
 
+const migrationEleven = `
+ALTER TABLE revisions ADD COLUMN git_commit TEXT;
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -266,7 +271,7 @@ export class WorkspaceStore {
     })
   }
 
-  public addRevision(designId: string, prompt: string, html: string, providerId = 'mock', modelId = 'mock-v1'): Design {
+  public addRevision(designId: string, prompt: string, html: string, providerId = 'mock', modelId = 'mock-v1', gitCommit: string | null = null): Design {
     const design = this.requireDesign(designId)
     const revisionId = randomUUID()
     const now = new Date().toISOString()
@@ -277,9 +282,9 @@ export class WorkspaceStore {
 
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, html_path, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, htmlPath, now)
+        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, html_path, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, htmlPath, now)
       this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
         .run(randomUUID(), designId, 'assistant', 'Generated and validated a new design revision.', now)
       this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, updated_at = ?, draft = ? WHERE id = ?')
@@ -296,9 +301,9 @@ export class WorkspaceStore {
     return this.requireDesign(designId)
   }
 
-  public restoreRevision(designId: string, revisionId: string): Design {
+  public restoreRevision(designId: string, revisionId: string, gitCommit: string | null = null): Design {
     const revision = this.requireRevision(designId, revisionId)
-    return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.html)
+    return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.html, revision.providerId, revision.modelId, gitCommit)
   }
 
   public saveDraft(designId: string, draft: string): void {
@@ -453,7 +458,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven]
     for (const [index, migration] of migrations.entries()) {
       const version = index + 1
       const applied = this.database.prepare('SELECT version FROM schema_migrations WHERE version = ?').get(version)
@@ -469,7 +474,7 @@ export class WorkspaceStore {
     const messageRows = this.database.prepare('SELECT id, role, text, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
-      SELECT id, parent_revision_id, prompt, provider_id, model_id, created_at, html_path
+      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at, html_path
       FROM revisions WHERE design_id = ? ORDER BY created_at, rowid
     `).all(row.id) as unknown as RevisionRow[]
     const invalidCandidateRows = this.database.prepare(`
@@ -505,6 +510,7 @@ export class WorkspaceStore {
         prompt: revision.prompt,
         providerId: revision.provider_id,
         modelId: revision.model_id,
+        gitCommit: revision.git_commit,
         createdAt: revision.created_at,
         html: readFileSync(revision.html_path, 'utf8'),
         thumbnailDataUrl: this.readThumbnailDataUrl(this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(revision.id) as { thumbnail_path: string } | undefined),

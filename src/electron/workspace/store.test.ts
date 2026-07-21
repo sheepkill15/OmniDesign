@@ -20,7 +20,7 @@ describe('WorkspaceStore', () => {
   it('persists conversations, drafts, and immutable revision files across reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
-    const first = store.addRevision(created.id, 'Create a calm dashboard', '<html><body>One</body></html>')
+    const first = store.addRevision(created.id, 'Create a calm dashboard', '<html><body>One</body></html>', 'mock', 'mock-v1', 'a'.repeat(40))
     store.addPrompt(created.id, 'Make the figures bolder')
     const second = store.addRevision(created.id, 'Make the figures bolder', '<html><body>Two</body></html>')
     store.saveDraft(created.id, 'Try a warmer accent')
@@ -31,6 +31,8 @@ describe('WorkspaceStore', () => {
     expect(recovered?.draft).toBe('Try a warmer accent')
     expect(recovered?.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant'])
     expect(recovered?.revisions.map((revision) => revision.html)).toEqual(['<html><body>One</body></html>', '<html><body>Two</body></html>'])
+    expect(recovered?.revisions[0].gitCommit).toBe('a'.repeat(40))
+    expect(recovered?.revisions[1].gitCommit).toBeNull()
     expect(recovered?.activeRevisionId).toBe(second.activeRevisionId)
     expect(first.revisions[0].id).not.toBe(second.revisions[1].id)
     reopened.close()
