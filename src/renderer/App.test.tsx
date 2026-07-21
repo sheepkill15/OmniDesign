@@ -210,6 +210,20 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A linked dashboard', 'mock', 'mock-v1', undefined, { sourceProjectPath: 'C:\\Projects\\Aurora' }))
   })
 
+  it('targets an existing project chosen from the composer selector', async () => {
+    const bridge = installBridge([design])
+    render(<App />)
+
+    await screen.findAllByText('Calm dashboard')
+    fireEvent.click(screen.getByRole('button', { name: /Standalone design/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Calm dashboard' }))
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A companion settings screen' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A companion settings screen', 'mock', 'mock-v1', undefined, { projectId: 'project-1' }))
+  })
+
   it('keeps the native preview visible while revision history stays in the conversation-side toolbar', async () => {
     const bridge = installBridge()
     render(<App />)
@@ -341,7 +355,21 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
-    fireEvent.click(await within(sidebar).findByRole('button', { name: /Calm dashboard/ }))
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+
+    expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
+  })
+
+  it('expands a project in the sidebar to open a specific design', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
+    installBridge([first, second])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Expand Studio' }))
+    const sublist = await within(sidebar).findByRole('group', { name: 'Studio designs' })
+    fireEvent.click(within(sublist).getByRole('button', { name: 'Settings screen' }))
 
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
   })
@@ -353,7 +381,7 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
-    fireEvent.click(await within(sidebar).findByRole('button', { name: /Studio/ }))
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
 
     const grid = await screen.findByRole('group', { name: 'Designs in this project' })
     fireEvent.click(within(grid).getByRole('button', { name: /Settings screen/ }))
