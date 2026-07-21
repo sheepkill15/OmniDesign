@@ -592,10 +592,12 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
       if (historyControl.current && !historyControl.current.contains(event.target as Node)) setHistoryOpen(false)
     }
     const onKeyDown = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setHistoryOpen(false) }
-    document.addEventListener('pointerdown', onPointerDown)
+    // Capture phase so the panel still closes when the press opens another overlay (e.g. the layout
+    // menu), whose React Aria press handling stops the event before it reaches a bubble-phase listener.
+    document.addEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('keydown', onKeyDown)
     return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('keydown', onKeyDown)
     }
   }, [historyOpen])
