@@ -86,7 +86,19 @@ export class WorkspaceService {
   }
 
   public selectRevision(designId: string, revisionId: string): Design {
+    const design = this.store.getDesign(designId)
+    const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
+    if (!design || !revision) throw new Error('Revision not found.')
+    // Going back to a revision checks its commit out into the working tree; selecting the current
+    // head returns to the main timeline. Legacy revisions without a commit are viewed without checkout.
+    if (revision.id === design.activeRevisionId) this.repositories.checkoutMain(designId)
+    else if (revision.gitCommit) this.repositories.checkoutRevision(designId, revision.gitCommit)
     return this.store.selectRevision(designId, revisionId)
+  }
+
+  /** Ensure the working tree is at the head of the main timeline before a new generation runs. */
+  public prepareGenerationWorkspace(designId: string): void {
+    this.repositories.checkoutMain(designId)
   }
 
   public restoreRevision(designId: string, revisionId: string): Design {

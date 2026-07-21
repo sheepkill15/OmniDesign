@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -95,7 +95,38 @@ describe('WorkspaceService', () => {
 
     expect(restored.revisions).toHaveLength(3)
     expect(restored.revisions.at(-1)?.gitCommit).toMatch(/^[0-9a-f]{40}$/)
-    expect(restored.revisions.at(-1)?.html).toBe(first.revisions[0].html)
+    // The restored head reproduces the first revision's committed content.
+    const firstFiles = service.getRevisionFiles(first.id, first.activeRevisionId!)
+    const restoredFiles = service.getRevisionFiles(restored.id, restored.revisions.at(-1)!.id)
+    expect(restoredFiles['index.html']).toBe(firstFiles['index.html'])
+    expect(restoredFiles['.build/tailwind.css']).toBe(firstFiles['.build/tailwind.css'])
+    store.close()
+  })
+
+  it('checks out the working tree when going back to a revision and restores forward as a new commit', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm dashboard', () => undefined)
+    const entryPath = path.join(directory, 'designs', first.id, 'repository', 'index.html')
+    const firstHtml = readFileSync(entryPath, 'utf8')
+    const second = await service.generate(first.id, 'A warmer editorial direction', () => undefined)
+    const secondHtml = readFileSync(entryPath, 'utf8')
+    expect(firstHtml).not.toBe(secondHtml)
+
+    // Going back to an earlier revision checks its commit out into the working tree.
+    service.selectRevision(first.id, first.activeRevisionId!)
+    expect(readFileSync(entryPath, 'utf8')).toBe(firstHtml)
+
+    // Selecting the head returns the working tree to the latest revision.
+    service.selectRevision(first.id, second.activeRevisionId!)
+    expect(readFileSync(entryPath, 'utf8')).toBe(secondHtml)
+
+    // Restore creates a new head commit reproducing the earlier revision without dropping later ones.
+    const restored = service.restoreRevision(first.id, first.activeRevisionId!)
+    expect(restored.revisions).toHaveLength(3)
+    expect(readFileSync(entryPath, 'utf8')).toBe(firstHtml)
     store.close()
   })
 

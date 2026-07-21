@@ -46,6 +46,8 @@ export class DesignRepositoryManager {
       this.run(repositoryPath, ['init', '--initial-branch=main'])
       this.run(repositoryPath, ['config', 'user.name', 'OmniDesign'])
       this.run(repositoryPath, ['config', 'user.email', 'omnidesign@local'])
+      // Keep generated files byte-exact: never rewrite line endings on commit or checkout.
+      this.run(repositoryPath, ['config', 'core.autocrlf', 'false'])
     }
 
     if (!existsSync(path.join(repositoryPath, ENTRY_HTML_PATH))) {
@@ -76,6 +78,16 @@ export class DesignRepositoryManager {
     return readFileSync(path.join(this.initialize(designId), ENTRY_HTML_PATH), 'utf8')
   }
 
+  /** Check out an earlier revision's commit (detached HEAD) so the working tree reflects it. */
+  public checkoutRevision(designId: string, commit: string): void {
+    this.run(this.initialize(designId), ['checkout', '--force', commit])
+  }
+
+  /** Return the working tree to the head of the main timeline, discarding any transient checkout. */
+  public checkoutMain(designId: string): void {
+    this.run(this.initialize(designId), ['checkout', '--force', 'main'])
+  }
+
   /** Read the files that make up a revision (entry page + build assets) from its Git commit. */
   public readRevisionFiles(designId: string, commit: string): RevisionFiles {
     const repositoryPath = this.initialize(designId)
@@ -87,9 +99,13 @@ export class DesignRepositoryManager {
     return files
   }
 
-  /** Restore the working tree to a past commit and record it as a new head commit. */
+  /**
+   * Restore a past revision as a new head commit on the main timeline: return to main, bring that
+   * commit's tree into the working tree, and commit it forward. Earlier revisions are preserved.
+   */
   public restore(designId: string, commit: string, message: string): string {
     const repositoryPath = this.initialize(designId)
+    this.run(repositoryPath, ['checkout', '--force', 'main'])
     this.run(repositoryPath, ['checkout', commit, '--', '.'])
     this.commit(repositoryPath, message)
     return this.run(repositoryPath, ['rev-parse', 'HEAD'])

@@ -270,6 +270,9 @@ void app.whenReady().then(() => {
   generationQueue = new GenerationQueue(
     store,
     async (job, signal, onActivity) => {
+      // Make sure the repository is at the head of the main timeline before generating, in case the
+      // user was viewing (and had checked out) an earlier revision.
+      requireWorkspace().prepareGenerationWorkspace(job.designId)
       if (job.providerId === 'mock') {
         await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3)
         return
