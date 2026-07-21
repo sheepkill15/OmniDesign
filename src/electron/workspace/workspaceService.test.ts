@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -107,6 +107,37 @@ describe('WorkspaceService', () => {
 
     expect(responded.revisions).toHaveLength(1)
     expect(responded.messages.at(-1)).toMatchObject({ role: 'assistant', text: 'I can explain the layout without changing it.' })
+    store.close()
+  })
+
+  it('validates and saves a changed agent workspace while retaining its conversational response', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const repositoryPath = path.join(directory, 'designs', first.id, 'repository')
+    writeFileSync(repositoryPath + path.sep + 'index.html', '<!doctype html><html><head><title>Agent result</title></head><body><main><h1>Updated</h1></main></body></html>', 'utf8')
+
+    const saved = await service.saveAgentWorkspaceResult(first.id, 'Make it clearer', 'codex', 'model-1', 'I clarified the hierarchy.', () => undefined)
+
+    expect(saved.revisions).toHaveLength(2)
+    expect(saved.revisions.at(-1)).toMatchObject({ providerId: 'codex', modelId: 'model-1', gitCommit: expect.stringMatching(/^[0-9a-f]{40}$/) })
+    expect(saved.messages.at(-1)).toMatchObject({ role: 'assistant', text: 'I clarified the hierarchy.' })
+    store.close()
+  })
+
+  it('preserves a response-only turn when the agent workspace Git head is unchanged', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm analytics dashboard', () => undefined)
+
+    const saved = await service.saveAgentWorkspaceResult(first.id, 'Explain the layout', 'codex', 'model-1', 'The hierarchy prioritizes the summary.', () => undefined)
+
+    expect(saved.revisions).toHaveLength(1)
+    expect(saved.messages.at(-1)).toMatchObject({ role: 'assistant', text: 'The hierarchy prioritizes the summary.' })
     store.close()
   })
 })

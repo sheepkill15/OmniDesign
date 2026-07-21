@@ -49,6 +49,16 @@ export class DesignRepositoryManager {
     return this.run(repositoryPath, ['rev-parse', 'HEAD'])
   }
 
+  public captureWorkingTree(designId: string, message: string): string {
+    const repositoryPath = this.initialize(designId)
+    this.commit(repositoryPath, message)
+    return this.run(repositoryPath, ['rev-parse', 'HEAD'])
+  }
+
+  public readIndexHtml(designId: string): string {
+    return readFileSync(path.join(this.initialize(designId), 'index.html'), 'utf8')
+  }
+
   private commit(repositoryPath: string, message: string): void {
     this.run(repositoryPath, ['add', '--all'])
     const staged = this.runAllowingFailure(repositoryPath, ['diff', '--cached', '--quiet'])

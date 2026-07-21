@@ -282,7 +282,15 @@ export class WorkspaceStore {
     return this.requireDesign(designId)
   }
 
-  public addRevision(designId: string, prompt: string, html: string, providerId = 'mock', modelId = 'mock-v1', gitCommit: string | null = null): Design {
+  public addRevision(
+    designId: string,
+    prompt: string,
+    html: string,
+    providerId = 'mock',
+    modelId = 'mock-v1',
+    gitCommit: string | null = null,
+    assistantResponse = 'Generated and validated a new design revision.',
+  ): Design {
     const design = this.requireDesign(designId)
     const revisionId = randomUUID()
     const now = new Date().toISOString()
@@ -297,7 +305,7 @@ export class WorkspaceStore {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, htmlPath, now)
       this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'assistant', 'Generated and validated a new design revision.', now)
+        .run(randomUUID(), designId, 'assistant', assistantResponse, now)
       this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, updated_at = ?, draft = ? WHERE id = ?')
         .run(revisionId, revisionId, now, '', designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, design.projectId)

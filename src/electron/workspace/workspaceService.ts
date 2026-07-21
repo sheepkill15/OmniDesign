@@ -78,6 +78,38 @@ export class WorkspaceService {
     return this.store.restoreRevision(designId, revisionId, gitCommit)
   }
 
+  public async saveAgentWorkspaceResult(
+    designId: string,
+    prompt: string,
+    providerId: string,
+    modelId: string,
+    response: string,
+    onActivity: ActivityListener,
+  ): Promise<Design> {
+    const current = this.store.getDesign(designId)
+    if (!current) throw new Error('Design not found.')
+    const gitCommit = this.repositories.captureWorkingTree(designId, `Apply agent result: ${prompt}`)
+    const activeRevision = current.revisions.find((revision) => revision.id === current.activeRevisionId)
+    if (activeRevision?.gitCommit === gitCommit) return this.store.addAssistantResponse(designId, response)
+
+    try {
+      onActivity({ designId, stage: 'compiling', detail: 'Compiling the agent workspace entry page.' })
+      const compiled = await compileDesignHtml(this.repositories.readIndexHtml(designId))
+      onActivity({ designId, stage: 'validating', detail: 'Checking the agent workspace result.' })
+      validateCompiledDesign(compiled)
+      onActivity({ designId, stage: 'saving', detail: 'Saving the validated agent revision.' })
+      const saved = this.store.addRevision(designId, prompt, compiled, providerId, modelId, gitCommit, response)
+      onActivity({ designId, stage: 'complete', detail: 'Agent result is ready to preview.' })
+      return saved
+    } catch (error) {
+      const diagnostic = error instanceof Error ? error.message : 'Agent result validation failed.'
+      const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic)
+      this.store.addAssistantResponse(designId, response)
+      onActivity({ designId, stage: 'failed', detail: diagnostic })
+      return rejected
+    }
+  }
+
   public saveDraft(designId: string, draft: string): void {
     this.store.saveDraft(designId, draft)
   }
