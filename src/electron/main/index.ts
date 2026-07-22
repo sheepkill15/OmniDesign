@@ -237,6 +237,16 @@ function registerIpc(): void {
     const request = associateDesignRequestSchema.parse(value)
     return requireWorkspace().associateDesignWithProject(request.designId, request.projectId)
   })
+  ipcMain.handle('workspace:associate-and-restart', async (event, value: unknown) => {
+    authorize(event)
+    const request = associateDesignRequestSchema.parse(value)
+    requireWorkspace().associateDesignWithProject(request.designId, request.projectId)
+    const job = requireWorkspace().getDesign(request.designId)?.generationJobs.find((candidate) => ['queued', 'running'].includes(candidate.state))
+    if (!job) return requireWorkspace().getDesign(request.designId)
+    await requireGenerationQueue().cancelAndWait(job.id)
+    requireGenerationQueue().retry(job.id)
+    return requireWorkspace().getDesign(request.designId)
+  })
   ipcMain.handle('workspace:list-trash', (event) => { authorize(event); return requireWorkspace().listTrash() })
   ipcMain.handle('workspace:clone-project', async (event, value: unknown) => {
     authorize(event)

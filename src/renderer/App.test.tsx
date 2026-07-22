@@ -68,6 +68,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       reconnectProject: vi.fn(),
       convertProjectToStandalone: vi.fn(),
       associateDesign: vi.fn().mockResolvedValue(createdDesign),
+      associateAndRestart: vi.fn().mockResolvedValue(createdDesign),
       trash: vi.fn().mockResolvedValue(undefined),
       restoreTrash: vi.fn().mockResolvedValue(undefined),
       purgeTrash: vi.fn().mockResolvedValue(undefined),
@@ -279,6 +280,21 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Associate project' }))
     await waitFor(() => expect(bridge.workspace.associateDesign).toHaveBeenCalledWith('new-design', 'aurora'))
     expect(await screen.findByText('Design associated with Aurora.')).toBeInTheDocument()
+  })
+
+  it('can associate a suggested project and restart queued work with its context', async () => {
+    const queuedJob: GenerationJob = { id: '7e3670bd-2f6c-444d-afd0-a26e178399664', designId: 'new-design', prompt: 'Create a dashboard for Aurora', providerId: 'mock', modelId: 'mock-v1', state: 'queued', createdAt: '2026-07-20T10:00:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [] }
+    const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', generationJobs: [queuedJob] }
+    const bridge = installBridge([], createdDesign)
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' }])
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'Create a dashboard for Aurora' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Associate and restart' }))
+    await waitFor(() => expect(bridge.workspace.associateAndRestart).toHaveBeenCalledWith('new-design', 'aurora'))
   })
 
   it('pre-fills the composer target from a project row add button', async () => {
