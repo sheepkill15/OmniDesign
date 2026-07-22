@@ -282,25 +282,39 @@ function Providers({ providers, loading, error, onRefresh }: {
   )
 }
 
-function Settings({ theme, notificationsEnabled, generationDetail, onThemeChange, onNotificationsChange, onGenerationDetailChange }: { readonly theme: 'dark' | 'light'; readonly notificationsEnabled: boolean; readonly generationDetail: 'full' | 'concise'; readonly onThemeChange: (theme: 'dark' | 'light') => void; readonly onNotificationsChange: (enabled: boolean) => void; readonly onGenerationDetailChange: (detail: 'full' | 'concise') => void }) {
+function Settings({ theme, notificationsEnabled, generationDetail, initialError, onThemeChange, onNotificationsChange, onGenerationDetailChange }: { readonly theme: 'dark' | 'light'; readonly notificationsEnabled: boolean; readonly generationDetail: 'full' | 'concise'; readonly initialError: string | null; readonly onThemeChange: (theme: 'dark' | 'light') => Promise<void>; readonly onNotificationsChange: (enabled: boolean) => Promise<void>; readonly onGenerationDetailChange: (detail: 'full' | 'concise') => Promise<void> }) {
+  const [saving, setSaving] = useState<'appearance' | 'notifications' | 'details' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const save = async (section: 'appearance' | 'notifications' | 'details', action: () => Promise<void>) => {
+    setSaving(section)
+    setError(null)
+    try {
+      await action()
+    } catch (reason) {
+      setError(reason instanceof Error && reason.message ? reason.message : 'The setting could not be saved.')
+    } finally {
+      setSaving(null)
+    }
+  }
   return (
     <main className="settings-main">
       <div className="settings-content">
         <header className="page-heading"><h1>Settings</h1><p>Choose how OmniDesign’s trusted workspace appears on this device.</p></header>
+        {(error || initialError) && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Settings could not be synchronized.</strong><small>{error ?? initialError}</small></span>{error && <Button className="text-button" onPress={() => setError(null)}>Dismiss</Button>}</div>}
         <section className="settings-section" aria-labelledby="appearance-heading">
-          <div className="section-heading"><h2 id="appearance-heading">Appearance</h2><span>Saved locally</span></div>
-          <RadioGroup aria-label="Application theme" className="theme-options" value={theme} onChange={(value) => onThemeChange(value as 'dark' | 'light')}>
+          <div className="section-heading"><h2 id="appearance-heading">Appearance</h2><span>{saving === 'appearance' ? 'Saving…' : 'Saved locally'}</span></div>
+          <RadioGroup aria-label="Application theme" className="theme-options" value={theme} isDisabled={saving !== null} onChange={(value) => void save('appearance', () => onThemeChange(value as 'dark' | 'light'))}>
             <Radio className="theme-option" value="dark"><span className="theme-swatch theme-swatch-dark" aria-hidden="true" /><span><strong>Dark</strong><small>Default for focused design work</small></span></Radio>
             <Radio className="theme-option" value="light"><span className="theme-swatch theme-swatch-light" aria-hidden="true" /><span><strong>Light</strong><small>A bright, low-glare workspace</small></span></Radio>
           </RadioGroup>
         </section>
         <section className="settings-section" aria-labelledby="notifications-heading">
-          <div className="section-heading"><h2 id="notifications-heading">Notifications</h2><span>Saved locally</span></div>
-          <div className="settings-row"><span><strong>System notifications</strong><small>Notify when generation completes or needs attention.</small></span><Switch aria-label="System notifications" className="settings-switch" isSelected={notificationsEnabled} onChange={onNotificationsChange}><span className="settings-switch-state">{notificationsEnabled ? 'On' : 'Off'}</span><span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span></Switch></div>
+          <div className="section-heading"><h2 id="notifications-heading">Notifications</h2><span>{saving === 'notifications' ? 'Saving…' : 'Saved locally'}</span></div>
+          <div className="settings-row"><span><strong>System notifications</strong><small>Notify when generation completes or needs attention.</small></span><Switch aria-label="System notifications" className="settings-switch" isDisabled={saving !== null} isSelected={notificationsEnabled} onChange={(value) => void save('notifications', () => onNotificationsChange(value))}><span className="settings-switch-state">{notificationsEnabled ? 'On' : 'Off'}</span><span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span></Switch></div>
         </section>
         <section className="settings-section" aria-labelledby="generation-detail-heading">
-          <div className="section-heading"><h2 id="generation-detail-heading">Generation details</h2><span>Saved locally</span></div>
-          <RadioGroup aria-label="Generation detail level" className="theme-options" value={generationDetail} onChange={(value) => onGenerationDetailChange(value as 'full' | 'concise')}>
+          <div className="section-heading"><h2 id="generation-detail-heading">Generation details</h2><span>{saving === 'details' ? 'Saving…' : 'Saved locally'}</span></div>
+          <RadioGroup aria-label="Generation detail level" className="theme-options" value={generationDetail} isDisabled={saving !== null} onChange={(value) => void save('details', () => onGenerationDetailChange(value as 'full' | 'concise'))}>
             <Radio className="theme-option" value="full"><span><strong>Full</strong><small>Provider activity, tool work, stages, and validation details</small></span></Radio>
             <Radio className="theme-option" value="concise"><span><strong>Concise</strong><small>Queue and final outcomes only</small></span></Radio>
           </RadioGroup>
@@ -1319,6 +1333,7 @@ export function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [generationDetail, setGenerationDetail] = useState<'full' | 'concise'>('full')
+  const [settingsError, setSettingsError] = useState<string | null>(null)
   const providerState = useProviders()
   const workspaceApi = window.omnidesign?.workspace
 
@@ -1342,9 +1357,9 @@ export function App() {
     void api.getTheme().then((savedTheme) => {
       setTheme(savedTheme)
       document.documentElement.dataset.theme = savedTheme
-    })
-    void api.getNotificationsEnabled().then(setNotificationsEnabled)
-    void api.getGenerationDetail().then(setGenerationDetail)
+    }).catch((reason: unknown) => setSettingsError(`Theme could not be loaded. ${reason instanceof Error ? reason.message : ''}`.trim()))
+    void api.getNotificationsEnabled().then(setNotificationsEnabled).catch((reason: unknown) => setSettingsError(`Notification preference could not be loaded. ${reason instanceof Error ? reason.message : ''}`.trim()))
+    void api.getGenerationDetail().then(setGenerationDetail).catch((reason: unknown) => setSettingsError(`Generation detail preference could not be loaded. ${reason instanceof Error ? reason.message : ''}`.trim()))
   }, [])
   useEffect(() => {
     if (!workspaceApi) return
@@ -1391,10 +1406,18 @@ export function App() {
       setCreating(false)
     }
   }
-  const changeTheme = (nextTheme: 'dark' | 'light') => {
+  const changeTheme = async (nextTheme: 'dark' | 'light') => {
+    const previous = theme
     setTheme(nextTheme)
     document.documentElement.dataset.theme = nextTheme
-    void window.omnidesign?.settings.saveTheme(nextTheme)
+    try {
+      await window.omnidesign?.settings.saveTheme(nextTheme)
+      setSettingsError(null)
+    } catch (reason) {
+      setTheme(previous)
+      document.documentElement.dataset.theme = previous
+      throw reason
+    }
   }
   const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setDiagnosticsOpen(false); setTrashOpen(false) }
   const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
@@ -1446,13 +1469,27 @@ export function App() {
     await workspaceApi?.resumeGenerationQueue(designId)
     await refresh()
   }
-  const changeNotifications = (enabled: boolean) => {
+  const changeNotifications = async (enabled: boolean) => {
+    const previous = notificationsEnabled
     setNotificationsEnabled(enabled)
-    void window.omnidesign?.settings.saveNotificationsEnabled(enabled)
+    try {
+      await window.omnidesign?.settings.saveNotificationsEnabled(enabled)
+      setSettingsError(null)
+    } catch (reason) {
+      setNotificationsEnabled(previous)
+      throw reason
+    }
   }
-  const changeGenerationDetail = (detail: 'full' | 'concise') => {
+  const changeGenerationDetail = async (detail: 'full' | 'concise') => {
+    const previous = generationDetail
     setGenerationDetail(detail)
-    void window.omnidesign?.settings.saveGenerationDetail(detail)
+    try {
+      await window.omnidesign?.settings.saveGenerationDetail(detail)
+      setSettingsError(null)
+    } catch (reason) {
+      setGenerationDetail(previous)
+      throw reason
+    }
   }
   const reconnectProject = async (project: ProjectSummary) => {
     const folder = await workspaceApi?.chooseProjectFolder()
@@ -1522,7 +1559,7 @@ export function App() {
         : providersOpen
         ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} onRefresh={providerState.refresh} />
         : settingsOpen
-        ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
+        ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} initialError={settingsError} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : activeDesign
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => setAssociationNotice(null)} onOpenProviders={openProviders} />
         : activeProject

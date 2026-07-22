@@ -1011,6 +1011,21 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.settings.saveNotificationsEnabled).toHaveBeenCalledWith(false)
   })
 
+  it('rolls back a setting and explains when local persistence fails', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.settings.saveNotificationsEnabled).mockRejectedValueOnce(new Error('Settings database is locked.'))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    const notifications = await screen.findByRole('switch', { name: 'System notifications' })
+
+    fireEvent.click(notifications)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Settings could not be synchronized.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Settings database is locked.')
+    await waitFor(() => expect(notifications).toBeChecked())
+    expect(screen.getByText('Saved locally', { selector: '#notifications-heading + span' })).toBeInTheDocument()
+  })
+
   it('keeps supplied references visible with the submitted conversation message', async () => {
     const attachedDesign: OmniDesignDocument = {
       ...design,
