@@ -258,6 +258,7 @@ function registerIpc(): void {
   ipcMain.handle('workspace:purge-trash', (event, value: unknown) => {
     authorize(event)
     const request = trashItemRequestSchema.parse(value)
+    preview?.discard()
     requireWorkspace().purgeTrashItem(request.kind, request.id)
   })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {

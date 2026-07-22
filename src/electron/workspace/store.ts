@@ -589,8 +589,8 @@ export class WorkspaceStore {
       const project = this.database.prepare('SELECT id FROM projects WHERE id = ? AND trashed_at IS NOT NULL').get(id) as { id: string } | undefined
       if (!project) throw new Error('Trashed project not found.')
       const designIds = (this.database.prepare('SELECT id FROM designs WHERE project_id = ?').all(id) as { id: string }[]).map((row) => row.id)
-      this.database.prepare('DELETE FROM projects WHERE id = ?').run(id)
       designIds.forEach((designId) => this.removeDesignArtifacts(designId))
+      this.database.prepare('DELETE FROM projects WHERE id = ?').run(id)
       return
     }
     const design = this.database.prepare(`
@@ -603,8 +603,8 @@ export class WorkspaceStore {
       this.purgeTrashItem('project', design.project_id)
       return
     }
-    this.database.prepare('DELETE FROM designs WHERE id = ?').run(id)
     this.removeDesignArtifacts(id)
+    this.database.prepare('DELETE FROM designs WHERE id = ?').run(id)
   }
 
   public addAssistantResponse(designId: string, response: string): Design {
@@ -1035,7 +1035,7 @@ export class WorkspaceStore {
     const target = path.resolve(this.artifactsDirectory, designId)
     const root = path.resolve(this.artifactsDirectory)
     if (path.dirname(target) !== root) throw new Error('Refusing to remove an unexpected design artifact path.')
-    rmSync(target, { recursive: true, force: true })
+    rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 })
   }
 
   private transaction(work: () => void): void {

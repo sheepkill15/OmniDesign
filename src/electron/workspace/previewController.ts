@@ -146,6 +146,16 @@ export class PreviewController {
     this.attached = false
   }
 
+  public discard(): void {
+    this.hide()
+    this.documents.clear()
+    this.designId = null
+    this.revisionId = null
+    this.token = null
+    if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close()
+    this.view = null
+  }
+
   public destroy(): void {
     this.hide()
     if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close()
@@ -196,8 +206,8 @@ export class PreviewController {
     view.webContents.on('will-navigate', (event, url) => {
       if (!isAllowedPreviewUrl(url)) event.preventDefault()
     })
-    view.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-      const diagnostic = captureConsoleDiagnostic(level, message, line, sourceId)
+    view.webContents.on('console-message', (details) => {
+      const diagnostic = captureConsoleDiagnostic(details.level, details.message, details.lineNumber, details.sourceId)
       if (diagnostic) this.recordDiagnostic(diagnostic)
     })
     view.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
