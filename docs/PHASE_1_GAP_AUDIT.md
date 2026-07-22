@@ -49,7 +49,7 @@ The current automated suite does not yet prove all Phase 1 quality gates:
 - provider adapter contracts need capability coverage for both real adapters;
 - exported ZIPs are now unzipped and loaded in a fresh sandboxed Electron browser window; broader representative-design coverage remains useful;
 - an Electron journey now verifies dark/light token application, Home-to-workspace continuity, and restart persistence; exhaustive visual regression coverage for every primary screen/control remains open;
-- the close/interruption and external-root security flows need targeted Electron coverage.
+- an Electron journey now covers declining close, confirming interruption, restart recovery, Continue, and Retry affordances; external-root security still needs targeted acceptance coverage.
 
 ## Implementation order
 

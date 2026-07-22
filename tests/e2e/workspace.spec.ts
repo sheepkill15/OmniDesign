@@ -4,6 +4,7 @@ import type { ElectronApplication } from 'playwright'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { unzipSync } from 'fflate'
 
@@ -172,6 +173,51 @@ test('applies and persists the trusted application theme across primary screens'
     activeApp = secondRun.app
     await expect(secondRun.window.getByRole('heading', { name: 'Start with an idea.' })).toBeVisible()
     await expect(secondRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('confirms close with active work and recovers it as interrupted', async () => {
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-interruption-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const firstRun = await launchWorkspace(userDataDirectory)
+    activeApp = firstRun.app
+    const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('An interruption recovery check')
+    await prompt.press('Enter')
+    await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    const designId = await firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].id)
+    const database = new DatabaseSync(path.join(userDataDirectory, 'workspace', 'omnidesign.sqlite'))
+    database.prepare(`
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, 'mock', 'mock-v1', NULL, '[]', 'fresh', 'queued', ?, NULL, NULL, NULL)
+    `).run('8a348393-c286-40dc-ad06-a1174bfeb5a7', designId, 'Queued before close', new Date().toISOString())
+    database.close()
+    await firstRun.app.evaluate(({ dialog }) => {
+      dialog.showMessageBoxSync = () => 0
+    })
+
+    await firstRun.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
+    await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+
+    const closed = firstRun.app.waitForEvent('close')
+    await firstRun.app.evaluate(({ BrowserWindow, dialog }) => {
+      dialog.showMessageBoxSync = () => 1
+      BrowserWindow.getAllWindows()[0].close()
+    })
+    await closed
+    activeApp = null
+
+    const secondRun = await launchWorkspace(userDataDirectory)
+    activeApp = secondRun.app
+    const recoveredDesign = secondRun.window.getByRole('region', { name: 'Continue designing' }).getByRole('button').filter({ hasText: 'An interruption recovery check' })
+    await recoveredDesign.click()
+    await expect(secondRun.window.getByText('interrupted', { exact: true })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: 'Continue' })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: 'Retry' })).toBeVisible()
   } finally {
     await activeApp?.close().catch(() => undefined)
     await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
