@@ -985,6 +985,13 @@ button:disabled,
 .editable-title-workspace input { width: min(220px, 24vw); font-size: 12px; }
 .editable-title-workspace .secondary-action { height: 28px; }
 .editable-title-workspace .text-button { height: 28px; padding: 0 6px; }
+.editable-title-card { min-width: 0; }
+.editable-title-card h3 { min-width: 0; margin: 0; overflow: hidden; color: var(--text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.editable-title-card .icon-button { width: 26px; height: 26px; }
+.editable-title-card form { align-items: stretch; flex-wrap: wrap; }
+.editable-title-card input { width: 100%; flex: 1 0 100%; font-size: 12px; }
+.editable-title-card .secondary-action,
+.editable-title-card .text-button { height: 28px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; }
 .settings-row > span { display: grid; gap: 4px; }
 .settings-row small { color: var(--text-subtle); }
@@ -1509,13 +1516,23 @@ button:disabled,
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   background: var(--surface-1);
-  cursor: pointer;
   text-align: left;
 }
 
-.design-card:hover {
+.design-card:hover,
+.design-card:focus-within {
   border-color: var(--accent);
   background: var(--surface-2);
+}
+
+.design-card-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
 .design-card-thumb {
@@ -1539,15 +1556,6 @@ button:disabled,
   display: grid;
   gap: 4px;
   padding: 12px 14px 14px;
-}
-
-.design-card-body strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .design-card-body small {

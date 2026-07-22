@@ -25,6 +25,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - The trusted renderer now fits Electron's actual content viewport at the 900x600 minimum outer-window size without clipping or document overflow; package-equivalent coverage also verifies keyboard focus under forced colors and suppresses repeated motion when reduced motion is requested.
 - The persisted system-notification preference now uses a semantic, keyboard-operable switch with custom dark/light and forced-colors styling; built-Electron coverage verifies keyboard activation and persistence across restart.
 - The no-provider state now disables both initial and follow-up submission without clearing drafts, keeps project/history/export access available, and links directly to provider availability. The deterministic mock provider is advertised only in development or explicitly enabled package-equivalent tests, never assumed in a normal packaged launch.
+- Multi-design project cards now expose separate, keyboard-named open and rename controls without nested interactive elements. Card renames update optimistically, roll back on failure, and no longer navigate into the design; background design refreshes likewise cannot steal the user's current screen.
 
 ## Remaining functional gaps
 

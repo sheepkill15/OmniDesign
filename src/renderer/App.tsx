@@ -266,7 +266,7 @@ function Settings({ theme, notificationsEnabled, generationDetail, onThemeChange
 function EditableTitle({ value, label, variant, onSave }: {
   readonly value: string
   readonly label: string
-  readonly variant: 'page' | 'workspace'
+  readonly variant: 'page' | 'workspace' | 'card'
   readonly onSave: (value: string) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
@@ -279,10 +279,12 @@ function EditableTitle({ value, label, variant, onSave }: {
     if (!next || next === value || saving) { if (next === value) setEditing(false); return }
     setSaving(true)
     setError(null)
+    if (variant === 'card') setEditing(false)
     try {
       await onSave(next)
       setEditing(false)
     } catch (reason) {
+      if (variant === 'card') setEditing(true)
       setError(reason instanceof Error ? reason.message : `${label} could not be renamed.`)
     } finally {
       setSaving(false)
@@ -291,7 +293,8 @@ function EditableTitle({ value, label, variant, onSave }: {
   if (editing) {
     return <div className={`editable-title editable-title-${variant}`}><form onSubmit={(event) => { event.preventDefault(); void save() }}><Input aria-label={`Rename ${label}`} autoFocus maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setEditing(false); setError(null) } }} /><Button className="secondary-action" isDisabled={!draft.trim() || saving} type="submit">{saving ? 'Saving…' : 'Save'}</Button><Button className="text-button" isDisabled={saving} onPress={() => { setEditing(false); setError(null) }}>Cancel</Button></form>{error && <small role="alert">{error}</small>}</div>
   }
-  return <div className={`editable-title editable-title-${variant}`}><span><h1>{value}</h1><IconButton label={`Rename ${label}`} icon={PencilSquareIcon} onPress={() => setEditing(true)} /></span>{error && <small role="alert">{error}</small>}</div>
+  const TitleElement: 'h1' | 'h3' = variant === 'card' ? 'h3' : 'h1'
+  return <div className={`editable-title editable-title-${variant}`}><span><TitleElement>{value}</TitleElement><IconButton label={`Rename ${label}`} icon={PencilSquareIcon} onPress={() => setEditing(true)} /></span>{error && <small role="alert">{error}</small>}</div>
 }
 
 interface DiagnosticListItem {
@@ -684,7 +687,7 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   )
 }
 
-function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onReconnect, onConvertToStandalone, onTrashProject, onOpenProviders }: {
+function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onDesignRenamed, onReconnect, onConvertToStandalone, onTrashProject, onOpenProviders }: {
   readonly project: ProjectSummary
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
@@ -692,6 +695,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
   readonly onOpenDesign: (design: OmniDesignDocument) => void
   readonly onRenameProject: (project: ProjectSummary, name: string) => Promise<void>
+  readonly onDesignRenamed: (design: OmniDesignDocument) => void
   readonly onReconnect: (project: ProjectSummary) => Promise<void>
   readonly onConvertToStandalone: (project: ProjectSummary) => Promise<void>
   readonly onTrashProject: (project: ProjectSummary) => Promise<void>
@@ -703,6 +707,18 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
     if (detail) setDesigns(detail.designs)
   }, [project.id])
   useEffect(() => { void load() }, [load])
+  const renameDesign = async (design: OmniDesignDocument, title: string) => {
+    setDesigns((current) => current.map((candidate) => candidate.id === design.id ? { ...candidate, title } : candidate))
+    try {
+      const renamed = await window.omnidesign?.workspace.renameDesign(design.id, title)
+      if (!renamed) throw new Error('The design could not be renamed.')
+      setDesigns((current) => current.map((candidate) => candidate.id === renamed.id ? renamed : candidate))
+      onDesignRenamed(renamed)
+    } catch (reason) {
+      setDesigns((current) => current.map((candidate) => candidate.id === design.id ? design : candidate))
+      throw reason
+    }
+  }
 
   return (
     <main className="home-main">
@@ -723,15 +739,15 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
                   const activeJob = [...design.generationJobs].reverse().find((job) => ['queued', 'running'].includes(job.state))
                   const status = design.queuePaused ? 'Queue paused' : activeJob ? (activeJob.state === 'queued' ? 'Queued' : 'Generating') : 'Saved locally'
                   return (
-                    <Button className="design-card" key={design.id} onPress={() => onOpenDesign(design)}>
-                      <span className="design-card-thumb"><ProjectThumbnail title={design.title} thumbnailDataUrl={design.thumbnailDataUrl} /></span>
+                    <article className="design-card" key={design.id}>
+                      <Button aria-label={`Open ${design.title}`} className="design-card-open" onPress={() => onOpenDesign(design)}><span className="design-card-thumb"><ProjectThumbnail title={design.title} thumbnailDataUrl={design.thumbnailDataUrl} /></span></Button>
                       <span className="design-card-body">
-                        <strong>{design.title}</strong>
+                        <EditableTitle value={design.title} label={`${design.title} design`} variant="card" onSave={(title) => renameDesign(design, title)} />
                         <small>{design.revisions.at(-1)?.prompt ?? design.messages.find((message) => message.role === 'user')?.text ?? 'Ready for a first direction'}</small>
                         <span className="design-card-meta"><span>{new Date(design.updatedAt).toLocaleDateString()}</span><span>{design.lastSelection.providerId === 'mock' ? 'Development provider' : `${design.lastSelection.providerId} · ${design.lastSelection.modelId}`}</span></span>
                         <span className="design-card-status" data-busy={Boolean(activeJob) || undefined}>{status}</span>
                       </span>
-                    </Button>
+                    </article>
                   )
                 })}
               </div>
@@ -1231,7 +1247,7 @@ export function App() {
   const workspaceApi = window.omnidesign?.workspace
 
   const updateDesign = useCallback((design: OmniDesignDocument) => {
-    setActiveDesign(design)
+    setActiveDesign((current) => current?.id === design.id ? design : current)
     setDesigns((current) => current.map((candidate) => candidate.id === design.id ? design : candidate))
   }, [])
 
@@ -1376,7 +1392,7 @@ export function App() {
     const renamed = await workspaceApi?.renameDesign(design.id, title)
     if (!renamed) throw new Error('The design could not be renamed.')
     updateDesign(renamed)
-    await refresh()
+    void refresh()
     return renamed
   }
   const restoreTrash = async (item: TrashItem) => { await workspaceApi?.restoreTrash(item.kind, item.id); await refresh() }
@@ -1426,7 +1442,7 @@ export function App() {
         : activeDesign
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => setAssociationNotice(null)} onOpenProviders={openProviders} />
         : activeProject
-        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onOpenProviders={openProviders} />
+        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onOpenProviders={openProviders} />
         : <Home projects={projects} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpen={openProject} onOpenProviders={openProviders} />}
     </div>
   )

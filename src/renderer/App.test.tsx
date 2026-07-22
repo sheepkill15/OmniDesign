@@ -77,7 +77,10 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       restoreTrash: vi.fn().mockResolvedValue(undefined),
       purgeTrash: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(createdDesign),
-      renameDesign: vi.fn(async (_designId: string, title: string) => ({ ...createdDesign, title, projectName: title })),
+      renameDesign: vi.fn(async (designId: string, title: string) => {
+        const candidate = initialDesigns.find((item) => item.id === designId) ?? createdDesign
+        return { ...candidate, title, ...(candidate.sourceProjectPath ? {} : { projectName: title }) }
+      }),
       renameProject: vi.fn(async (projectId: string, name: string) => ({ ...(projects.find((project) => project.id === projectId) ?? projectFromDesign(createdDesign)), name })),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
@@ -271,6 +274,7 @@ describe('Phase 1 walking skeleton UI', () => {
       bridge.emitWorkspaceActivity({ designId: alpha.id, stage: 'generating', detail: 'Alpha is rendering.' })
       bridge.emitWorkspaceActivity({ designId: beta.id, stage: 'validating', detail: 'Beta is validating.' })
     })
+    expect(screen.getByRole('heading', { name: 'Start with an idea.' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Alpha design' }))
 
     expect(await screen.findByText('Alpha is rendering.')).toBeInTheDocument()
@@ -821,8 +825,28 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
 
     const grid = await screen.findByRole('group', { name: 'Designs in this project' })
-    fireEvent.click(within(grid).getByRole('button', { name: /Settings screen/ }))
+    fireEvent.click(within(grid).getByRole('button', { name: 'Open Settings screen' }))
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
+  })
+
+  it('renames a design without opening it from a multi-design project card', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
+    const bridge = installBridge([first, second])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
+    const grid = await screen.findByRole('group', { name: 'Designs in this project' })
+    fireEvent.click(within(grid).getByRole('button', { name: 'Rename Settings screen design' }))
+    const title = within(grid).getByRole('textbox', { name: 'Rename Settings screen design' })
+    fireEvent.change(title, { target: { value: 'Preferences' } })
+    fireEvent.submit(title.closest('form')!)
+
+    await waitFor(() => expect(bridge.workspace.renameDesign).toHaveBeenCalledWith('design-2', 'Preferences'))
+    expect(await screen.findByRole('heading', { name: 'Preferences' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
   })
 
   it('keeps standalone designs as direct sidebar entries without expansion or an add button', async () => {
