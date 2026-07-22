@@ -785,6 +785,15 @@ export class WorkspaceStore {
     `).run(String(enabled))
   }
 
+  public getGenerationDetail(): 'full' | 'concise' {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'generation.detail'").get() as { value: string } | undefined
+    return setting?.value === 'concise' ? 'concise' : 'full'
+  }
+
+  public saveGenerationDetail(detail: 'full' | 'concise'): void {
+    this.database.prepare(`INSERT INTO settings (key, value) VALUES ('generation.detail', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(detail)
+  }
+
   public continueGenerationJob(id: string): GenerationJob {
     const previous = this.requireGenerationJob(id)
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')

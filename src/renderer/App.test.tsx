@@ -102,6 +102,8 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       saveTheme: vi.fn().mockResolvedValue(undefined),
       getNotificationsEnabled: vi.fn().mockResolvedValue(true),
       saveNotificationsEnabled: vi.fn().mockResolvedValue(undefined),
+      getGenerationDetail: vi.fn().mockResolvedValue('full'),
+      saveGenerationDetail: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as Window['omnidesign']
   Object.defineProperty(window, 'omnidesign', { value: bridge, configurable: true })

@@ -31,7 +31,7 @@ Manual reassociation of an existing standalone design to a linked project now pr
 
 ### 3. Provider and generation-detail acceptance
 
-The active-generations surface now shows the recorded stage, provider/model, elapsed time, and cancellation. It does not yet provide the complete detailed streamed activity experience or queued-item removal beyond cancellation. Codex and Claude capability/contract coverage must also prove the advertised installed-CLI pilot behavior.
+The active-generations surface now shows the recorded stage, provider/model, elapsed time, and cancellation. Distinct streamed activity details are retained and a persisted Full/Concise setting controls their conversation presentation. Queued-item removal beyond cancellation and Codex/Claude capability-contract coverage remain open.
 
 ### 4. Attachment completeness
 

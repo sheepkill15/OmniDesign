@@ -228,6 +228,8 @@ interface Window {
       saveTheme(theme: 'dark' | 'light'): Promise<void>
       getNotificationsEnabled(): Promise<boolean>
       saveNotificationsEnabled(enabled: boolean): Promise<void>
+      getGenerationDetail(): Promise<'full' | 'concise'>
+      saveGenerationDetail(detail: 'full' | 'concise'): Promise<void>
       getGenerationDefaults(): Promise<GenerationSelection>
       saveGenerationDefaults(selection: GenerationSelection): Promise<void>
     }

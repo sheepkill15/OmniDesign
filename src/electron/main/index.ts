@@ -121,8 +121,9 @@ function sendGenerationActivity(activity: GenerationActivity): void {
 // share a stage (for example the many streaming "generating" updates from an agent) collapse into a
 // single milestone so the history stays readable.
 function recordActivity(activity: GenerationActivity): void {
-  if (workspaceStore && lastPersistedStageByDesign.get(activity.designId) !== activity.stage) {
-    lastPersistedStageByDesign.set(activity.designId, activity.stage)
+  const activityKey = `${activity.stage}\u0000${activity.detail}`
+  if (workspaceStore && lastPersistedStageByDesign.get(activity.designId) !== activityKey) {
+    lastPersistedStageByDesign.set(activity.designId, activityKey)
     try {
       workspaceStore.addGenerationStep(activity.designId, activity.stage, generationStageLabel(activity.stage), activity.detail || null)
     } catch {
@@ -456,6 +457,12 @@ void app.whenReady().then(() => {
   ipcMain.handle('settings:save-notifications-enabled', (event, value: unknown) => {
     authorize(event)
     requireWorkspace().saveNotificationsEnabled(Boolean(value))
+  })
+  ipcMain.handle('settings:get-generation-detail', (event) => { authorize(event); return requireWorkspace().getGenerationDetail() })
+  ipcMain.handle('settings:save-generation-detail', (event, value: unknown) => {
+    authorize(event)
+    if (value !== 'full' && value !== 'concise') throw new Error('Generation detail must be full or concise.')
+    requireWorkspace().saveGenerationDetail(value)
   })
   mainWindow.on('close', (event) => {
     const activeJobs = store.listGenerationJobs(['queued', 'running'])

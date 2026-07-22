@@ -187,10 +187,10 @@ type ConversationFeedItem =
 
 // Interleave persisted user/assistant messages with the recorded generation milestones so the major
 // steps of each run appear in the conversation history in the order they happened.
-function buildConversationFeed(design: OmniDesignDocument): ConversationFeedItem[] {
+function buildConversationFeed(design: OmniDesignDocument, detail: 'full' | 'concise'): ConversationFeedItem[] {
   const items: ConversationFeedItem[] = [
     ...design.messages.map((message) => ({ kind: 'message' as const, createdAt: message.createdAt, message })),
-    ...design.generationSteps.map((step) => ({ kind: 'step' as const, createdAt: step.createdAt, step })),
+    ...design.generationSteps.filter((step) => detail === 'full' || ['queued', 'complete', 'failed', 'cancelled', 'interrupted'].includes(step.stage)).map((step) => ({ kind: 'step' as const, createdAt: step.createdAt, step })),
   ]
   return items.sort((first, second) => first.createdAt < second.createdAt ? -1 : first.createdAt > second.createdAt ? 1 : 0)
 }
@@ -226,7 +226,7 @@ function Providers({ providers, loading, onRefresh }: {
   )
 }
 
-function Settings({ theme, notificationsEnabled, onThemeChange, onNotificationsChange }: { readonly theme: 'dark' | 'light'; readonly notificationsEnabled: boolean; readonly onThemeChange: (theme: 'dark' | 'light') => void; readonly onNotificationsChange: (enabled: boolean) => void }) {
+function Settings({ theme, notificationsEnabled, generationDetail, onThemeChange, onNotificationsChange, onGenerationDetailChange }: { readonly theme: 'dark' | 'light'; readonly notificationsEnabled: boolean; readonly generationDetail: 'full' | 'concise'; readonly onThemeChange: (theme: 'dark' | 'light') => void; readonly onNotificationsChange: (enabled: boolean) => void; readonly onGenerationDetailChange: (detail: 'full' | 'concise') => void }) {
   return (
     <main className="settings-main">
       <div className="settings-content">
@@ -241,6 +241,13 @@ function Settings({ theme, notificationsEnabled, onThemeChange, onNotificationsC
         <section className="settings-section" aria-labelledby="notifications-heading">
           <div className="section-heading"><h2 id="notifications-heading">Notifications</h2><span>Saved locally</span></div>
           <div className="settings-row"><span><strong>System notifications</strong><small>Notify when generation completes or needs attention.</small></span><Button className="secondary-action" onPress={() => onNotificationsChange(!notificationsEnabled)}>{notificationsEnabled ? 'On' : 'Off'}</Button></div>
+        </section>
+        <section className="settings-section" aria-labelledby="generation-detail-heading">
+          <div className="section-heading"><h2 id="generation-detail-heading">Generation details</h2><span>Saved locally</span></div>
+          <RadioGroup aria-label="Generation detail level" className="theme-options" value={generationDetail} onChange={(value) => onGenerationDetailChange(value as 'full' | 'concise')}>
+            <Radio className="theme-option" value="full"><span><strong>Full</strong><small>Provider activity, tool work, stages, and validation details</small></span></Radio>
+            <Radio className="theme-option" value="concise"><span><strong>Concise</strong><small>Queue and final outcomes only</small></span></Radio>
+          </RadioGroup>
         </section>
       </div>
     </main>
@@ -644,13 +651,14 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
   )
 }
 
-function DesignWorkspace({ design, providers, projects, associatedProjectName, activity, busy, onBack, onChange, onTrash, onAssociate, onDismissAssociation }: {
+function DesignWorkspace({ design, providers, projects, associatedProjectName, activity, busy, detailLevel, onBack, onChange, onTrash, onAssociate, onDismissAssociation }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
   readonly projects: readonly ProjectSummary[]
   readonly associatedProjectName: string | null
   readonly activity: GenerationActivity | null
   readonly busy: boolean
+  readonly detailLevel: 'full' | 'concise'
   readonly onBack: () => void
   readonly onChange: (design: OmniDesignDocument) => void
   readonly onTrash: (design: OmniDesignDocument) => Promise<void>
@@ -852,7 +860,7 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed">
-        {buildConversationFeed(design).map((item) => item.kind === 'message'
+        {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
           ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p>{item.message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{item.message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => void api?.openAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}</article>
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
         {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
@@ -1003,6 +1011,7 @@ export function App() {
   const [trashOpen, setTrashOpen] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+  const [generationDetail, setGenerationDetail] = useState<'full' | 'concise'>('full')
   const providerState = useProviders()
   const workspaceApi = window.omnidesign?.workspace
 
@@ -1028,6 +1037,7 @@ export function App() {
       document.documentElement.dataset.theme = savedTheme
     })
     void api.getNotificationsEnabled().then(setNotificationsEnabled)
+    void api.getGenerationDetail().then(setGenerationDetail)
   }, [])
   useEffect(() => {
     if (!workspaceApi) return
@@ -1108,6 +1118,10 @@ export function App() {
     setNotificationsEnabled(enabled)
     void window.omnidesign?.settings.saveNotificationsEnabled(enabled)
   }
+  const changeGenerationDetail = (detail: 'full' | 'concise') => {
+    setGenerationDetail(detail)
+    void window.omnidesign?.settings.saveGenerationDetail(detail)
+  }
   const reconnectProject = async (project: ProjectSummary) => {
     const folder = await workspaceApi?.chooseProjectFolder()
     if (!folder) return
@@ -1145,9 +1159,9 @@ export function App() {
         : providersOpen
         ? <Providers providers={providerState.providers} loading={providerState.loading} onRefresh={providerState.refresh} />
         : settingsOpen
-        ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} />
+        ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associatedProjectName={associationNotice?.designId === activeDesign.id ? associationNotice.projectName : null} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} onDismissAssociation={() => setAssociationNotice(null)} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associatedProjectName={associationNotice?.designId === activeDesign.id ? associationNotice.projectName : null} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} onDismissAssociation={() => setAssociationNotice(null)} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
         : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}

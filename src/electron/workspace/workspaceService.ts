@@ -209,6 +209,8 @@ export class WorkspaceService {
 
   public getNotificationsEnabled(): boolean { return this.store.getNotificationsEnabled() }
   public saveNotificationsEnabled(enabled: boolean): void { this.store.saveNotificationsEnabled(enabled) }
+  public getGenerationDetail(): 'full' | 'concise' { return this.store.getGenerationDetail() }
+  public saveGenerationDetail(detail: 'full' | 'concise'): void { this.store.saveGenerationDetail(detail) }
 
   public getGenerationDefaults(): GenerationSelection {
     return this.store.getGenerationDefaults()

@@ -282,6 +282,17 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('persists the generation detail preference across reopen', () => {
+    const { directory, store } = createStore()
+    expect(store.getGenerationDetail()).toBe('full')
+    store.saveGenerationDetail('concise')
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getGenerationDetail()).toBe('concise')
+    reopened.close()
+  })
+
   it('persists attachment references without copying content and snapshots them on queued work', () => {
     const { directory, store } = createStore()
     const attachmentPath = path.join(directory, 'reference.txt')
