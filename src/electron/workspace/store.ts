@@ -474,6 +474,21 @@ export class WorkspaceStore {
     })
   }
 
+  public associateDesignWithProject(designId: string, projectId: string): Design {
+    const design = this.requireDesign(designId)
+    if (design.projectId === projectId) return design
+    this.transaction(() => {
+      const target = this.database.prepare("SELECT id, kind FROM projects WHERE id = ? AND trashed_at IS NULL").get(projectId) as { id: string; kind: string } | undefined
+      if (!target || target.kind !== 'linked') throw new Error('Choose an available linked project.')
+      this.database.prepare('UPDATE designs SET project_id = ?, updated_at = ? WHERE id = ?').run(projectId, new Date().toISOString(), designId)
+      this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), projectId)
+      const sourceCount = this.database.prepare('SELECT COUNT(*) AS count FROM designs WHERE project_id = ? AND trashed_at IS NULL').get(design.projectId) as { count: number }
+      const source = this.database.prepare('SELECT kind FROM projects WHERE id = ?').get(design.projectId) as { kind: string } | undefined
+      if (source?.kind === 'standalone' && sourceCount.count === 0) this.database.prepare('DELETE FROM projects WHERE id = ?').run(design.projectId)
+    })
+    return this.requireDesign(designId)
+  }
+
   public reconnectProject(projectId: string, sourcePath: string): ProjectSummary {
     if (!existsSync(sourcePath)) throw new Error('The selected source folder is unavailable.')
     const existing = this.findProjectBySourcePath(sourcePath)

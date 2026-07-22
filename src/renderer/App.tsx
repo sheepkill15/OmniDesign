@@ -603,14 +603,16 @@ function LayoutMenu({ mode, onOpenChange, onChange }: { readonly mode: LayoutMod
   )
 }
 
-function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, onTrash }: {
+function DesignWorkspace({ design, providers, projects, activity, busy, onBack, onChange, onTrash, onAssociate }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
+  readonly projects: readonly ProjectSummary[]
   readonly activity: GenerationActivity | null
   readonly busy: boolean
   readonly onBack: () => void
   readonly onChange: (design: OmniDesignDocument) => void
   readonly onTrash: (design: OmniDesignDocument) => Promise<void>
+  readonly onAssociate: (design: OmniDesignDocument, projectId: string) => Promise<void>
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
@@ -801,6 +803,11 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
               ))}
             </Menu>
           </DropdownButton>
+          {projects.some((project) => project.kind === 'linked' && project.id !== design.projectId) && <DropdownButton triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" trigger={<><FolderIcon aria-hidden="true" />Associate</>}>
+            <Menu aria-label="Associate design with project" onAction={(key) => void onAssociate(design, String(key))}>
+              {projects.filter((project) => project.kind === 'linked' && project.id !== design.projectId).map((project) => <MenuItem id={project.id} key={project.id}>{project.name}</MenuItem>)}
+            </Menu>
+          </DropdownButton>}
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
           <Button className="toolbar-button" onPress={() => void onTrash(design)}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
@@ -1001,6 +1008,11 @@ export function App() {
   const purgeTrash = async (item: TrashItem) => { await workspaceApi?.purgeTrash(item.kind, item.id); await refresh() }
   const trashDesign = async (design: OmniDesignDocument) => { await workspaceApi?.trash('design', design.id); home() }
   const trashProject = async (project: ProjectSummary) => { await workspaceApi?.trash('project', project.id); home() }
+  const associateDesign = async (design: OmniDesignDocument, projectId: string) => {
+    const associated = await workspaceApi?.associateDesign(design.id, projectId)
+    if (associated) updateDesign(associated)
+    await refresh()
+  }
   const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => ['queued', 'running'].includes(job.state)).length
 
   return (
@@ -1015,7 +1027,7 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} onThemeChange={changeTheme} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
         : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} onClone={cloneProject} />}

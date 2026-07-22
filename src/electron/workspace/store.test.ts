@@ -268,4 +268,19 @@ describe('WorkspaceStore', () => {
     expect(existsSync(attachmentPath)).toBe(true)
     store.close()
   })
+
+  it('associates a standalone design with a linked project without changing its history', () => {
+    const { store } = createStore()
+    const standalone = store.createStandaloneDesign('First', 'Standalone')
+    const revision = store.addRevision(standalone.id, 'First')
+    const linked = store.createLinkedDesign('Linked', 'Linked design', 'C:\\projects\\linked-app')
+
+    const associated = store.associateDesignWithProject(standalone.id, linked.projectId)
+
+    expect(associated).toMatchObject({ projectId: linked.projectId, projectName: 'linked-app' })
+    expect(associated.revisions).toHaveLength(1)
+    expect(associated.activeRevisionId).toBe(revision.activeRevisionId)
+    expect(store.getProjectSummary(standalone.projectId)).toBeNull()
+    store.close()
+  })
 })

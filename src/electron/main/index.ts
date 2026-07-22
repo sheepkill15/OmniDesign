@@ -6,6 +6,7 @@ import { isProviderId, ProviderService } from '../provider/providerService.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
+  associateDesignRequestSchema,
   cloneProjectRequestSchema,
   designIdRequestSchema,
   exportRequestSchema,
@@ -187,6 +188,11 @@ function registerIpc(): void {
   ipcMain.handle('workspace:get-project', (event, value: unknown) => {
     authorize(event)
     return requireWorkspace().getProject(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:associate-design', (event, value: unknown) => {
+    authorize(event)
+    const request = associateDesignRequestSchema.parse(value)
+    return requireWorkspace().associateDesignWithProject(request.designId, request.projectId)
   })
   ipcMain.handle('workspace:list-trash', (event) => { authorize(event); return requireWorkspace().listTrash() })
   ipcMain.handle('workspace:clone-project', async (event, value: unknown) => {

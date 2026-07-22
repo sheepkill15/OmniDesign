@@ -38,6 +38,7 @@ export class WorkspaceService {
   public getDesign(designId: string): Design | null {
     return this.store.getDesign(designId)
   }
+  public associateDesignWithProject(designId: string, projectId: string): Design { return this.store.associateDesignWithProject(designId, projectId) }
 
   public listTrash(): TrashItem[] { return this.store.listTrash() }
   public async cloneProject(remoteUrl: string, destinationPath: string, onActivity: (detail: string) => void): Promise<ProjectSummary> {

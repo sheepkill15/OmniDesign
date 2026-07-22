@@ -74,6 +74,11 @@ export const projectIdRequestSchema = z.object({
   projectId: z.string().min(1).max(100),
 })
 
+export const associateDesignRequestSchema = z.object({
+  designId: z.string().min(1).max(100),
+  projectId: z.string().min(1).max(100),
+})
+
 export const reconnectProjectRequestSchema = projectIdRequestSchema.extend({
   sourceProjectPath: z.string().min(1).max(32_000),
 })
