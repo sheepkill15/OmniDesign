@@ -68,6 +68,12 @@ describe('real provider adapter contracts', () => {
         if (method === 'turn/start') {
           queueMicrotask(() => {
             notify?.('item/agentMessage/delta', { delta: 'Short answer' })
+            notify?.('thread/tokenUsage/updated', {
+              tokenUsage: {
+                last: { inputTokens: 1_240, outputTokens: 86, totalTokens: 1_326 },
+                modelContextWindow: 200_000,
+              },
+            })
             notify?.('turn/completed', {})
           })
         }
@@ -86,12 +92,16 @@ describe('real provider adapter contracts', () => {
     expect(rpc.request).toHaveBeenCalledWith('thread/start', expect.objectContaining({ sandbox: 'workspace-write', approvalPolicy: 'never', runtimeWorkspaceRoots: ['C:\\workspace\\design', 'C:\\projects\\aurora'] }))
     expect(rpc.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({ sandboxPolicy: { type: 'workspaceWrite', networkAccess: true, writableRoots: [] }, runtimeWorkspaceRoots: ['C:\\workspace\\design', 'C:\\projects\\aurora'] }))
     expect(activity).toHaveBeenCalledWith(expect.objectContaining({ kind: 'text', detail: 'Short answer' }))
+    expect(activity).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'result',
+      detail: '1,240 tokens input · 86 tokens output · 200,000 tokens context',
+    }))
   })
 
   it('runs a standalone Claude prompt in plan mode and passes cancellation through', async () => {
     mocks.resolveProviderCommand.mockResolvedValue('claude')
     mocks.runCommand.mockImplementation(async (_command: string, _args: readonly string[], options: { readonly onStdoutLine?: (line: string) => void; readonly signal?: AbortSignal }) => {
-      options.onStdoutLine?.('{"type":"result","result":"Short answer"}')
+      options.onStdoutLine?.('{"type":"result","result":"Short answer","num_turns":6,"total_cost_usd":0.003,"usage":{"input_tokens":1240,"output_tokens":86}}')
       return { code: 0, stdout: '', stderr: '' }
     })
     const controller = new AbortController()
@@ -100,6 +110,10 @@ describe('real provider adapter contracts', () => {
     await expect(new ClaudeAdapter().prompt({ modelId: 'haiku', prompt: 'Name this design', signal: controller.signal, workspacePath: 'C:\\workspace\\design', referencePaths: ['C:\\projects\\aurora'] }, activity)).resolves.toEqual({ modelId: 'haiku', text: 'Short answer' })
 
     expect(mocks.runCommand).toHaveBeenCalledWith('claude', expect.arrayContaining(['--permission-mode', 'acceptEdits', '--add-dir', 'C:\\projects\\aurora', '--no-session-persistence']), expect.objectContaining({ signal: controller.signal }))
-    expect(activity).toHaveBeenCalledWith(expect.objectContaining({ kind: 'result', detail: 'Short answer' }))
+    expect(activity).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'result',
+      detail: '6 turns · 1,240 tokens input · 86 tokens output · $0.0030',
+    }))
+    expect(activity).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'result', detail: 'Short answer' }))
   })
 })

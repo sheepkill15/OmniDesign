@@ -8,7 +8,7 @@ import type {
   ProviderAdapterStatus,
 } from './providerAdapter.js'
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
-import { isObject, providerFailure, titleCase } from './providerUtils.js'
+import { formatTokenCount, isObject, providerFailure, readFiniteNumber, titleCase } from './providerUtils.js'
 
 const COMMAND_TIMEOUT_MS = 12_000
 
@@ -121,7 +121,8 @@ export class ClaudeAdapter implements ProviderAdapter {
     const type = typeof event.type === 'string' ? event.type : 'event'
     if (type === 'result') {
       const finalText = typeof event.result === 'string' ? event.result : undefined
-      return { kind: 'result', label: 'Completed', ...(finalText ? { detail: finalText, finalText } : {}) }
+      const detail = describeClaudeResult(event)
+      return { kind: 'result', label: 'Completed', ...(detail ? { detail } : {}), ...(finalText ? { finalText } : {}) }
     }
     if (type === 'system') {
       return { kind: 'status', label: 'Provider status', detail: typeof event.subtype === 'string' ? event.subtype : 'system' }
@@ -158,4 +159,26 @@ export class ClaudeAdapter implements ProviderAdapter {
       ...(detail ? { detail } : {}),
     })
   }
+}
+
+export function describeClaudeResult(event: Record<string, unknown>): string | undefined {
+  const turns = readFiniteNumber(event.num_turns)
+  const cost = readFiniteNumber(event.total_cost_usd)
+  const usage = isObject(event.usage) ? event.usage : undefined
+  const input = usage ? readFiniteNumber(usage.input_tokens) : undefined
+  const output = usage ? readFiniteNumber(usage.output_tokens) : undefined
+  const parts: string[] = []
+  if (turns !== undefined) parts.push(`${Math.round(turns).toLocaleString('en-US')} turn${Math.round(turns) === 1 ? '' : 's'}`)
+  if (input !== undefined) parts.push(`${formatTokenCount(input)} input`)
+  if (output !== undefined) parts.push(`${formatTokenCount(output)} output`)
+  if (cost !== undefined) {
+    const fractionDigits = cost === 0 || cost >= 0.01 ? 2 : cost >= 0.0001 ? 4 : 6
+    parts.push(cost.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    }))
+  }
+  return parts.length ? parts.join(' · ') : undefined
 }

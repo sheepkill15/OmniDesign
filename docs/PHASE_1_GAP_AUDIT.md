@@ -26,6 +26,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - The persisted system-notification preference now uses a semantic, keyboard-operable switch with custom dark/light and forced-colors styling; built-Electron coverage verifies keyboard activation and persistence across restart.
 - The no-provider state now disables both initial and follow-up submission without clearing drafts, keeps project/history/export access available, and links directly to provider availability. The deterministic mock provider is advertised only in development or explicitly enabled package-equivalent tests, never assumed in a normal packaged launch.
 - Multi-design project cards now expose separate, keyboard-named open and rename controls without nested interactive elements. Card renames update optimistically, roll back on failure, and no longer navigate into the design; background design refreshes likewise cannot steal the user's current screen.
+- Completed provider progress now records the metadata each CLI actually reports: Codex shows per-turn input/output usage and the model context limit, while Claude shows turn count, input/output usage when present, and actual USD cost. Claude's full final response is no longer duplicated into its completion-detail row.
 
 ## Remaining functional gaps
 
