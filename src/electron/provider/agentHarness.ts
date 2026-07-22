@@ -55,17 +55,14 @@ export function createDesignAgentInstructions(workspacePath: string, attachments
  */
 export function parseAgentCompletionPayload(value: string): AgentCompletionPayload {
   const text = stripCodeFences(value.trim())
-  // An agent can emit several {response} objects across one turn (a message, then a follow-up that
-  // continues from it, then a final summary), and they arrive concatenated. Keep ALL of them, in order,
-  // joined into the reply — dropping all but the last left the saved message reading as a fragment of
-  // content no longer in the history. Consecutive duplicates are collapsed.
+  // Return the LAST well-formed {response} object. Earlier messages an agent emits mid-turn are pushed
+  // into the conversation live as they stream (see the design-agent runner), so here we only need the
+  // final message. A single buffered chunk usually holds exactly one object.
   const objects = extractJsonObjects(text)
-  const responses: string[] = []
-  for (const object of objects) {
-    const payload = tryParsePayload(object)
-    if (payload && payload.response !== responses.at(-1)) responses.push(payload.response)
+  for (let index = objects.length - 1; index >= 0; index -= 1) {
+    const payload = tryParsePayload(objects[index])
+    if (payload) return payload
   }
-  if (responses.length) return { response: responses.join('\n\n').slice(0, MAX_RESPONSE_LENGTH) }
 
   // Fall back to parsing the whole text, then to the raw text so a valid revision is never discarded
   // over a formatting quirk.

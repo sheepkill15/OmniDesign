@@ -76,6 +76,19 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('does not repeat an assistant message identical to the current last one', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    store.addAssistantResponse(created.id, 'Here is your design.')
+    // A streamed message and the final reply can arrive with the same text; the duplicate is dropped.
+    const after = store.addAssistantResponse(created.id, 'Here is your design.')
+    expect(after.messages.filter((message) => message.role === 'assistant' && message.text === 'Here is your design.')).toHaveLength(1)
+    // A genuinely different reply is still appended.
+    const next = store.addAssistantResponse(created.id, 'Updated the header.')
+    expect(next.messages.filter((message) => message.role === 'assistant')).toHaveLength(2)
+    store.close()
+  })
+
   it('restores history by appending a new head without removing later revisions', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')

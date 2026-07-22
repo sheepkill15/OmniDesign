@@ -705,11 +705,20 @@ export class WorkspaceStore {
     const now = new Date().toISOString()
     this.transaction(() => {
       this.requireDesign(designId)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'assistant', response, now)
+      // Skip a message identical to the current last one so a streamed message and the final reply do
+      // not appear twice.
+      if (!this.isLastMessageText(designId, response)) {
+        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(randomUUID(), designId, 'assistant', response, now)
+      }
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
     return this.requireDesign(designId)
+  }
+
+  private isLastMessageText(designId: string, text: string): boolean {
+    const last = this.database.prepare('SELECT text FROM messages WHERE design_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(designId) as { text: string } | undefined
+    return last?.text === text
   }
 
   public addRevision(
@@ -729,8 +738,10 @@ export class WorkspaceStore {
         INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'assistant', assistantResponse, now)
+      if (!this.isLastMessageText(designId, assistantResponse)) {
+        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(randomUUID(), designId, 'assistant', assistantResponse, now)
+      }
       this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, updated_at = ?, draft = ? WHERE id = ?')
         .run(revisionId, revisionId, now, '', designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, design.projectId)

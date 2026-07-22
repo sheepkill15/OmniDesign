@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
+import { parseAgentCompletionPayload } from '../provider/agentHarness.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
@@ -506,6 +507,25 @@ void app.whenReady().then(() => {
       let providerSessionId = job.providerSessionId ?? undefined
       for (let attempt = 0; attempt < 4; attempt += 1) {
         onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? 'Starting the design agent.' : `Making improvements (round ${attempt} of 3).` })
+        // Build the agent's conversation from the stream: accumulate consecutive text, and when any
+        // other kind of event arrives (a tool action, a result, etc.) push the connected text as one
+        // message and move on. This keeps each thing the agent says as a readable message instead of a
+        // flood of per-token entries. The store de-dupes so the final reply is not repeated.
+        let agentText = ''
+        let lastFlushed = ''
+        const flushAgentMessage = () => {
+          const buffered = agentText.trim()
+          agentText = ''
+          if (!buffered) return
+          let message: string
+          try { message = parseAgentCompletionPayload(buffered).response } catch { message = buffered }
+          if (!message || message === lastFlushed) return
+          lastFlushed = message
+          try {
+            store.addAssistantResponse(job.designId, message)
+            sendWorkspaceChanged(job.designId)
+          } catch { /* the design may have been removed mid-stream */ }
+        }
         const reply = await providers.runDesignAgent({
           requestId: `${job.id}-${attempt}`,
           providerId: job.providerId,
@@ -522,14 +542,15 @@ void app.whenReady().then(() => {
             providerSessionId = activity.sessionId
             store.saveGenerationJobSession(job.id, activity.sessionId)
           }
-          // Keep only meaningful milestones in the conversation. Streamed response tokens ('text') are
-          // raw partial output (JSON, for the agent path) captured whole in the final message, and
-          // provider lifecycle chatter ('status': init/hooks/thinking) is internal noise — both flooded
-          // the feed and triggered a renderer refresh per event. Tool actions, results, and diagnostics
-          // remain.
-          if (activity.kind === 'text' || activity.kind === 'status') return
+          if (activity.kind === 'text') { agentText += activity.detail ?? ''; return }
+          // A different kind of event closes the current message: flush it, then log the milestone.
+          flushAgentMessage()
+          // Provider lifecycle chatter ('status': init/hooks/thinking) is internal noise; tool actions,
+          // results, and diagnostics remain as milestones.
+          if (activity.kind === 'status') return
           onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: activity.detail ?? activity.label })
         })
+        flushAgentMessage()
         if (reply.sessionId && reply.sessionId !== providerSessionId) {
           providerSessionId = reply.sessionId
           store.saveGenerationJobSession(job.id, reply.sessionId)
