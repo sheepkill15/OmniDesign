@@ -369,6 +369,14 @@ const migrationTwentySix = `
 ALTER TABLE designs ADD COLUMN title_pending INTEGER NOT NULL DEFAULT 0 CHECK (title_pending IN (0, 1));
 `
 
+// One persisted provider conversation session per design so follow-up prompts can resume the provider's
+// own thread (real conversation continuity) instead of starting fresh each turn. The provider is
+// recorded alongside the id because a session can only be resumed by the provider that created it.
+const migrationTwentySeven = `
+ALTER TABLE designs ADD COLUMN provider_session_id TEXT;
+ALTER TABLE designs ADD COLUMN provider_session_provider TEXT;
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -868,6 +876,19 @@ export class WorkspaceStore {
     if (result.changes !== 1) throw new Error('Generation job not found.')
   }
 
+  /** Remember the provider conversation session for a design so later prompts can resume it. */
+  public saveDesignProviderSession(designId: string, providerId: string, providerSessionId: string): void {
+    if (!providerSessionId) throw new Error('Provider session identifier is required.')
+    this.database.prepare('UPDATE designs SET provider_session_id = ?, provider_session_provider = ? WHERE id = ?').run(providerSessionId, providerId, designId)
+  }
+
+  /** The design's resumable provider session, or null when none exists yet. */
+  public getDesignProviderSession(designId: string): { readonly providerId: string; readonly sessionId: string } | null {
+    const row = this.database.prepare('SELECT provider_session_id, provider_session_provider FROM designs WHERE id = ?').get(designId) as { provider_session_id: string | null; provider_session_provider: string | null } | undefined
+    if (!row?.provider_session_id || !row.provider_session_provider) return null
+    return { providerId: row.provider_session_provider, sessionId: row.provider_session_id }
+  }
+
   public removeQueuedGenerationJob(id: string): GenerationJob {
     const job = this.requireGenerationJob(id)
     if (job.state !== 'queued') throw new Error('Generation job is not queued.')
@@ -1004,7 +1025,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.

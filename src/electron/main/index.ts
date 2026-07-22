@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
-import { parseAgentCompletionPayload } from '../provider/agentHarness.js'
+import { buildConversationRecap, parseAgentCompletionPayload } from '../provider/agentHarness.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
@@ -504,7 +504,19 @@ void app.whenReady().then(() => {
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
       let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
-      let providerSessionId = job.providerSessionId ?? undefined
+      // Resume the design's own provider conversation when the selected provider matches the stored
+      // session; otherwise this is a fresh session (first prompt, a provider switch, or a stale session).
+      const storedSession = store.getDesignProviderSession(job.designId)
+      let providerSessionId = job.providerSessionId ?? (storedSession && storedSession.providerId === job.providerId ? storedSession.sessionId : undefined)
+      // When starting fresh, give the agent a recap of the conversation so far so it is not blind to it.
+      // The last message is the current prompt (added at enqueue), so it is excluded from the recap.
+      const conversationRecap = providerSessionId ? '' : buildConversationRecap((store.getDesign(job.designId)?.messages ?? []).slice(0, -1))
+      const rememberSession = (sessionId: string) => {
+        if (!sessionId || sessionId === providerSessionId) return
+        providerSessionId = sessionId
+        store.saveGenerationJobSession(job.id, sessionId)
+        store.saveDesignProviderSession(job.designId, job.providerId, sessionId)
+      }
       for (let attempt = 0; attempt < 4; attempt += 1) {
         onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? 'Starting the design agent.' : `Making improvements (round ${attempt} of 3).` })
         // Build the agent's conversation from the stream: accumulate consecutive text, and when any
@@ -537,11 +549,9 @@ void app.whenReady().then(() => {
           attachments: job.attachments,
           sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
           ...(providerSessionId ? { resumeSessionId: providerSessionId } : {}),
+          ...(conversationRecap ? { conversationRecap } : {}),
         }, (activity) => {
-          if (activity.sessionId && activity.sessionId !== providerSessionId) {
-            providerSessionId = activity.sessionId
-            store.saveGenerationJobSession(job.id, activity.sessionId)
-          }
+          if (activity.sessionId) rememberSession(activity.sessionId)
           if (activity.kind === 'text') { agentText += activity.detail ?? ''; return }
           // A different kind of event closes the current message: flush it, then log the milestone.
           flushAgentMessage()
@@ -551,10 +561,7 @@ void app.whenReady().then(() => {
           onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: activity.detail ?? activity.label })
         })
         flushAgentMessage()
-        if (reply.sessionId && reply.sessionId !== providerSessionId) {
-          providerSessionId = reply.sessionId
-          store.saveGenerationJobSession(job.id, reply.sessionId)
-        }
+        if (reply.sessionId) rememberSession(reply.sessionId)
         if (signal.aborted) throw new Error('Generation was cancelled.')
         const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
         const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3)

@@ -89,6 +89,21 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('persists a design provider session across reopen', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    expect(store.getDesignProviderSession(created.id)).toBeNull()
+    store.saveDesignProviderSession(created.id, 'codex', 'thread-123')
+    expect(store.getDesignProviderSession(created.id)).toEqual({ providerId: 'codex', sessionId: 'thread-123' })
+    // A later turn on a different provider overwrites the stored session.
+    store.saveDesignProviderSession(created.id, 'claude', 'session-abc')
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesignProviderSession(created.id)).toEqual({ providerId: 'claude', sessionId: 'session-abc' })
+    reopened.close()
+  })
+
   it('restores history by appending a new head without removing later revisions', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')

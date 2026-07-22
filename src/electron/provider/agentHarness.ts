@@ -1,6 +1,24 @@
 import path from 'node:path'
 import { z } from 'zod'
-import type { Attachment } from '../workspace/contracts.js'
+import type { Attachment, Message } from '../workspace/contracts.js'
+
+const RECAP_MAX_MESSAGES = 16
+const RECAP_MAX_CHARS = 4000
+
+// Build a compact recap of the prior conversation for a FRESH provider session (used when we cannot
+// resume the provider's own thread — a different provider, no session yet, or after a restart). It
+// keeps the most recent user/assistant turns within a size budget so a new agent has continuity
+// without an extra summarization call. Returns '' when there is nothing worth recapping.
+export function buildConversationRecap(messages: readonly Pick<Message, 'role' | 'text'>[]): string {
+  const turns = messages
+    .filter((message) => (message.role === 'user' || message.role === 'assistant') && message.text.trim())
+    .slice(-RECAP_MAX_MESSAGES)
+    .map((message) => `${message.role === 'user' ? 'User' : 'OmniDesign'}: ${message.text.trim()}`)
+  if (!turns.length) return ''
+  // Trim from the oldest end until within the character budget, keeping recent turns whole.
+  while (turns.length > 1 && turns.join('\n').length > RECAP_MAX_CHARS) turns.shift()
+  return turns.join('\n')
+}
 
 const MAX_RESPONSE_LENGTH = 100_000
 
@@ -23,10 +41,11 @@ export const agentCompletionOutputSchema = {
   additionalProperties: false,
 } as const
 
-export function createDesignAgentInstructions(workspacePath: string, attachments: readonly Attachment[] = [], sourceProjectPath: string | null = null): string {
+export function createDesignAgentInstructions(workspacePath: string, attachments: readonly Attachment[] = [], sourceProjectPath: string | null = null, conversationRecap = ''): string {
   if (!path.isAbsolute(workspacePath)) throw new Error('The design workspace path must be absolute.')
   return [
     'You are OmniDesign’s design agent.',
+    ...(conversationRecap ? [`This continues an existing conversation. For context only (the design files at ${workspacePath} already reflect the latest state), here is the conversation so far:`, conversationRecap, '---'] : []),
     `Work directly in the prepared Git repository at ${workspacePath}. OmniDesign has already initialised it and committed a starter index.html.`,
     'Architecture you must follow:',
     '- index.html at the repository root IS the design. It is the only file OmniDesign previews and exports, so the finished result must render completely from index.html on its own.',

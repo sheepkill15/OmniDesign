@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { createDesignAgentInstructions, parseAgentCompletionPayload } from './agentHarness.js'
+import { buildConversationRecap, createDesignAgentInstructions, parseAgentCompletionPayload } from './agentHarness.js'
+
+describe('conversation recap', () => {
+  it('recaps recent user and assistant turns and skips system notices and blanks', () => {
+    const recap = buildConversationRecap([
+      { role: 'user', text: 'Build a dashboard' },
+      { role: 'assistant', text: 'Built it.' },
+      { role: 'system', text: 'Something happened' },
+      { role: 'user', text: '  ' },
+      { role: 'user', text: 'Make it darker' },
+    ])
+    expect(recap).toBe('User: Build a dashboard\nOmniDesign: Built it.\nUser: Make it darker')
+  })
+
+  it('is empty when there is nothing worth recapping', () => {
+    expect(buildConversationRecap([])).toBe('')
+    expect(buildConversationRecap([{ role: 'system', text: 'notice' }])).toBe('')
+  })
+
+  it('injects the recap into the agent instructions only when provided', () => {
+    expect(createDesignAgentInstructions('C:\\workspace\\design', [], null, 'User: Build a dashboard')).toContain('conversation so far')
+    expect(createDesignAgentInstructions('C:\\workspace\\design', [], null, 'User: Build a dashboard')).toContain('User: Build a dashboard')
+    expect(createDesignAgentInstructions('C:\\workspace\\design')).not.toContain('conversation so far')
+  })
+})
 
 describe('agent completion payload', () => {
   it('extracts the conversational response even when the model adds extra keys or formatting', () => {

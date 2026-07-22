@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
-import { describeCodexTool } from './codexAdapter.js'
+import { isRecoverableSessionResumeError, parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
+import { describeCodexTool, isRecoverableThreadResumeError } from './codexAdapter.js'
 import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
 import { isProviderId, ProviderService } from './providerService.js'
 import { providerFailure } from './providerUtils.js'
@@ -183,5 +183,19 @@ describe('describeCodexTool', () => {
     expect(describeCodexTool({ item: { type: 'webSearch', query: 'accessible dialogs' } })).toBe('Looking something up')
     expect(describeCodexTool({ item: { type: 'reasoning', summary: ['Thinking'] } })).toBeUndefined()
     expect(describeCodexTool({ item: { type: 'agentMessage', text: 'Done' } })).toBeUndefined()
+  })
+})
+
+describe('recoverable resume errors', () => {
+  it('recognizes stale Codex thread failures (fall back to a fresh thread) but not real errors', () => {
+    expect(isRecoverableThreadResumeError(new Error('thread not found'))).toBe(true)
+    expect(isRecoverableThreadResumeError(new Error('missing rollout path for thread'))).toBe(true)
+    expect(isRecoverableThreadResumeError(new Error('rate limit exceeded'))).toBe(false)
+  })
+
+  it('recognizes stale Claude session failures but not real errors', () => {
+    expect(isRecoverableSessionResumeError('No conversation found with session id abc')).toBe(true)
+    expect(isRecoverableSessionResumeError('session does not exist')).toBe(true)
+    expect(isRecoverableSessionResumeError('network timeout')).toBe(false)
   })
 })

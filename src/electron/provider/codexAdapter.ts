@@ -61,19 +61,33 @@ export class CodexAdapter implements ProviderAdapter {
     request.signal?.addEventListener('abort', cancel, { once: true })
     try {
       await this.initialize(rpc)
-      const thread = await rpc.request(request.resumeSessionId ? 'thread/resume' : 'thread/start', {
-        ...(request.resumeSessionId ? { threadId: request.resumeSessionId, excludeTurns: true } : {}),
+      const startParams = {
         cwd: request.workspacePath ?? process.cwd(),
         model: request.modelId,
         sandbox: request.workspacePath ? 'workspace-write' : 'read-only',
         approvalPolicy: 'never',
         ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
         ...(request.instructions ? { developerInstructions: request.instructions } : {}),
-      })
+      }
+      let thread: unknown
+      let resumed = false
+      if (request.resumeSessionId) {
+        try {
+          thread = await rpc.request('thread/resume', { threadId: request.resumeSessionId, excludeTurns: true, ...startParams })
+          resumed = true
+        } catch (error) {
+          // A stale/missing thread id must not fail the whole turn: start a fresh thread instead.
+          if (!isRecoverableThreadResumeError(error)) throw error
+          this.emit(onActivity, 'status', 'Previous Codex thread was unavailable; starting a fresh one')
+          thread = await rpc.request('thread/start', startParams)
+        }
+      } else {
+        thread = await rpc.request('thread/start', startParams)
+      }
       if (!isObject(thread) || !isObject(thread.thread) || typeof thread.thread.id !== 'string') {
         throw new Error('Codex did not create a conversation.')
       }
-      this.emit(onActivity, 'status', request.resumeSessionId ? 'Codex thread resumed' : 'Codex thread started', thread.thread.id, thread.thread.id)
+      this.emit(onActivity, 'status', resumed ? 'Codex thread resumed' : 'Codex thread started', thread.thread.id, thread.thread.id)
       return { modelId: request.modelId, text: await this.collectReply(rpc, thread.thread.id, request, onActivity), sessionId: thread.thread.id }
     } finally {
       request.signal?.removeEventListener('abort', cancel)
@@ -181,6 +195,13 @@ export class CodexAdapter implements ProviderAdapter {
       ...(sessionId ? { sessionId } : {}),
     })
   }
+}
+
+// A thread/resume failure we can recover from by starting a fresh thread (the id is stale, missing, or
+// its rollout was pruned) rather than surfacing an error to the user.
+export function isRecoverableThreadResumeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /not found|no such|unknown thread|does not exist|missing (rollout|thread)|rollout path/i.test(message)
 }
 
 export function describeCodexUsage(params: unknown): string | undefined {
