@@ -75,6 +75,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       generate: vi.fn().mockResolvedValue(design),
       chooseProjectFolder: vi.fn().mockResolvedValue(null),
       chooseAttachments: vi.fn().mockResolvedValue([]),
+      openAttachment: vi.fn().mockResolvedValue(undefined),
       cancelGeneration: vi.fn().mockResolvedValue(undefined),
       retryGeneration: vi.fn().mockResolvedValue(undefined),
       selectRevision: vi.fn().mockResolvedValue(design),
@@ -538,7 +539,10 @@ describe('Phase 1 walking skeleton UI', () => {
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
 
-    expect(await screen.findByLabelText('References supplied with this prompt')).toHaveTextContent('reference.pdf')
+    const references = await screen.findByLabelText('References supplied with this prompt')
+    expect(references).toHaveTextContent('reference.pdf')
+    fireEvent.click(within(references).getByRole('button', { name: 'reference.pdf' }))
+    expect(bridge.workspace.openAttachment).toHaveBeenCalledWith(attachedDesign.messages[0].attachments![0])
     expect(bridge.workspace.get).not.toHaveBeenCalled()
   })
 

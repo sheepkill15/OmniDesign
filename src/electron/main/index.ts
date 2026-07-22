@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
@@ -6,6 +6,7 @@ import { isProviderId, ProviderService } from '../provider/providerService.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
+  attachmentSchema,
   attachmentPickerRequestSchema,
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
@@ -302,6 +303,13 @@ function registerIpc(): void {
         return [{ id: randomUUID(), path: attachmentPath, name: path.basename(attachmentPath), kind: stats.isDirectory() ? 'folder' as const : 'file' as const, size: stats.isDirectory() ? null : stats.size, modifiedAt: stats.mtime.toISOString(), selectedAt: new Date().toISOString(), status: 'available' as const }]
       } catch { return [] }
     })
+  })
+  ipcMain.handle('workspace:open-attachment', async (event, value: unknown) => {
+    authorize(event)
+    const attachment = attachmentSchema.parse(value)
+    if (!statSync(attachment.path).isFile() && !statSync(attachment.path).isDirectory()) throw new Error('Attachment is no longer available.')
+    const error = await shell.openPath(attachment.path)
+    if (error) throw new Error(error)
   })
   ipcMain.handle('workspace:select-revision', (event, value: unknown) => {
     authorize(event)

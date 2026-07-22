@@ -210,6 +210,7 @@ interface Window {
       generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>
       chooseAttachments(kind: 'files' | 'folder'): Promise<DesignAttachment[]>
+      openAttachment(attachment: DesignAttachment): Promise<void>
       cancelGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
       continueGeneration(jobId: string): Promise<GenerationJob>

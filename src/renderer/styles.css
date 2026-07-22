@@ -996,6 +996,8 @@ button:disabled,
 .attachment-chip[data-status="changed"], .attachment-chip[data-status="missing"] { color: var(--warning, #c58a2a); border-color: currentColor; }
 .attachment-chip button { color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.attachment-link { background: transparent; cursor: pointer; font: inherit; }
+.attachment-link[data-disabled] { cursor: default; opacity: .65; }
 
 .theme-options {
   display: grid;

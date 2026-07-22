@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null, attachments }),
     chooseProjectFolder: () => ipcRenderer.invoke('workspace:choose-project-folder'),
     chooseAttachments: (kind: 'files' | 'folder') => ipcRenderer.invoke('workspace:choose-attachments', { kind }),
+    openAttachment: (attachment: import('../workspace/contracts.js').Attachment) => ipcRenderer.invoke('workspace:open-attachment', attachment),
     cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),
     retryGeneration: (jobId: string) => ipcRenderer.invoke('workspace:retry-generation', { jobId }),
     continueGeneration: (jobId: string) => ipcRenderer.invoke('workspace:continue-generation', { jobId }),
