@@ -116,6 +116,7 @@ export const generationStepSchema = z.object({
 })
 
 export const generationJobStateSchema = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted'])
+export const generationJobModeSchema = z.enum(['fresh', 'continue'])
 
 export const generationJobSchema = z.object({
   id: z.string().min(1),
@@ -125,6 +126,7 @@ export const generationJobSchema = z.object({
   modelId: z.string().min(1),
   effort: z.string().min(1).nullable().optional(),
   attachments: z.array(attachmentSchema).default([]),
+  mode: generationJobModeSchema.default('fresh'),
   state: generationJobStateSchema,
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),

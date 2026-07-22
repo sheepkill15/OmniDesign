@@ -136,6 +136,24 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
+  it('continues stopped work with the retained partial-workspace mode', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const modes: string[] = []
+    const queue = new GenerationQueue(store, async (job) => {
+      modes.push(job.mode)
+      if (job.mode === 'fresh') throw new Error('Provider unavailable.')
+    }, () => undefined)
+    const first = queue.enqueue(design.id, 'First prompt')
+
+    await waitFor(() => store.getGenerationJob(first.id)?.state === 'failed')
+    const continued = queue.continue(first.id)
+    await waitFor(() => store.getGenerationJob(continued.id)?.state === 'completed')
+    expect(continued).toMatchObject({ mode: 'continue', prompt: 'First prompt' })
+    expect(modes).toEqual(['fresh', 'continue'])
+    store.close()
+  })
+
   it('aborts active work and records it as cancelled', async () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')

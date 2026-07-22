@@ -239,6 +239,10 @@ function registerIpc(): void {
     const selection = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
     return selection.canceled ? null : selection.filePaths[0] ?? null
   })
+  ipcMain.handle('workspace:continue-generation', (event, value: unknown) => {
+    authorize(event)
+    return requireGenerationQueue().continue(generationJobIdRequestSchema.parse(value).jobId)
+  })
   ipcMain.handle('workspace:choose-attachments', async (event) => {
     authorize(event)
     const selection = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile', 'openDirectory', 'multiSelections'] })
@@ -347,7 +351,7 @@ void app.whenReady().then(() => {
     async (job, signal, onActivity) => {
       // Make sure the repository is at the head of the main timeline before generating, in case the
       // user was viewing (and had checked out) an earlier revision.
-      requireWorkspace().prepareGenerationWorkspace(job.designId)
+      if (job.mode === 'fresh') requireWorkspace().prepareGenerationWorkspace(job.designId)
       if (job.providerId === 'mock') {
         await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3)
         return
@@ -359,7 +363,7 @@ void app.whenReady().then(() => {
         providerId: job.providerId,
         modelId: job.modelId,
       ...(job.effort ? { effort: job.effort } : {}),
-      prompt: job.prompt,
+        prompt: job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt,
       signal,
       workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
       attachments: job.attachments,

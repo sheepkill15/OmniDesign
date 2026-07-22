@@ -93,6 +93,7 @@ interface GenerationJob {
   readonly modelId: string
   readonly effort?: string | null
   readonly attachments: readonly DesignAttachment[]
+  readonly mode?: 'fresh' | 'continue'
   readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   readonly createdAt: string
   readonly startedAt: string | null
@@ -206,6 +207,7 @@ interface Window {
       chooseAttachments(): Promise<DesignAttachment[]>
       cancelGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
+      continueGeneration(jobId: string): Promise<GenerationJob>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>

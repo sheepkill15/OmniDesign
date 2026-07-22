@@ -57,6 +57,15 @@ export class GenerationQueue {
     return job
   }
 
+  public continue(jobId: string): GenerationJob {
+    const job = this.store.continueGenerationJob(jobId)
+    this.pausedDesignIds.delete(job.designId)
+    this.store.resumeGenerationQueue(job.designId)
+    this.onActivity({ designId: job.designId, stage: 'queued', detail: 'Continuing from the retained partial workspace.' })
+    void this.drain()
+    return job
+  }
+
   private async drain(): Promise<void> {
     if (this.draining) return
     this.draining = true

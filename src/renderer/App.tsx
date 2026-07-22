@@ -727,6 +727,12 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
     const updated = await api.get(design.id)
     if (updated) onChange(updated)
   }
+  const continueGeneration = async () => {
+    if (!api || !retryableJob) return
+    await api.continueGeneration(retryableJob.id)
+    const updated = await api.get(design.id)
+    if (updated) onChange(updated)
+  }
   const chooseAttachments = async () => {
     const selected = await api?.chooseAttachments()
     if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
@@ -743,7 +749,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
           ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p></article>
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
         {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
-        {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
+        {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
         {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
           <strong>Latest candidate was not activated</strong>
           <p>{latestInvalidCandidate.diagnostic}</p>
