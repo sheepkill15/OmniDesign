@@ -86,8 +86,8 @@
 html,
 body,
 #root {
-  min-width: 900px;
-  min-height: 600px;
+  min-width: 0;
+  min-height: 0;
   height: 100%;
   margin: 0;
 }
@@ -2008,6 +2008,8 @@ button[aria-expanded="true"] .dropdown-caret {
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
 }

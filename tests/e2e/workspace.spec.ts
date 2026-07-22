@@ -187,6 +187,57 @@ test('applies and persists the trusted application theme across primary screens'
   }
 })
 
+test('keeps the minimum window usable with keyboard and reduced-motion preferences', async () => {
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-accessibility-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const run = await launchWorkspace(userDataDirectory)
+    activeApp = run.app
+    await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 600))
+    await run.window.emulateMedia({ reducedMotion: 'reduce', forcedColors: 'active' })
+
+    await expect.poll(() => run.window.evaluate(() => ({
+      horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight,
+    }))).toEqual({ horizontal: false, vertical: false })
+    const motion = await run.window.evaluate(() => {
+      const spinner = document.createElement('span')
+      spinner.className = 'spin'
+      document.body.append(spinner)
+      const style = getComputedStyle(spinner)
+      const result = { duration: Number.parseFloat(style.animationDuration), iterations: style.animationIterationCount }
+      spinner.remove()
+      return result
+    })
+    expect(motion.duration).toBeLessThanOrEqual(0.001)
+    expect(motion.iterations).toBe('1')
+
+    await run.window.bringToFront()
+    await run.window.evaluate(() => { document.body.tabIndex = -1; document.body.focus() })
+    let focused = { tag: '', name: '', outline: '' }
+    for (let index = 0; index < 4 && focused.tag !== 'BUTTON'; index += 1) {
+      await run.window.keyboard.press('Tab')
+      focused = await run.window.evaluate(() => ({ tag: document.activeElement?.tagName ?? '', name: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim() ?? '', outline: getComputedStyle(document.activeElement!).outlineStyle }))
+    }
+    expect(focused.tag).toBe('BUTTON')
+    expect(focused.name).not.toBe('')
+    expect(focused.outline).toBe('solid')
+
+    const prompt = run.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('A compact minimum-window dashboard')
+    await prompt.press('Enter')
+    await expect(run.window.getByRole('button', { name: 'Send change' })).toBeVisible()
+    await expect(run.window.getByRole('button', { name: 'Remove' })).toBeVisible()
+    await expect.poll(() => run.window.evaluate(() => ({
+      horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight,
+    }))).toEqual({ horizontal: false, vertical: false })
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('confirms close with active work and recovers it as interrupted', async () => {
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-interruption-e2e-'))
   let activeApp: ElectronApplication | null = null

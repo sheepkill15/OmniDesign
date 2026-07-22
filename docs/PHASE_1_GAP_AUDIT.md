@@ -22,6 +22,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Design titles and project display names are editable and persisted; renaming a linked project never renames its source folder, while standalone navigation stays synchronized with its design title.
 - The shared agent contract and validation pipeline now enforce baseline document semantics through up to three real-provider repair attempts; exhausted non-blocking quality findings remain visible on the accepted revision instead of being silently lost.
 - Live Windows acceptance on 2026-07-22 exercised authenticated Codex CLI 0.144.6 and Claude Code 2.1.215 through OmniDesign. Both produced valid revisions and offline ZIPs with responsive compact/wide layouts, named interactions, and no console errors; the shared quality contract corrected Claude's initially missing main landmark and the rebuilt case passed without repair.
+- The trusted renderer now fits Electron's actual content viewport at the 900x600 minimum outer-window size without clipping or document overflow; package-equivalent coverage also verifies keyboard focus under forced colors and suppresses repeated motion when reduced motion is requested.
 
 ## Remaining functional gaps
 
