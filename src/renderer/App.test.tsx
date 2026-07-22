@@ -155,6 +155,21 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Generation settings' })).toHaveTextContent('Development provider'))
   })
 
+  it('retains the shell and offers retry when the local workspace cannot refresh', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.list).mockRejectedValueOnce(new Error('Workspace database is unavailable.'))
+    render(<App />)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Workspace refresh failed')
+    expect(alert).toHaveTextContent('Workspace database is unavailable.')
+    expect(screen.getByRole('heading', { name: 'Start with an idea.' })).toBeInTheDocument()
+
+    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.queryByText('Workspace refresh failed')).not.toBeInTheDocument())
+    expect(bridge.workspace.list).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps project access available while generation waits for a provider', async () => {
     const bridge = installBridge([design])
     vi.mocked(bridge.providers.discover).mockResolvedValue([])

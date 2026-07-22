@@ -1588,6 +1588,19 @@ button:disabled,
   text-align: left;
 }
 
+.sidebar-workspace-error {
+  display: grid;
+  gap: 5px;
+  margin: 0 12px 10px;
+  padding: 10px;
+  border-left: 2px solid var(--danger);
+  background: var(--surface-1);
+}
+
+.sidebar-workspace-error strong { color: var(--text); font-size: 11px; }
+.sidebar-workspace-error small { overflow-wrap: anywhere; color: var(--text-subtle); font-size: 10px; line-height: 1.4; }
+.sidebar-workspace-error .text-button { width: max-content; height: 24px; padding: 0; }
+
 .workspace-queue {
   margin: 12px 0 20px;
   border: 1px solid var(--border);

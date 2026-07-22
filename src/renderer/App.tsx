@@ -107,12 +107,13 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
   )
 }
 
-function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, diagnosticCount, homeActive, settingsOpen, providersOpen, generationsOpen, diagnosticsOpen, trashOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onDiagnostics, onTrash }: {
+function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, diagnosticCount, workspaceError, homeActive, settingsOpen, providersOpen, generationsOpen, diagnosticsOpen, trashOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onDiagnostics, onTrash, onRetryWorkspace }: {
   readonly projects: readonly ProjectSummary[]
   readonly activeProjectId: string | null
   readonly activeDesignId: string | null
   readonly activeGenerationCount: number
   readonly diagnosticCount: number
+  readonly workspaceError: string | null
   readonly homeActive: boolean
   readonly settingsOpen: boolean
   readonly providersOpen: boolean
@@ -128,6 +129,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
   readonly onGenerations: () => void
   readonly onDiagnostics: () => void
   readonly onTrash: () => void
+  readonly onRetryWorkspace: () => void
 }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
@@ -136,6 +138,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
         <span className="brand-name">OmniDesign</span>
         <IconButton label="Generation activity" icon={BellIcon} onPress={onGenerations} />
       </div>
+      {workspaceError && <div className="sidebar-workspace-error" role="alert"><strong>Workspace refresh failed</strong><small>{workspaceError}</small><Button className="text-button" onPress={onRetryWorkspace}>Retry</Button></div>}
       <nav className="global-navigation" aria-label="Application">
         <NavigationItem icon={HomeIcon} label="Home" active={homeActive} onPress={onHome} />
         <NavigationItem icon={BoltIcon} label="Generations" badge={activeGenerationCount ? String(activeGenerationCount) : undefined} active={generationsOpen} onPress={onGenerations} />
@@ -1334,6 +1337,7 @@ export function App() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [generationDetail, setGenerationDetail] = useState<'full' | 'concise'>('full')
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const providerState = useProviders()
   const workspaceApi = window.omnidesign?.workspace
 
@@ -1343,11 +1347,18 @@ export function App() {
   }, [])
 
   const refresh = useCallback(async () => {
-    if (!workspaceApi) return
-    const [nextDesigns, nextProjects, nextTrash] = await Promise.all([workspaceApi.list(), workspaceApi.listProjects(), workspaceApi.listTrash()])
-    setDesigns(nextDesigns)
-    setProjects(nextProjects)
-    setTrashItems(nextTrash)
+    if (!workspaceApi) return false
+    try {
+      const [nextDesigns, nextProjects, nextTrash] = await Promise.all([workspaceApi.list(), workspaceApi.listProjects(), workspaceApi.listTrash()])
+      setDesigns(nextDesigns)
+      setProjects(nextProjects)
+      setTrashItems(nextTrash)
+      setWorkspaceError(null)
+      return true
+    } catch (reason) {
+      setWorkspaceError(reason instanceof Error && reason.message ? reason.message : 'The local workspace could not be read.')
+      return false
+    }
   }, [workspaceApi])
 
   useEffect(() => { void refresh() }, [refresh])
@@ -1366,22 +1377,22 @@ export function App() {
     return workspaceApi.onActivity((next) => {
       setActivitiesByDesign((current) => ({ ...current, [next.designId]: next }))
       const finished = ['complete', 'failed', 'cancelled', 'interrupted'].includes(next.stage)
-      void workspaceApi.get(next.designId).then((design) => { if (design) updateDesign(design) })
+      void workspaceApi.get(next.designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The active design could not be refreshed.'))
       if (finished) void refresh()
     })
   }, [refresh, updateDesign, workspaceApi])
   useEffect(() => workspaceApi?.onChanged(({ designId }) => {
-    void workspaceApi.get(designId).then((design) => { if (design) updateDesign(design) })
+    void workspaceApi.get(designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The changed design could not be refreshed.'))
     void refresh()
   }), [refresh, updateDesign, workspaceApi])
   useEffect(() => window.omnidesign?.preview.onDiagnostic((event) => {
     if (event.designId !== activeDesign?.id || !workspaceApi) return
-    void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
+    void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'Preview diagnostics could not refresh the design.'))
   }), [activeDesign?.id, updateDesign, workspaceApi])
   useEffect(() => window.omnidesign?.preview.onThumbnail((event) => {
     void refresh()
     if (event.designId !== activeDesign?.id || !workspaceApi) return
-    void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
+    void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The generated thumbnail could not refresh the design.'))
   }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
 
   const create = async (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => {
@@ -1549,7 +1560,7 @@ export function App() {
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} diagnosticCount={diagnosticCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !diagnosticsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} diagnosticsOpen={diagnosticsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onDiagnostics={openDiagnostics} onTrash={openTrash} />
+      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} diagnosticCount={diagnosticCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !diagnosticsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} diagnosticsOpen={diagnosticsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onDiagnostics={openDiagnostics} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
       {generationsOpen
         ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} onResume={resumeGenerationQueue} />
         : diagnosticsOpen
