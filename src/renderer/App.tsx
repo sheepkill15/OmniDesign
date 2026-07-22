@@ -286,7 +286,7 @@ function ConversationMessage({ message, onOpenAttachment }: { readonly message: 
   const isUser = message.role === 'user'
   return (
     <article className={`conversation-message message-${message.role}`}>
-      {!isUser && <span className="message-avatar" aria-hidden="true"><SparklesIcon /></span>}
+      <span className={`message-avatar${isUser ? ' message-avatar-you' : ''}`} aria-hidden="true">{isUser ? 'OD' : <SparklesIcon />}</span>
       <div className="message-body">
         <span className="message-role">{isUser ? 'You' : 'OmniDesign'}</span>
         <div className="message-bubble">

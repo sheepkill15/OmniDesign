@@ -1932,6 +1932,14 @@ button[aria-expanded="true"] .dropdown-caret {
   color: var(--accent);
 }
 
+/* The user's avatar mirrors the sidebar account badge so "You" reads as this local workspace. */
+.message-avatar-you {
+  background: var(--palette-mauve-shadow);
+  color: #f4edf2;
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .message-avatar svg {
   width: 16px;
   height: 16px;
