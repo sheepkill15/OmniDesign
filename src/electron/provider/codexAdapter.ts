@@ -11,6 +11,10 @@ import type {
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
 import { formatTokenCount, isObject, readFiniteNumber, titleCase } from './providerUtils.js'
 
+function runtimeRoots(request: ProviderAdapterPrompt): string[] {
+  return [...new Set([...(request.workspacePath ? [request.workspacePath] : []), ...(request.referencePaths ?? [])])]
+}
+
 export class CodexAdapter implements ProviderAdapter {
   public readonly id = 'codex' as const
 
@@ -53,6 +57,7 @@ export class CodexAdapter implements ProviderAdapter {
     // (never OmniDesign's own source tree) even if it falls back to its process cwd.
     const rpc = startJsonRpcProcess(command, ['app-server'], request.workspacePath ? { cwd: request.workspacePath } : {})
     const cancel = () => rpc.close(new Error('Codex generation was cancelled.'))
+    const runtimeWorkspaceRoots = runtimeRoots(request)
     request.signal?.addEventListener('abort', cancel, { once: true })
     try {
       await this.initialize(rpc)
@@ -61,7 +66,7 @@ export class CodexAdapter implements ProviderAdapter {
         model: request.modelId,
         sandbox: request.workspacePath ? 'workspace-write' : 'read-only',
         approvalPolicy: 'never',
-        ...(request.workspacePath ? { runtimeWorkspaceRoots: [request.workspacePath, ...(request.referencePaths ?? [])] } : {}),
+        ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
         ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       })
       if (!isObject(thread) || !isObject(thread.thread) || typeof thread.thread.id !== 'string') {
@@ -121,6 +126,7 @@ export class CodexAdapter implements ProviderAdapter {
     request: ProviderAdapterPrompt,
     onActivity: ProviderAdapterActivityListener,
   ): Promise<string> {
+    const runtimeWorkspaceRoots = runtimeRoots(request)
     return new Promise<string>((resolve, reject) => {
       let output = ''
       let usageDetail: string | undefined
@@ -152,7 +158,8 @@ export class CodexAdapter implements ProviderAdapter {
         sandboxPolicy: request.workspacePath
           ? { type: 'workspaceWrite', networkAccess: true, writableRoots: [] }
           : { type: 'readOnly', networkAccess: true },
-        ...(request.workspacePath ? { cwd: request.workspacePath, runtimeWorkspaceRoots: [request.workspacePath, ...(request.referencePaths ?? [])] } : {}),
+        ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
+        ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
         ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
         input: [{ type: 'text', text: request.prompt }],
       }).catch((error: unknown) => done(error instanceof Error ? error : new Error('Codex failed to start the turn.')))

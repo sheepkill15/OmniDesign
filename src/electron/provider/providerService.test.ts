@@ -61,11 +61,12 @@ describe('ProviderService', () => {
       modelId: 'model-1',
       effort: 'high',
       prompt: 'Build it',
+      referencePaths: ['C:\\references'],
     }, activity)).resolves.toEqual({ providerId: 'claude', modelId: 'model-1', text: 'Done' })
 
     expect(codex.prompt).not.toHaveBeenCalled()
     expect(claude.prompt).toHaveBeenCalledWith(
-      { modelId: 'model-1', effort: 'high', prompt: 'Build it' },
+      { modelId: 'model-1', effort: 'high', prompt: 'Build it', referencePaths: ['C:\\references'] },
       expect.any(Function),
     )
     expect(activity).toHaveBeenCalledWith({

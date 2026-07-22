@@ -28,7 +28,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Multi-design project cards now expose separate, keyboard-named open and rename controls without nested interactive elements. Card renames update optimistically, roll back on failure, and no longer navigate into the design; background design refreshes likewise cannot steal the user's current screen.
 - Completed provider progress now records the metadata each CLI actually reports: Codex shows per-turn input/output usage and the model context limit, while Claude shows turn count, input/output usage when present, and actual USD cost. Claude's full final response is no longer duplicated into its completion-detail row.
 - Full generation history groups streamed provider, tool, validation, and saving activity into open-by-default collapsible sections; the persisted Concise preference keeps only queue and terminal outcomes visible.
-- Real-provider creation now persists and opens the design immediately with an editable fallback title. The lightweight title request runs in the background, refreshes the open workspace when ready, and cannot overwrite a title the user edited while it was running.
+- Real-provider creation now persists and opens the design immediately with an editable fallback title. The lightweight title request runs in the background, can inspect the explicitly supplied attachment paths through provider reference roots, refreshes the open workspace when ready, and cannot overwrite a title the user edited while it was running.
 - An application-level renderer error boundary replaces blank-screen failures with a keyboard-accessible reload action, local-data reassurance, and collapsed technical diagnostics.
 
 ## Remaining functional gaps

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDesignTitlePrompt, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from './designTitle.js'
+import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from './designTitle.js'
 
 describe('design titles', () => {
   it('asks the provider for only a compact title using prompt and attachment names', () => {
@@ -10,7 +10,14 @@ describe('design titles', () => {
 
     expect(prompt).toContain('Return only a concise 2-6 word title')
     expect(prompt).toContain('Request: Create an editorial recipe browser')
-    expect(prompt).toContain('References: file:recipes.pdf')
+    expect(prompt).toContain('file:recipes.pdf at "C:\\\\references\\\\recipes.pdf"')
+    expect(designTitleReferencePaths([{
+      id: '123e4567-e89b-42d3-a456-426614174000', name: 'recipes.pdf', path: 'C:\\references\\recipes.pdf', kind: 'file', size: 42,
+      modifiedAt: null, selectedAt: '2026-07-22T12:00:00.000Z', status: 'available',
+    }, {
+      id: '223e4567-e89b-42d3-a456-426614174000', name: 'brand', path: 'C:\\references\\brand', kind: 'folder', size: null,
+      modifiedAt: null, selectedAt: '2026-07-22T12:00:00.000Z', status: 'available',
+    }])).toEqual(['C:\\references', 'C:\\references\\brand'])
   })
 
   it('normalizes a provider response and retains a stable fallback', () => {

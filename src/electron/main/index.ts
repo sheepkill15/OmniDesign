@@ -35,7 +35,7 @@ import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewController } from '../workspace/previewController.js'
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
-import { createDesignTitlePrompt, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
+import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
@@ -82,6 +82,7 @@ async function generateDesignTitle(prompt: string, providerId: 'codex' | 'claude
       modelId: selection.modelId,
       ...(selection.effort ? { effort: selection.effort } : {}),
       prompt: createDesignTitlePrompt(prompt, attachments),
+      referencePaths: designTitleReferencePaths(attachments),
     })
     return normalizeDesignTitle(reply.text, fallback)
   } catch {

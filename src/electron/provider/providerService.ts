@@ -41,6 +41,7 @@ export class ProviderService {
       prompt: request.prompt,
       ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
+      ...(request.referencePaths?.length ? { referencePaths: request.referencePaths } : {}),
     }
     const reply = await adapter.prompt(adapterRequest, (activity) => {
       onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity })

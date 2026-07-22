@@ -1,5 +1,6 @@
 import type { Attachment } from './contracts.js'
 import type { ProviderStatus } from '../provider/types.js'
+import path from 'node:path'
 
 const MAX_TITLE_LENGTH = 80
 const LIGHTWEIGHT_MODEL_PATTERN = /(?:nano|mini|small|fast|haiku|instant|lite|spark)/i
@@ -15,9 +16,13 @@ export function selectLightweightMetadataSelection(statuses: readonly ProviderSt
 
 export function createDesignTitlePrompt(prompt: string, attachments: readonly Attachment[]): string {
   const references = attachments.length
-    ? `\nReferences: ${attachments.map((attachment) => `${attachment.kind}:${attachment.name}`).join(', ')}`
+    ? `\nReferences to inspect only for naming context: ${attachments.map((attachment) => `${attachment.kind}:${attachment.name} at ${JSON.stringify(attachment.path)}`).join(', ')}`
     : ''
   return `Return only a concise 2-6 word title for a new design. No punctuation, quotes, markdown, explanation, or file operations.\nRequest: ${prompt}${references}`
+}
+
+export function designTitleReferencePaths(attachments: readonly Attachment[]): string[] {
+  return [...new Set(attachments.map((attachment) => attachment.kind === 'folder' ? attachment.path : path.dirname(attachment.path)))]
 }
 
 export function fallbackDesignTitle(prompt: string): string {
