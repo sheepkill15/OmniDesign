@@ -43,7 +43,7 @@ export function createDesignAgentInstructions(workspacePath: string, attachments
     'Do not claim which files changed or whether a revision was created; OmniDesign determines that from Git and validation.',
     ...(sourceProjectPath ? [`A linked source project is available for READ-ONLY reference at ${sourceProjectPath}. Inspect its relevant source, styles, assets, and configuration before implementing the design so the result adopts its existing design language. Never edit, delete, rename, or create files there.`] : []),
     ...(attachments.length ? ['User-provided references are READ-ONLY. Use them only when relevant; never modify, delete, rename, or copy them into the design repository:', ...attachments.map((attachment) => `- ${attachment.path}${attachment.status === 'available' ? '' : ` (${attachment.status}; ask the user before relying on it)`}`)] : []),
-    'When you finish, respond only with a JSON object matching the required schema. Its response value is your concise conversational reply to the user.',
+    'Any explanatory text you write while working is already shown to the user in the conversation as you go. When you finish, respond only with a JSON object matching the required schema; its response value is a brief closing reply (e.g. a one-line confirmation) — do NOT restate the explanation you already gave, or it will appear twice.',
   ].join('\n')
 }
 
