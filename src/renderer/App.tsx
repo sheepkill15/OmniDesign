@@ -266,8 +266,7 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
       label="Generation settings"
       triggerClassName="generation-settings-button"
       popoverClassName="generation-settings-popover"
-      placement="top start"
-      crossOffset={148}
+      placement="top"
       trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span></>}
     >
         <div className="generation-settings-columns">
@@ -365,7 +364,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
           <IconButton label="Attach files or folders" icon={PaperClipIcon} />
           {fixedProject
             ? <span className="project-context project-context-fixed">{fixedProject.kind === 'linked' ? <FolderIcon aria-hidden="true" /> : <DocumentDuplicateIcon aria-hidden="true" />}{fixedProject.name}</span>
-            : <DropdownButton triggerClassName="project-context" popoverClassName="project-popover" placement="top start" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}</>}>
+            : <DropdownButton triggerClassName="project-context" popoverClassName="project-popover" placement="top" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}</>}>
                 <Menu aria-label="Design project" onAction={(key) => chooseTarget(String(key))}>
                   <MenuItem id="standalone">Standalone design</MenuItem>
                   <MenuItem id="folder">Choose local project folder…</MenuItem>
@@ -532,7 +531,7 @@ function LayoutMenu({ mode, onOpenChange, onChange }: { readonly mode: LayoutMod
       label={`Layout: ${current.label}`}
       triggerClassName="toolbar-button"
       popoverClassName="project-popover layout-menu"
-      placement="bottom end"
+      placement="bottom"
       onOpenChange={onOpenChange}
       trigger={<><CurrentIcon aria-hidden="true" />{current.label}</>}
     >
@@ -714,7 +713,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
           <DropdownButton
             triggerClassName="toolbar-button"
             popoverClassName="history-popover"
-            placement="bottom end"
+            placement="bottom"
             onOpenChange={setHistoryOpen}
             trigger={<><ClockIcon aria-hidden="true" />History · {design.revisions.length}</>}
           >
