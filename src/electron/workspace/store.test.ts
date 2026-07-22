@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -57,6 +57,23 @@ describe('WorkspaceStore', () => {
     const reopened = new WorkspaceStore(directory)
     expect(reopened.getDesign(created.id)?.titlePending).toBe(false)
     reopened.close()
+  })
+
+  it('permanently deletes a design whose artifacts contain read-only files', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    // Mimic a Git repository with a read-only pack/object file (Windows marks these read-only, which
+    // is what previously made permanent deletion fail with EPERM).
+    const gitObjects = path.join(store.getDesignArtifactsDirectory(), created.id, 'repository', '.git', 'objects')
+    mkdirSync(gitObjects, { recursive: true })
+    const readOnlyObject = path.join(gitObjects, 'pack-object')
+    writeFileSync(readOnlyObject, 'packed')
+    chmodSync(readOnlyObject, 0o444)
+
+    store.moveDesignToTrash(created.id)
+    expect(() => store.purgeTrashItem('design', created.id)).not.toThrow()
+    expect(existsSync(path.join(store.getDesignArtifactsDirectory(), created.id))).toBe(false)
+    store.close()
   })
 
   it('restores history by appending a new head without removing later revisions', () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { attachmentSchema, designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
@@ -1188,7 +1188,16 @@ export class WorkspaceStore {
     const target = path.resolve(this.artifactsDirectory, designId)
     const root = path.resolve(this.artifactsDirectory)
     if (path.dirname(target) !== root) throw new Error('Refusing to remove an unexpected design artifact path.')
-    rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 })
+    if (!existsSync(target)) return
+    try {
+      rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 })
+    } catch {
+      // Windows marks Git's pack/object files read-only, which makes rmSync fail with EPERM even with
+      // `force`. Clear the read-only attribute across the tree, then delete again.
+      if (!existsSync(target)) return
+      clearReadOnlyRecursive(target)
+      rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 })
+    }
   }
 
   private transaction(work: () => void): void {
@@ -1200,5 +1209,24 @@ export class WorkspaceStore {
       this.database.exec('ROLLBACK')
       throw error
     }
+  }
+}
+
+// Recursively give owner write permission across a tree. On Windows this clears the read-only
+// attribute (which Git sets on its pack/object files) so a subsequent recursive delete can succeed.
+function clearReadOnlyRecursive(target: string): void {
+  let stats
+  try {
+    stats = lstatSync(target)
+  } catch {
+    return
+  }
+  try {
+    chmodSync(target, 0o700)
+  } catch {
+    // A best-effort attribute reset; if it fails, the retry delete will surface the original error.
+  }
+  if (stats.isDirectory()) {
+    for (const entry of readdirSync(target)) clearReadOnlyRecursive(path.join(target, entry))
   }
 }
