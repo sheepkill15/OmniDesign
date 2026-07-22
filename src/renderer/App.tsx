@@ -23,11 +23,12 @@ import {
   ChatBubbleLeftRightIcon,
   WindowIcon,
 } from '@heroicons/react/24/outline'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
 import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { AppModal } from './components/AppModal'
 import { DropdownButton } from './components/DropdownButton'
+import { PreviewOverlayContext } from './components/PreviewOverlayContext'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -599,7 +600,7 @@ const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; r
   { id: 'popped', label: 'Pop out preview', icon: ArrowTopRightOnSquareIcon },
 ]
 
-function LayoutMenu({ mode, onOpenChange, onChange }: { readonly mode: LayoutMode; readonly onOpenChange: (open: boolean) => void; readonly onChange: (mode: LayoutMode) => void }) {
+function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
   const current = layoutModes.find((candidate) => candidate.id === mode) ?? layoutModes[0]
   const CurrentIcon = current.icon
   return (
@@ -608,7 +609,6 @@ function LayoutMenu({ mode, onOpenChange, onChange }: { readonly mode: LayoutMod
       triggerClassName="toolbar-button"
       popoverClassName="project-popover layout-menu"
       placement="bottom"
-      onOpenChange={onOpenChange}
       trigger={<><CurrentIcon aria-hidden="true" />{current.label}</>}
     >
       <Menu aria-label="Workspace layout" onAction={(key) => onChange(key as LayoutMode)}>
@@ -636,9 +636,7 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
-  const [associateMenuOpen, setAssociateMenuOpen] = useState(false)
+  const [dropdownOverlayOpen, setDropdownOverlayOpen] = useState(false)
   const [associateCloneOpen, setAssociateCloneOpen] = useState(false)
   const [associateCloneUrl, setAssociateCloneUrl] = useState('')
   const [associateCloneDestination, setAssociateCloneDestination] = useState('')
@@ -649,6 +647,7 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
   const split = useRef<HTMLDivElement>(null)
+  const openDropdownCount = useRef(0)
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
@@ -660,14 +659,27 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
   // The isolated preview is a native layer painted above the DOM. While a header overlay sits over the
   // docked preview, capture its current frame, show that still image on the preview surface, then hide
   // the native layer so the overlay paints cleanly over the frozen frame — with no visible gap.
-  const overlayCoversPreview = historyOpen || layoutMenuOpen || associateMenuOpen || associateCloneOpen
-  const coverPreviewForOverlay = () => {
+  const overlayCoversPreview = dropdownOverlayOpen || associateCloneOpen
+  const coverPreviewForOverlay = useCallback(() => {
     const preview = window.omnidesign?.preview
     if (!preview) return
     const frame = preview.freeze()
     void preview.setSuspended(true)
     void frame.then((captured) => setFreezeFrame(captured))
-  }
+  }, [])
+  const previewOverlay = useMemo(() => ({
+    open: () => {
+      if (openDropdownCount.current === 0) {
+        coverPreviewForOverlay()
+        setDropdownOverlayOpen(true)
+      }
+      openDropdownCount.current += 1
+    },
+    close: () => {
+      openDropdownCount.current = Math.max(0, openDropdownCount.current - 1)
+      if (openDropdownCount.current === 0) setDropdownOverlayOpen(false)
+    },
+  }), [coverPreviewForOverlay])
   useLayoutEffect(() => {
     const preview = window.omnidesign?.preview
     if (!preview) return
@@ -845,17 +857,17 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
   )
 
   return (
+    <PreviewOverlayContext.Provider value={previewOverlay}>
     <main className="workspace-main">
       <header className="workspace-toolbar">
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
         <span className="workspace-title"><strong>{design.title}</strong><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
-            <LayoutMenu mode={mode} onOpenChange={(open) => { if (open) coverPreviewForOverlay(); setLayoutMenuOpen(open) }} onChange={setMode} />
+            <LayoutMenu mode={mode} onChange={setMode} />
           <DropdownButton
             triggerClassName="toolbar-button"
             popoverClassName="history-popover"
             placement="bottom"
-              onOpenChange={(open) => { if (open) coverPreviewForOverlay(); setHistoryOpen(open) }}
             trigger={<><ClockIcon aria-hidden="true" />History · {design.revisions.length}</>}
           >
             <Menu aria-label="Revision history" onAction={(key) => void selectRevision(String(key))}>
@@ -869,7 +881,7 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
               ))}
             </Menu>
           </DropdownButton>
-            <DropdownButton triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" onOpenChange={(open) => { if (open) coverPreviewForOverlay(); setAssociateMenuOpen(open) }} trigger={<><FolderIcon aria-hidden="true" />Associate</>}>
+            <DropdownButton triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" trigger={<><FolderIcon aria-hidden="true" />Associate</>}>
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
@@ -921,6 +933,7 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
             {conversationPane}
           </div>}
     </main>
+    </PreviewOverlayContext.Provider>
   )
 }
 

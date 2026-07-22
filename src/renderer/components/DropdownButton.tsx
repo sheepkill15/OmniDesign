@@ -1,6 +1,8 @@
 import type { ComponentProps, ReactNode } from 'react'
+import { useContext } from 'react'
 import { Button, MenuTrigger, Popover } from 'react-aria-components'
 import { ChevronDownIcon } from '@heroicons/react/24/outline'
+import { PreviewOverlayContext } from './PreviewOverlayContext'
 
 type Placement = ComponentProps<typeof Popover>['placement']
 
@@ -20,8 +22,13 @@ export function DropdownButton({ trigger, children, label, triggerClassName, pop
   readonly placement?: Placement
   readonly onOpenChange?: (isOpen: boolean) => void
 }) {
+  const previewOverlay = useContext(PreviewOverlayContext)
   return (
-    <MenuTrigger onOpenChange={onOpenChange}>
+    <MenuTrigger onOpenChange={(isOpen) => {
+      if (isOpen) previewOverlay?.open()
+      else previewOverlay?.close()
+      onOpenChange?.(isOpen)
+    }}>
       <Button className={triggerClassName} aria-label={label}>
         {trigger}
         <ChevronDownIcon className="dropdown-caret" aria-hidden="true" />

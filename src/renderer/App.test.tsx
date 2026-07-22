@@ -432,6 +432,19 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenLastCalledWith(false))
   })
 
+  it('suspends the native preview through the shared dropdown behavior for generation settings', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generation settings' }))
+    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenCalledWith(true))
+  })
+
   it('recovers saved designs into the home list', async () => {
     installBridge([design])
     render(<App />)
