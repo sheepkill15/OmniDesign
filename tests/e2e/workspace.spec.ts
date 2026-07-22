@@ -58,6 +58,10 @@ test('creates and recovers a standalone design in the built Electron app', async
     }
     const exportedDocument = await firstRun.app.evaluate(async ({ BrowserWindow }, fileUrl) => {
       const exportedWindow = new BrowserWindow({ show: false, width: 1440, height: 900, webPreferences: { sandbox: true } })
+      const consoleMessages: Array<{ level: number | string; message: string }> = []
+      exportedWindow.webContents.on('console-message', (event) => {
+        consoleMessages.push({ level: event.level, message: event.message })
+      })
       try {
         await exportedWindow.loadURL(fileUrl)
         const inspect = async (width: number) => {
@@ -79,6 +83,14 @@ test('creates and recovers a standalone design in the built Electron app', async
         return {
           heading: await exportedWindow.webContents.executeJavaScript(`document.querySelector('h1')?.textContent`),
           stylesheet: await exportedWindow.webContents.executeJavaScript(`document.querySelector('link[href=".build/tailwind.css"]') !== null`),
+          disclosure: await exportedWindow.webContents.executeJavaScript(`(() => {
+            const details = document.querySelector('details')
+            const summary = details?.querySelector('summary')
+            const before = details?.open ?? null
+            summary?.click()
+            return { before, after: details?.open ?? null }
+          })()`),
+          consoleMessages: consoleMessages.filter((entry) => !entry.message.includes('Electron Security Warning')),
           compact: await inspect(390),
           wide: await inspect(1440),
         }
@@ -89,6 +101,8 @@ test('creates and recovers a standalone design in the built Electron app', async
     expect(exportedDocument).toMatchObject({
       heading: 'A calm analytics dashboard',
       stylesheet: true,
+      disclosure: { before: false, after: true },
+      consoleMessages: [],
       compact: { horizontalOverflow: false, lang: 'en', viewport: 'width=device-width, initial-scale=1', mainCount: 1, headingCount: 1, unnamedInteractiveCount: 0 },
       wide: { horizontalOverflow: false, lang: 'en', viewport: 'width=device-width, initial-scale=1', mainCount: 1, headingCount: 1, unnamedInteractiveCount: 0 },
     })

@@ -72,7 +72,7 @@ The in-app generation badge updates, and cross-platform system notifications for
 
 The current automated suite does not yet prove all Phase 1 quality gates:
 
-- development-provider exports are checked automatically in a fresh sandboxed Electron window, while live Codex and Claude exports have equivalent compact/wide, semantic, interaction, and console sampling recorded above;
+- development-provider exports are checked automatically in a fresh sandboxed Electron window at compact and wide sizes, including semantic names, a real disclosure interaction, and captured console output; live Codex and Claude exports have equivalent manual sampling recorded above;
 - an Electron journey now verifies both themes across Home, Generations, Providers, Diagnostics, Trash, Settings, and the design workspace, including viewport fit and restart persistence; pixel-level regression coverage for every reusable control remains open;
 - an Electron journey now covers declining close, confirming interruption, restart recovery, Continue, and Retry affordances; external-root security still needs targeted acceptance coverage.
 
