@@ -251,15 +251,13 @@ button:disabled,
 }
 
 .project-nav-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  padding-left: 10px;
   border-radius: var(--radius-control);
   color: var(--text-subtle);
-}
-
-.project-nav-row[data-standalone] {
-  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .project-nav-row:hover {
@@ -271,7 +269,9 @@ button:disabled,
 }
 
 .project-disclosure {
-  width: 22px;
+  position: absolute;
+  left: -1px;
+  width: 20px;
   height: 34px;
   display: grid;
   place-items: center;
@@ -386,7 +386,7 @@ button:disabled,
 .design-sublist {
   display: grid;
   gap: 2px;
-  margin: 0 0 2px 22px;
+  margin: 0 0 2px 32px;
   padding-left: 6px;
   border-left: 1px solid var(--border);
 }
