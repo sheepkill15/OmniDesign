@@ -106,6 +106,7 @@ interface OmniDesignDocument {
   readonly id: string
   readonly projectId: string
   readonly projectName: string
+  readonly sourceProjectPath: string | null
   readonly title: string
   readonly createdAt: string
   readonly updatedAt: string

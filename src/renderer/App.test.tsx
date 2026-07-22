@@ -7,6 +7,7 @@ const design: OmniDesignDocument = {
   id: 'design-1',
   projectId: 'project-1',
   projectName: 'Calm dashboard',
+  sourceProjectPath: null,
   title: 'Calm dashboard',
   createdAt: '2026-07-20T10:00:00.000Z',
   updatedAt: '2026-07-20T10:00:00.000Z',
@@ -360,6 +361,18 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('menuitem', { name: 'Choose local project folder…' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Clone Git repository…' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Standalone design' })).not.toBeInTheDocument()
+  })
+
+  it('does not offer association controls for a design already in a linked project', async () => {
+    const linkedDesign: OmniDesignDocument = { ...design, sourceProjectPath: 'C:\\Projects\\Calm dashboard' }
+    installBridge([linkedDesign], linkedDesign)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+
+    await screen.findByRole('region', { name: 'Design conversation' })
+    expect(screen.queryByRole('button', { name: 'Associate' })).not.toBeInTheDocument()
   })
 
 
