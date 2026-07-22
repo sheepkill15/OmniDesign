@@ -179,8 +179,9 @@ function Generations({ designs, onOpen, onCancel, onRemove }: {
               const progress = job.startedAt
                 ? design.generationSteps.filter((step) => step.createdAt >= job.startedAt! && !terminalGenerationStages.includes(step.stage)).slice(-8)
                 : []
+              const stage = design.queuePaused ? 'Queue paused' : job.state === 'queued' ? 'Queued' : progress.at(-1)?.label ?? 'Starting'
               return <article className="generation-row" key={job.id}>
-                <Button className="generation-copy" onPress={() => onOpen(design)}><strong>{design.title}</strong><small>{design.queuePaused ? 'Queue paused' : job.state === 'queued' ? 'Queued' : design.generationSteps.at(-1)?.label ?? 'Running'} · {job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`} · {job.prompt}</small></Button>
+                <Button aria-label={`${design.projectName}, ${design.title}: ${stage}`} className="generation-copy" onPress={() => onOpen(design)}><span className="generation-heading"><strong>{design.title}</strong><em>{design.projectName}</em></span><small>{stage} · {job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`} · {job.prompt}</small></Button>
                 <time className="generation-elapsed" dateTime={job.startedAt ?? job.createdAt}>{formatGenerationElapsed(job.startedAt ?? job.createdAt)}</time>
                 {job.state === 'queued'
                   ? <Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button>
@@ -1454,7 +1455,7 @@ export function App() {
     setAssociationNotice(null)
     await refresh()
   }
-  const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => ['queued', 'running'].includes(job.state)).length
+  const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => job.state === 'running').length
   const diagnosticCount = collectDiagnostics(designs).length
 
   return (

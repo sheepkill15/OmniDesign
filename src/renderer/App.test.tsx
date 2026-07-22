@@ -261,6 +261,7 @@ describe('Phase 1 walking skeleton UI', () => {
   it('shows recent detailed progress for a running generation', async () => {
     const runningDesign: OmniDesignDocument = {
       ...design,
+      projectName: 'Aurora project',
       generationJobs: [{
         id: '7e3670bd-2f6c-444d-afd0-a26e17839964', designId: 'design-1', prompt: 'Try a warmer direction', providerId: 'codex', modelId: 'gpt-5.6', state: 'running',
         createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: null, error: null, attachments: [],
@@ -276,6 +277,8 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Generations/ }))
     const progress = await screen.findByText('Progress details')
+    expect(screen.getByRole('button', { name: 'Aurora project, Calm dashboard: Validating' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Generations/ })).toHaveTextContent('1')
     expect(progress.closest('details')).toHaveAttribute('open')
     expect(screen.getByText('Reading src/App.tsx')).toBeInTheDocument()
     expect(screen.getByText('Checking responsive layout')).toBeInTheDocument()

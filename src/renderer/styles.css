@@ -1367,6 +1367,16 @@ button:disabled,
   border-top: 1px solid var(--border);
 }
 
+.generation-heading {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.generation-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.generation-heading em { color: var(--text-faint); font-size: 11px; font-style: normal; white-space: nowrap; }
+
 .active-generation-activity summary {
   display: flex;
   align-items: baseline;
