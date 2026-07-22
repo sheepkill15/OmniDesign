@@ -1115,6 +1115,25 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.workspace.get).not.toHaveBeenCalled()
   })
 
+  it('explains when a supplied reference can no longer be opened', async () => {
+    const attachedDesign: OmniDesignDocument = {
+      ...design,
+      messages: [{ ...design.messages[0], attachments: [{
+        id: '123e4567-e89b-42d3-a456-426614174000', name: 'reference.pdf', path: 'C:\\references\\reference.pdf', kind: 'file', size: 42, modifiedAt: '2026-07-22T12:00:00.000Z', selectedAt: '2026-07-22T12:00:00.000Z', status: 'available',
+      }] }],
+    }
+    const bridge = installBridge([attachedDesign], attachedDesign)
+    vi.mocked(bridge.workspace.openAttachment).mockRejectedValueOnce(new Error('The file was moved.'))
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'reference.pdf' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The reference could not be opened.')
+    expect(screen.getByRole('alert')).toHaveTextContent('The file was moved.')
+  })
+
   it('expands a project in the sidebar to open a specific design', async () => {
     const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
     const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
@@ -1143,6 +1162,23 @@ describe('Phase 1 walking skeleton UI', () => {
     const grid = await screen.findByRole('group', { name: 'Designs in this project' })
     fireEvent.click(within(grid).getByRole('button', { name: 'Open Settings screen' }))
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
+  })
+
+  it('offers an inline retry when sidebar project designs cannot load', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
+    const bridge = installBridge([first, second])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
+    vi.mocked(bridge.workspace.getProject).mockRejectedValueOnce(new Error('Database read failed.'))
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Expand Studio' }))
+    const sublist = await within(sidebar).findByRole('group', { name: 'Studio designs' })
+    expect(within(sublist).getByRole('alert')).toHaveTextContent('Could not load designs.')
+    fireEvent.click(within(sublist).getByRole('button', { name: 'Retry' }))
+
+    expect(await within(sublist).findByRole('button', { name: 'Settings screen' })).toBeInTheDocument()
   })
 
   it('renames a design without opening it from a multi-design project card', async () => {

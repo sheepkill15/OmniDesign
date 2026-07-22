@@ -464,6 +464,22 @@ button:disabled,
   font-size: 11px;
 }
 
+.design-sublist-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 3px 6px;
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.design-sublist-error .text-button {
+  min-height: 24px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
 .navigation-badge {
   min-width: 21px;
   height: 20px;

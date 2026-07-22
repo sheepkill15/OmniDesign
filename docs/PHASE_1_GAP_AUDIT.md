@@ -42,6 +42,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Initial and background workspace refresh failures now preserve the last loaded shell state and expose a persistent sidebar diagnostic with Retry instead of failing silently or leaving unexplained empty navigation.
 - Initial composer operations now retain the draft and report actionable local diagnostics when project-folder selection, clone-destination selection, attachment selection, saved generation defaults, or design creation fails.
 - Project reads now fail in place instead of clearing the current screen, and project-page loading, reconnect, conversion, and removal failures expose scoped diagnostics with retry or dismissal controls.
+- Sidebar project expansion distinguishes loading, failure, and genuine empty states with an inline retry; attachment-open and project-association folder-picker failures are likewise reported instead of rejecting silently.
 
 ## Remaining functional gaps
 

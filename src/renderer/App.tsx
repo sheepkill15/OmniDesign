@@ -68,9 +68,19 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
   const isStandalone = project.kind === 'standalone'
   const [expanded, setExpanded] = useState(false)
   const [designs, setDesigns] = useState<readonly OmniDesignDocument[]>([])
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const loadDesigns = useCallback(async () => {
-    const detail = await window.omnidesign?.workspace.getProject(project.id)
-    if (detail) setDesigns(detail.designs)
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const detail = await window.omnidesign?.workspace.getProject(project.id)
+      if (detail) setDesigns(detail.designs)
+    } catch (reason) {
+      setLoadError(reason instanceof Error && reason.message ? reason.message : 'The project designs could not be loaded.')
+    } finally {
+      setLoading(false)
+    }
   }, [project.id])
   useEffect(() => { if (!isStandalone && expanded) void loadDesigns() }, [isStandalone, expanded, loadDesigns, project.updatedAt, project.designCount])
   const ProjectIcon = project.kind === 'linked' ? FolderIcon : DocumentDuplicateIcon
@@ -95,12 +105,14 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
       </div>
       {!isStandalone && expanded && (
         <div className="design-sublist" role="group" aria-label={`${project.name} designs`}>
-          {designs.map((design) => (
+          {!loading && !loadError && designs.map((design) => (
             <Button className="design-subrow" data-active={design.id === activeDesignId || undefined} key={design.id} onPress={() => onOpenDesign(project, design)}>
               <span>{design.title}</span>
             </Button>
           ))}
-          {!designs.length && <p className="design-sublist-empty">No designs yet.</p>}
+          {loading && <p className="design-sublist-empty" role="status">Loading designs…</p>}
+          {!loading && loadError && <div className="design-sublist-error" role="alert"><span>Could not load designs.</span><Button className="text-button" onPress={() => void loadDesigns()}>Retry</Button></div>}
+          {!loading && !loadError && !designs.length && <p className="design-sublist-empty">No designs yet.</p>}
         </div>
       )}
     </div>
@@ -1151,7 +1163,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const chooseAssociationTarget = async (key: string) => {
     if (!api) return
     if (key === 'folder') {
-      const folder = await api.chooseProjectFolder()
+      const folder = await runWorkspaceAction(() => api.chooseProjectFolder(), 'The project folder could not be selected.')
       if (!folder) return
       const project = await runWorkspaceAction(() => api.registerLinkedProject(folder), 'The selected folder could not be linked.')
       if (project) await runWorkspaceAction(() => onAssociate(design, project.id), 'The design could not be associated with that project.')
@@ -1178,8 +1190,17 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     if (associationNotice) await runWorkspaceAction(() => onAssociateAndRestart(design, associationNotice.projectId), 'The design could not be associated and restarted.')
   }
   const chooseAssociateCloneDestination = async () => {
-    const folder = await api?.chooseProjectFolder()
-    if (folder) setAssociateCloneDestination(folder)
+    setAssociateCloneError(null)
+    try {
+      const folder = await api?.chooseProjectFolder()
+      if (folder) setAssociateCloneDestination(folder)
+    } catch (reason) {
+      setAssociateCloneError(reason instanceof Error && reason.message ? reason.message : 'The clone destination could not be selected.')
+    }
+  }
+  const openAttachment = async (attachment: DesignAttachment) => {
+    if (!api) return
+    await runWorkspaceAction(() => api.openAttachment(attachment), 'The reference could not be opened.')
   }
   const confirmAssociateClone = async () => {
     if (!api || !associateCloneUrl.trim() || !associateCloneDestination || associatingClone) return
@@ -1205,7 +1226,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed">
         {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
-          ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p>{item.message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{item.message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => void api?.openAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}</article>
+          ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p>{item.message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{item.message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => void openAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}</article>
           : item.kind === 'activity'
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
