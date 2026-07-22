@@ -25,7 +25,11 @@ describe('DesignRepositoryManager', () => {
 
     expect(readFileSync(path.join(repositoryPath, 'index.html'), 'utf8')).toContain('<!doctype html>')
     expect(readFileSync(path.join(repositoryPath, 'index.html'), 'utf8')).toContain('.build/tailwind.css')
-    expect(readFileSync(path.join(repositoryPath, '.build', 'alpine.js'), 'utf8')).toContain('Alpine')
+    const runtime = readFileSync(path.join(repositoryPath, '.build', 'alpine.js'), 'utf8')
+    expect(runtime).toContain('Alpine')
+    // The bundled collapse plugin registers itself so x-collapse works with no extra setup.
+    expect(runtime).toContain('alpine:init')
+    expect(runtime).toContain('"collapse"')
     expect(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repositoryPath, encoding: 'utf8' }).trim()).toBe('1')
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: repositoryPath, encoding: 'utf8' })).toBe('')
   })

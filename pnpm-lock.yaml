@@ -33,6 +33,9 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@alpinejs/collapse':
+        specifier: ^3.15.12
+        version: 3.15.12
       '@playwright/test':
         specifier: 1.61.1
         version: 1.61.1
@@ -89,6 +92,9 @@ packages:
 
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
+
+  '@alpinejs/collapse@3.15.12':
+    resolution: {integrity: sha512-BKNANLtNXuWYOSAnajSKLPjTsmHRNrv0ALFTbpmqt2/klHFooPhctSwkhFVPQb7rZ8BjEKHmNaBwnSbgtpk6xg==}
 
   '@asamuzakjp/css-color@5.1.11':
     resolution: {integrity: sha512-KVw6qIiCTUQhByfTd78h2yD1/00waTmm9uy/R7Ck/ctUyAPj+AEDLkQIdJW0T8+qGgj3j5bpNKK7Q3G+LedJWg==}
@@ -1364,6 +1370,8 @@ packages:
 snapshots:
 
   '@adobe/css-tools@4.5.0': {}
+
+  '@alpinejs/collapse@3.15.12': {}
 
   '@asamuzakjp/css-color@5.1.11':
     dependencies:
