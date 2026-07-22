@@ -346,7 +346,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   readonly fixedProject?: ProjectSummary
   readonly projects?: readonly ProjectSummary[]
   readonly initialProject?: ProjectSummary | null
-  readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => Promise<void>
+  readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
 }) {
   const [prompt, setPrompt] = useState('')
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
@@ -357,6 +357,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   const [cloneModalOpen, setCloneModalOpen] = useState(false)
   const [cloneRemoteUrl, setCloneRemoteUrl] = useState('')
   const [cloneDestinationDirectory, setCloneDestinationDirectory] = useState('')
+  const [attachments, setAttachments] = useState<readonly DesignAttachment[]>([])
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     const pending = window.omnidesign?.settings.getGenerationDefaults?.()
@@ -408,8 +409,9 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
     if (!value || busy) return
     setError(null)
     try {
-      await onCreate(value, selection.providerId, selection.modelId, selection.effort, target())
+      await onCreate(value, selection.providerId, selection.modelId, selection.effort, target(), attachments)
       setPrompt('')
+      setAttachments([])
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to create the design.')
     }
@@ -420,15 +422,20 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
       void submit()
     }
   }
+  const chooseAttachments = async () => {
+    const selected = await window.omnidesign?.workspace.chooseAttachments()
+    if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
+  }
 
   return (
     <section className="new-design-composer" aria-label="Create a design">
       <TextField className="prompt-field" aria-label="What would you like to design?">
         <TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onKeyDown} placeholder="What would you like to design?" />
       </TextField>
+      {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
       <div className="composer-footer">
         <div className="composer-leading">
-          <IconButton label="Attach files or folders" icon={PaperClipIcon} />
+          <IconButton label="Attach files or folders" icon={PaperClipIcon} onPress={() => void chooseAttachments()} />
           {fixedProject
             ? <span className="project-context project-context-fixed">{fixedProject.kind === 'linked' ? <FolderIcon aria-hidden="true" /> : <DocumentDuplicateIcon aria-hidden="true" />}{fixedProject.name}</span>
             : <DropdownButton triggerClassName="project-context" popoverClassName="project-popover" placement="top" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}</>}>
@@ -474,7 +481,7 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   readonly busy: boolean
   readonly activity: GenerationActivity | null
   readonly composerProject: ProjectSummary | null
-  readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => Promise<void>
+  readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
   readonly onOpen: (project: ProjectSummary) => void
 }) {
   return (
@@ -509,7 +516,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly activity: GenerationActivity | null
-  readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => Promise<void>
+  readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
   readonly onOpenDesign: (design: OmniDesignDocument) => void
   readonly onReconnect: (project: ProjectSummary) => Promise<void>
   readonly onConvertToStandalone: (project: ProjectSummary) => Promise<void>
@@ -1025,11 +1032,13 @@ export function App() {
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })
   }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
 
-  const create = async (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => {
+  const create = async (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => {
     if (!workspaceApi) return
     setCreating(true)
     try {
-      const design = await workspaceApi.create(prompt, providerId, modelId, effort ?? undefined, target)
+      const design = attachments.length
+        ? await workspaceApi.create(prompt, providerId, modelId, effort ?? undefined, target, attachments)
+        : await workspaceApi.create(prompt, providerId, modelId, effort ?? undefined, target)
       setActiveDesign(design)
       await refresh()
       if (activeProject) {

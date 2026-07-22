@@ -35,7 +35,7 @@ The active-generations surface now shows the recorded stage, provider/model, ela
 
 ### 4. Attachment completeness
 
-Attachments can be selected in an existing design workspace, but the initial home composer does not yet attach references to the first generation. Enforceable external read-only access remains the more important attachment requirement.
+Attachments can be selected for both initial and follow-up prompts, and their references are retained with queued generation work. Enforceable external read-only access remains the more important attachment requirement.
 
 ### 5. Notifications and settings
 
@@ -55,6 +55,6 @@ The current automated suite does not yet prove all Phase 1 quality gates:
 
 1. Resolve verified external read-only roots for Codex and Claude, or revise the provider pilot architecture with an accepted, documented boundary.
 2. Add project/design association and the remaining project-removal UI.
-3. Complete generation detail, attachment-first-generation, and notification behavior.
+3. Complete generation detail and notification behavior.
 4. Build the missing security, adapter, offline-execution, accessibility, responsiveness, theme, and Electron acceptance tests.
 5. Re-audit every `docs/PHASE_1_SPEC.md` acceptance bullet before declaring Phase 1 complete.

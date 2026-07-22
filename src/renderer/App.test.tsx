@@ -74,6 +74,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
       chooseProjectFolder: vi.fn().mockResolvedValue(null),
+      chooseAttachments: vi.fn().mockResolvedValue([]),
       cancelGeneration: vi.fn().mockResolvedValue(undefined),
       retryGeneration: vi.fn().mockResolvedValue(undefined),
       selectRevision: vi.fn().mockResolvedValue(design),
@@ -281,6 +282,23 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
     expect(bridge.preview.show).toHaveBeenCalled()
     expect(bridge.preview.hide).not.toHaveBeenCalled()
+  })
+
+  it('attaches references to the first generation', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.chooseAttachments).mockResolvedValue([{
+      id: '123e4567-e89b-42d3-a456-426614174000', name: 'reference.pdf', path: 'C:\\references\\reference.pdf', kind: 'file', size: 42, modifiedAt: '2026-07-22T12:00:00.000Z', selectedAt: '2026-07-22T12:00:00.000Z', status: 'available',
+    }])
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files or folders' }))
+    expect(await screen.findByText('reference.pdf')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'What would you like to design?' }), { target: { value: 'Use this reference' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create design' }))
+
+    await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('Use this reference', 'mock', 'mock-v1', undefined, null, [{
+      id: '123e4567-e89b-42d3-a456-426614174000', name: 'reference.pdf', path: 'C:\\references\\reference.pdf', kind: 'file', size: 42, modifiedAt: '2026-07-22T12:00:00.000Z', selectedAt: '2026-07-22T12:00:00.000Z', status: 'available',
+    }]))
   })
 
   it('uses the shared project chooser for associating a standalone design', async () => {
