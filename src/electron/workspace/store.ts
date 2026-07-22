@@ -964,7 +964,10 @@ export class WorkspaceStore {
     }
   }
 
-  public addInvalidCandidate(designId: string, prompt: string, html: string, diagnostic: string): Design {
+  // Records a rejected candidate for diagnostics. A user-facing system message is posted only when
+  // `systemMessage` is provided — intermediate candidates in a repair loop that later succeeds are
+  // recorded silently so they do not clutter the conversation.
+  public addInvalidCandidate(designId: string, prompt: string, html: string, diagnostic: string, systemMessage: string | null = null): Design {
     this.requireDesign(designId)
     const candidateId = randomUUID()
     const now = new Date().toISOString()
@@ -978,8 +981,10 @@ export class WorkspaceStore {
         INSERT INTO invalid_candidates (id, design_id, prompt, candidate_path, diagnostic, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(candidateId, designId, prompt, candidatePath, diagnostic, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'system', `Candidate rejected: ${diagnostic}`, now)
+      if (systemMessage) {
+        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(randomUUID(), designId, 'system', systemMessage, now)
+      }
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
 

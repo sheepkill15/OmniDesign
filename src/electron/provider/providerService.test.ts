@@ -177,8 +177,10 @@ describe('providerFailure', () => {
 
 describe('describeCodexTool', () => {
   it('normalizes common tool actions and excludes provider-only item types', () => {
-    expect(describeCodexTool({ item: { type: 'commandExecution', command: 'pnpm test' } })).toBe('Command: pnpm test')
-    expect(describeCodexTool({ item: { type: 'webSearch', query: 'accessible dialogs' } })).toBe('Web search: accessible dialogs')
+    // Tool activities are normalized to short, non-technical phrases (no command text or query).
+    expect(describeCodexTool({ item: { type: 'commandExecution', command: 'pnpm test' } })).toBe('Running a command')
+    expect(describeCodexTool({ item: { type: 'fileChange' } })).toBe('Editing the design')
+    expect(describeCodexTool({ item: { type: 'webSearch', query: 'accessible dialogs' } })).toBe('Looking something up')
     expect(describeCodexTool({ item: { type: 'reasoning', summary: ['Thinking'] } })).toBeUndefined()
     expect(describeCodexTool({ item: { type: 'agentMessage', text: 'Done' } })).toBeUndefined()
   })

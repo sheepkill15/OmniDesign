@@ -24,6 +24,7 @@ import {
   ArrowTopRightOnSquareIcon,
   ChatBubbleLeftRightIcon,
   WindowIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
@@ -274,6 +275,16 @@ function GenerationActivitySection({ className = 'conversation-activity', id, st
 // reads as an avatar-led narrative, so the two sides of the exchange are distinguishable at a glance
 // without wrapping every generation event in a card.
 function ConversationMessage({ message, onOpenAttachment }: { readonly message: DesignMessage; readonly onOpenAttachment: (attachment: DesignAttachment) => void }) {
+  // System notices from OmniDesign itself read as a quiet inline note — visibly distinct from both the
+  // user's prompt bubble and the design agent's reply, so it is clear the app is speaking, not the agent.
+  if (message.role === 'system') {
+    return (
+      <div className="conversation-system" role="note">
+        <InformationCircleIcon aria-hidden="true" />
+        <p>{message.text}</p>
+      </div>
+    )
+  }
   const isUser = message.role === 'user'
   return (
     <article className={`conversation-message message-${message.role}`}>
@@ -1016,6 +1027,10 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
+  // Only surface a rejected candidate while it is still the design's latest outcome. Once a later
+  // revision lands (e.g. a repair attempt succeeded), the rejection is history, not a current problem.
+  const latestRevision = design.revisions.at(-1)
+  const invalidCandidateVisible = latestInvalidCandidate && (!latestRevision || latestInvalidCandidate.createdAt > latestRevision.createdAt)
   const runningJob = design.generationJobs.find((job) => job.state === 'running')
   const queuedJobs = design.generationJobs.filter((job) => job.state === 'queued')
   const activeJob = runningJob ?? queuedJobs[0]
@@ -1271,10 +1286,10 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
         {queuedJobs.length > 0 && <section className="workspace-queue" aria-label="Queued prompts"><header><span><strong>{queuedJobs.length} queued prompt{queuedJobs.length === 1 ? '' : 's'}</strong><small>{design.queuePaused ? 'Waiting for you to resume generation' : runningJob ? 'Runs after the current request' : 'Waiting to start'}</small></span>{design.queuePaused && !retryableJob && <Button className="secondary-action" onPress={() => void resumeGenerationQueue()}>Resume queue</Button>}</header>{queuedJobs.map((job) => <article key={job.id}><span><strong>{job.prompt}</strong><small>{job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`}</small></span><Button className="text-button" onPress={() => void removeGeneration(job.id)}>Remove</Button></article>)}</section>}
         {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
         {!runningJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
-        {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
-          <strong>Latest candidate was not activated</strong>
-          <p>{latestInvalidCandidate.diagnostic}</p>
-          <details><summary>Technical details</summary><pre>{latestInvalidCandidate.html}</pre></details>
+        {invalidCandidateVisible && <section className="invalid-candidate-notice" role="status">
+          <strong>This version wasn’t applied</strong>
+          <p>OmniDesign kept your last working design.</p>
+          <details><summary>What went wrong</summary><p>{latestInvalidCandidate!.diagnostic}</p></details>
         </section>}
         {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
         {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}

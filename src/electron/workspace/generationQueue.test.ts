@@ -120,7 +120,7 @@ describe('GenerationQueue', () => {
 
     await waitFor(() => store.getGenerationJob(job.id)?.state === 'completed')
     expect(attempts).toBe(4)
-    expect(activity).toEqual(expect.arrayContaining(['Provider connection failed. Retrying (1 of 3)…', 'Provider connection failed. Retrying (2 of 3)…', 'Provider connection failed. Retrying (3 of 3)…']))
+    expect(activity).toEqual(expect.arrayContaining(['Connection issue — trying again (1 of 3)…', 'Connection issue — trying again (2 of 3)…', 'Connection issue — trying again (3 of 3)…']))
     store.close()
   })
 

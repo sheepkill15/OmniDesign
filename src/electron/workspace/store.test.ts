@@ -167,13 +167,17 @@ describe('WorkspaceStore', () => {
   it('persists invalid candidates outside completed revisions', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    store.addInvalidCandidate(created.id, 'Unsafe change', '<html><body><script>bad()</script></body></html>', 'Unsafe script.')
+    // Intermediate candidates are recorded silently; a final failure passes a user-facing system message.
+    store.addInvalidCandidate(created.id, 'Silent repair attempt', '<html><body></body></html>', 'Needs repair.')
+    store.addInvalidCandidate(created.id, 'Unsafe change', '<html><body><script>bad()</script></body></html>', 'Unsafe script.', 'OmniDesign couldn’t finish this design.')
     store.close()
 
     const reopened = new WorkspaceStore(directory)
     const recovered = reopened.getDesign(created.id)
     expect(recovered?.revisions).toHaveLength(0)
-    expect(recovered?.invalidCandidates).toMatchObject([{ prompt: 'Unsafe change', diagnostic: 'Unsafe script.' }])
+    expect(recovered?.invalidCandidates).toMatchObject([{ prompt: 'Silent repair attempt' }, { prompt: 'Unsafe change', diagnostic: 'Unsafe script.' }])
+    // Only the announced (final) candidate posts a system message.
+    expect(recovered?.messages.filter((message) => message.role === 'system')).toHaveLength(1)
     expect(recovered?.messages.at(-1)?.role).toBe('system')
     reopened.close()
   })

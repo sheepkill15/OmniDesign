@@ -40,6 +40,9 @@ import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
 const developmentProviderEnabled = Boolean(developmentServerUrl || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1')
+// Lets automated (e2e) runs suppress OS notifications so completing generations do not fire real
+// Windows toasts during the test suite.
+const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS === '1'
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let preview: PreviewController | null = null
@@ -161,7 +164,7 @@ function recordActivity(activity: GenerationActivity): void {
   // A user-initiated cancel needs no toast, and nothing is announced while the window is focused (the
   // user is already watching this generation).
   const windowFocused = mainWindow != null && !mainWindow.isDestroyed() && mainWindow.isFocused()
-  if (workspaceStore?.getNotificationsEnabled() && Notification.isSupported() && !windowFocused && ['complete', 'failed', 'interrupted'].includes(activity.stage)) {
+  if (!notificationsSuppressed && workspaceStore?.getNotificationsEnabled() && Notification.isSupported() && !windowFocused && ['complete', 'failed', 'interrupted'].includes(activity.stage)) {
     const title = workspaceStore.getDesign(activity.designId)?.title ?? 'Design generation'
     new Notification({ title: 'OmniDesign', body: `${title}: ${activity.detail}` }).show()
   }
@@ -502,7 +505,7 @@ void app.whenReady().then(() => {
       let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
       let providerSessionId = job.providerSessionId ?? undefined
       for (let attempt = 0; attempt < 4; attempt += 1) {
-        onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? `Starting ${job.providerId} in the design's Git repository.` : `Starting repair ${attempt} of 3.` })
+        onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? 'Starting the design agent.' : `Making improvements (round ${attempt} of 3).` })
         const reply = await providers.runDesignAgent({
           requestId: `${job.id}-${attempt}`,
           providerId: job.providerId,
@@ -519,11 +522,12 @@ void app.whenReady().then(() => {
             providerSessionId = activity.sessionId
             store.saveGenerationJobSession(job.id, activity.sessionId)
           }
-          // Streamed response tokens ('text') are raw partial output — JSON, for the agent path — and
-          // are captured whole in the final assistant message. Logging each as its own milestone flooded
-          // the conversation with one entry per token and triggered a renderer refresh per token. Keep
-          // only meaningful milestones (tool actions, results, status, diagnostics) in the activity log.
-          if (activity.kind === 'text') return
+          // Keep only meaningful milestones in the conversation. Streamed response tokens ('text') are
+          // raw partial output (JSON, for the agent path) captured whole in the final message, and
+          // provider lifecycle chatter ('status': init/hooks/thinking) is internal noise — both flooded
+          // the feed and triggered a renderer refresh per event. Tool actions, results, and diagnostics
+          // remain.
+          if (activity.kind === 'text' || activity.kind === 'status') return
           onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: activity.detail ?? activity.label })
         })
         if (reply.sessionId && reply.sessionId !== providerSessionId) {

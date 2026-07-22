@@ -8,7 +8,7 @@ import type {
   ProviderAdapterStatus,
 } from './providerAdapter.js'
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
-import { formatTokenCount, isObject, providerFailure, readFiniteNumber, titleCase } from './providerUtils.js'
+import { formatTokenCount, friendlyToolAction, isObject, providerFailure, readFiniteNumber, titleCase } from './providerUtils.js'
 
 const COMMAND_TIMEOUT_MS = 12_000
 
@@ -141,10 +141,13 @@ export class ClaudeAdapter implements ProviderAdapter {
     }
     if ((type === 'assistant' || type === 'user') && isObject(event.message) && Array.isArray(event.message.content)) {
       const blocks = event.message.content.filter(isObject)
-      const tool = blocks.find((block) => block.type === 'tool_use' || block.type === 'tool_result')
+      // A tool_result is the outcome of the preceding tool_use; showing it separately (with its full
+      // file/command output) is noise for a non-technical user, so it is merged away by dropping it.
+      if (blocks.some((block) => block.type === 'tool_result')) return undefined
+      const tool = blocks.find((block) => block.type === 'tool_use')
       if (tool) {
-        const toolName = typeof tool.name === 'string' ? tool.name : typeof tool.type === 'string' ? tool.type : 'tool'
-        return { kind: 'tool', label: 'Agent action', detail: `${toolName}: ${JSON.stringify(tool.input ?? tool.content ?? {})}` }
+        const toolName = typeof tool.name === 'string' ? tool.name : 'tool'
+        return { kind: 'tool', label: 'Agent action', detail: friendlyToolAction(toolName) }
       }
       const text = blocks.find((block) => block.type === 'text' && typeof block.text === 'string')?.text
       return typeof text === 'string' ? { kind: 'text', label: 'Response update', detail: text } : undefined

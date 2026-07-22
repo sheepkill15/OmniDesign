@@ -873,8 +873,46 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Latest candidate was not activated')
-    expect(screen.getByText('Technical details')).toBeInTheDocument()
+    expect(await screen.findByText(/wasn.t applied/)).toBeInTheDocument()
+    expect(screen.getByText('What went wrong')).toBeInTheDocument()
+  })
+
+  it('hides the rejected-version notice once a newer revision supersedes it', async () => {
+    const repaired: OmniDesignDocument = {
+      ...design,
+      invalidCandidates: [{ id: 'candidate-1', prompt: 'x', html: '<p>', diagnostic: 'Needs repair.', createdAt: '2026-07-20T10:00:30.000Z' }],
+      revisions: [{ ...design.revisions[0], createdAt: '2026-07-20T10:01:00.000Z' }],
+    }
+    installBridge([], repaired)
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    await screen.findByRole('region', { name: 'Design conversation' })
+    expect(screen.queryByText(/wasn.t applied/)).not.toBeInTheDocument()
+  })
+
+  it('renders an OmniDesign system notice distinctly from the agent reply', async () => {
+    const withSystem: OmniDesignDocument = {
+      ...design,
+      messages: [
+        { id: 'm1', role: 'user', text: 'make it', createdAt: '2026-07-20T10:00:00.000Z' },
+        { id: 'm2', role: 'assistant', text: 'Here is your design.', createdAt: '2026-07-20T10:00:01.000Z' },
+        { id: 'm3', role: 'system', text: 'OmniDesign kept your last working design.', createdAt: '2026-07-20T10:00:02.000Z' },
+      ],
+    }
+    installBridge([], withSystem)
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    const note = await screen.findByRole('note')
+    expect(note).toHaveTextContent('OmniDesign kept your last working design.')
+    // The system note is not attributed to the agent, unlike the assistant reply.
+    expect(within(note).queryByText('OmniDesign', { exact: true })).not.toBeInTheDocument()
+    expect(screen.getByText('Here is your design.')).toBeInTheDocument()
   })
 
   it('resizes the workspace with its keyboard-operable divider', async () => {

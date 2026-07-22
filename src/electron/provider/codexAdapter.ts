@@ -9,7 +9,7 @@ import type {
   ProviderAdapterStatus,
 } from './providerAdapter.js'
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
-import { formatTokenCount, isObject, readFiniteNumber, titleCase } from './providerUtils.js'
+import { formatTokenCount, friendlyToolAction, isObject, readFiniteNumber, titleCase } from './providerUtils.js'
 
 function runtimeRoots(request: ProviderAdapterPrompt): string[] {
   return [...new Set([...(request.workspacePath ? [request.workspacePath] : []), ...(request.referencePaths ?? [])])]
@@ -200,18 +200,25 @@ export function describeCodexUsage(params: unknown): string | undefined {
   return parts.length ? parts.join(' · ') : undefined
 }
 
+// Short, non-technical phrase for a Codex tool activity. The command text, file paths, and tool
+// identifiers are intentionally omitted — a non-technical user cares about the intent, not the details.
 export function describeCodexTool(params: unknown): string | undefined {
   if (!isObject(params) || !isObject(params.item) || typeof params.item.type !== 'string') return undefined
-  const item = params.item
-  if (item.type === 'commandExecution') return typeof item.command === 'string' ? `Command: ${item.command}` : 'Command execution'
-  if (item.type === 'fileChange') return 'File change'
-  if (item.type === 'mcpToolCall') {
-    const name = [item.server, item.tool].filter((value) => typeof value === 'string').join('/')
-    return name || 'MCP tool call'
+  switch (params.item.type) {
+    case 'commandExecution':
+      return friendlyToolAction('bash')
+    case 'fileChange':
+      return friendlyToolAction('edit')
+    case 'webSearch':
+      return friendlyToolAction('websearch')
+    case 'imageGeneration':
+      return 'Creating an image'
+    case 'imageView':
+      return friendlyToolAction('read')
+    case 'mcpToolCall':
+    case 'dynamicToolCall':
+      return friendlyToolAction('')
+    default:
+      return undefined
   }
-  if (item.type === 'dynamicToolCall') return typeof item.tool === 'string' ? item.tool : 'Tool call'
-  if (item.type === 'webSearch') return typeof item.query === 'string' ? `Web search: ${item.query}` : 'Web search'
-  if (item.type === 'imageView') return 'View image'
-  if (item.type === 'imageGeneration') return 'Generate image'
-  return undefined
 }
