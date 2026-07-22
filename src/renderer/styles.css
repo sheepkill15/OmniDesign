@@ -974,6 +974,20 @@ button:disabled,
 .clone-modal-note { font-size: 12px; }
 .clone-modal-note code { color: var(--text); }
 .clone-modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.clone-confirm-action {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.clone-confirm-action:hover:not([data-disabled]) { border-color: var(--accent-strong); background: var(--accent-strong); }
+.clone-confirm-action[data-focus-visible] { outline: 2px solid var(--focus); outline-offset: 2px; }
+.clone-confirm-action[data-disabled] { opacity: .42; cursor: not-allowed; }
 
 .attachment-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
 .attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 12px; }

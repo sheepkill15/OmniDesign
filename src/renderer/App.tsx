@@ -440,7 +440,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
                 <div className="clone-destination"><TextField aria-label="Destination folder"><Input value={cloneDestinationDirectory} onChange={(event) => setCloneDestinationDirectory(event.target.value)} placeholder="Destination folder" /></TextField><Button className="secondary-action" onPress={() => void chooseCloneDestination()}>Choose folder</Button></div>
               </div>
               <p className="clone-modal-note">For example, <code>project.git</code> will be cloned to a new <code>project</code> folder inside the destination.</p>
-              <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="primary-action" isDisabled={!cloneRemoteUrl.trim() || !cloneDestinationDirectory} onPress={confirmCloneTarget}>Use repository</Button></div>
+              <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" isDisabled={!cloneRemoteUrl.trim() || !cloneDestinationDirectory} onPress={confirmCloneTarget}>Use repository</Button></div>
             </>}
       </AppModal>
     </section>
