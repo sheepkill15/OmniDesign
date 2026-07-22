@@ -61,3 +61,61 @@ test('creates and recovers a standalone design in the built Electron app', async
     await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+test('opens the layout menu and dismisses it', async () => {
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const run = await launchWorkspace(userDataDirectory)
+    activeApp = run.app
+    const prompt = run.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('A calm analytics dashboard')
+    await prompt.press('Enter')
+    await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+
+    await run.window.getByRole('button', { name: /Layout/ }).click()
+    const conversationOnly = run.window.getByRole('menuitem', { name: 'Conversation only' })
+    await expect(conversationOnly).toBeVisible()
+
+    // The modal menu closes on Escape (and, via its underlay, on any outside click).
+    await run.window.keyboard.press('Escape')
+    await expect(conversationOnly).toHaveCount(0)
+    await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+
+    await run.app.close()
+    activeApp = null
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('pops the preview into its own window and docks it back', async () => {
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const run = await launchWorkspace(userDataDirectory)
+    activeApp = run.app
+    const prompt = run.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('A calm analytics dashboard')
+    await prompt.press('Enter')
+    await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    const dockedWindowCount = run.app.windows().length
+
+    await run.window.getByRole('button', { name: /Layout/ }).click()
+    await run.window.getByRole('menuitem', { name: 'Pop out preview' }).click()
+
+    await expect.poll(() => run.app.windows().length).toBeGreaterThan(dockedWindowCount)
+    await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toHaveCount(0)
+
+    await run.window.getByRole('button', { name: 'Dock preview' }).click()
+    await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await expect(run.window.getByRole('button', { name: 'Dock preview' })).toHaveCount(0)
+
+    await run.app.close()
+    activeApp = null
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})

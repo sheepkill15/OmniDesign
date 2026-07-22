@@ -1,11 +1,17 @@
 import { compileTailwindCss, validateCompiledDesign } from './compiler.js'
-import type { Design, GenerationActivity, GenerationSelection, Layout, Theme } from './contracts.js'
+import type { Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
+
+/** Where a new design should live: an existing project, a linked source folder, or a fresh standalone project. */
+export interface CreateDesignTarget {
+  readonly projectId?: string | null
+  readonly sourceProjectPath?: string | null
+}
 
 export class WorkspaceService {
   private readonly repositories: DesignRepositoryManager
@@ -18,8 +24,24 @@ export class WorkspaceService {
     return this.store.listDesigns()
   }
 
+  public listProjects(): ProjectSummary[] {
+    return this.store.listProjects()
+  }
+
+  public getProject(projectId: string): { readonly project: ProjectSummary; readonly designs: Design[] } | null {
+    const project = this.store.getProjectSummary(projectId)
+    if (!project) return null
+    return { project, designs: this.store.listDesignsByProject(projectId) }
+  }
+
   public getDesign(designId: string): Design | null {
     return this.store.getDesign(designId)
+  }
+
+  private createDesignRecord(prompt: string, title: string, target: CreateDesignTarget | undefined): Design {
+    if (target?.projectId) return this.store.createDesignInProject(target.projectId, prompt, title)
+    if (target?.sourceProjectPath) return this.store.createLinkedDesign(prompt, title, target.sourceProjectPath)
+    return this.store.createStandaloneDesign(prompt, title)
   }
 
   public getDesignRepositoryPath(designId: string): string {
@@ -27,21 +49,17 @@ export class WorkspaceService {
     return this.repositories.getPath(designId)
   }
 
-  public async createDesign(prompt: string, onActivity: ActivityListener, sourceProjectPath?: string | null): Promise<Design> {
+  public async createDesign(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget): Promise<Design> {
     const generated = generateMockDesign(prompt)
-    const design = sourceProjectPath
-      ? this.store.createLinkedDesign(prompt, generated.title, sourceProjectPath)
-      : this.store.createStandaloneDesign(prompt, generated.title)
+    const design = this.createDesignRecord(prompt, generated.title, target)
     onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up design repository…' })
     this.repositories.initialize(design.id)
     return this.generate(design.id, prompt, onActivity, generated.html, false)
   }
 
-  public createAgentDesignShell(prompt: string, onActivity: ActivityListener, sourceProjectPath?: string | null): Design {
+  public createAgentDesignShell(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget): Design {
     const generated = generateMockDesign(prompt)
-    const design = sourceProjectPath
-      ? this.store.createLinkedDesign('', generated.title, sourceProjectPath)
-      : this.store.createStandaloneDesign('', generated.title)
+    const design = this.createDesignRecord('', generated.title, target)
     onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up design repository…' })
     this.repositories.initialize(design.id)
     return design

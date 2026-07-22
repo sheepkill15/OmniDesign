@@ -193,7 +193,7 @@ All selection primitives must implement the applicable WAI-ARIA pattern and be t
 - Pointer, keyboard, screen-reader, high-contrast, zoom, and reduced-motion behavior.
 - Popup collision handling and visibility in small or resized windows.
 
-Do not create feature-local dropdown implementations. Provider, model, project, history, and other selectors must share the same tested primitives, with modes or composition used for legitimate differences.
+Do not create feature-local dropdown implementations. Provider, model, project, history, and other selectors must share the same tested primitives, with modes or composition used for legitimate differences. The shared `DropdownButton` (a React Aria `MenuTrigger`/`Popover`) backs every trusted-UI dropdown. It is modal by default: while a menu is open the rest of the workspace is inert, which is accepted. Dropdowns that open over the isolated generated-design preview must freeze and detach the native preview layer while open (via `onOpenChange`) so the menu is not occluded and does not contend with the preview for focus.
 
 ### Buttons
 

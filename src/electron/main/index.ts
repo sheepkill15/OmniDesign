@@ -11,6 +11,7 @@ import {
   generationSelectionSchema,
   generationStageLabel,
   previewRequestSchema,
+  projectIdRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
@@ -132,6 +133,9 @@ function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewCon
       store.saveThumbnail(designId, revisionId, png)
       window.webContents.send('preview:thumbnail', { designId, revisionId })
     },
+    (designId) => {
+      if (!window.isDestroyed()) window.webContents.send('preview:popped-in', { designId })
+    },
   )
 }
 
@@ -159,15 +163,24 @@ function registerIpc(): void {
     authorize(event)
     const request = createDesignRequestSchema.parse(value)
     const selection = { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null }
+    const target = { projectId: request.projectId ?? null, sourceProjectPath: request.sourceProjectPath ?? null }
     if (request.providerId === 'mock') {
-      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, request.sourceProjectPath)
+      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, target)
       requireWorkspace().rememberSelection(design.id, selection)
       return requireWorkspace().getDesign(design.id) ?? design
     }
-    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, request.sourceProjectPath)
+    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target)
     requireWorkspace().rememberSelection(design.id, selection)
     requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort)
     return requireWorkspace().getDesign(design.id) ?? design
+  })
+  ipcMain.handle('workspace:list-projects', (event) => {
+    authorize(event)
+    return requireWorkspace().listProjects()
+  })
+  ipcMain.handle('workspace:get-project', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().getProject(projectIdRequestSchema.parse(value).projectId)
   })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
@@ -240,9 +253,23 @@ function registerIpc(): void {
     authorize(event)
     preview?.resize(previewRequestSchema.shape.bounds.parse(value))
   })
+  ipcMain.handle('preview:pop-out', (event, value: unknown) => {
+    authorize(event)
+    const request = selectRevisionRequestSchema.parse(value)
+    const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
+    preview?.popOut(request.designId, request.revisionId, files)
+  })
   ipcMain.handle('preview:hide', (event) => {
     authorize(event)
     preview?.hide()
+  })
+  ipcMain.handle('preview:set-suspended', (event, value: unknown) => {
+    authorize(event)
+    preview?.setSuspended(value === true)
+  })
+  ipcMain.handle('preview:freeze', (event) => {
+    authorize(event)
+    return preview?.freeze() ?? null
   })
   ipcMain.handle('workspace:export', async (event, value: unknown) => {
     authorize(event)

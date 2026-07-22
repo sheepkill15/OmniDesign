@@ -212,8 +212,7 @@ button:disabled,
   gap: 2px;
 }
 
-.navigation-item,
-.project-row {
+.navigation-item {
   width: 100%;
   height: 36px;
   display: grid;
@@ -231,22 +230,201 @@ button:disabled,
   font-weight: 500;
 }
 
-.navigation-item:hover,
-.project-row:hover {
+.navigation-item:hover {
   background: var(--surface-2);
   color: var(--text);
 }
 
-.navigation-item[data-active],
-.project-row[data-active] {
+.navigation-item[data-active] {
   background: var(--surface-selected);
   color: var(--text);
 }
 
-.navigation-item svg,
-.project-row svg {
+.navigation-item svg {
   width: 18px;
   stroke-width: 1.7;
+}
+
+.project-nav-item {
+  display: grid;
+  gap: 2px;
+}
+
+.project-nav-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  border-radius: var(--radius-control);
+  color: var(--text-subtle);
+}
+
+.project-nav-row[data-standalone] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.project-nav-row:hover {
+  background: var(--surface-2);
+}
+
+.project-nav-row[data-active] {
+  background: var(--surface-selected);
+}
+
+.project-disclosure {
+  width: 22px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.project-disclosure svg {
+  width: 13px;
+  stroke-width: 2;
+  transition: transform 120ms ease;
+}
+
+.project-disclosure svg[data-expanded] {
+  transform: rotate(90deg);
+}
+
+.project-open {
+  min-width: 0;
+  height: 34px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.project-nav-row:hover .project-open,
+.project-nav-row[data-active] .project-open {
+  color: var(--text);
+}
+
+.project-open svg {
+  width: 18px;
+  stroke-width: 1.7;
+}
+
+.project-open span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-trailing {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 34px;
+  margin-right: 6px;
+}
+
+.project-count {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 100ms ease;
+}
+
+.project-add {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.project-add svg {
+  width: 15px;
+  stroke-width: 2;
+}
+
+.project-add:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.project-add[data-focus-visible] {
+  opacity: 1;
+  pointer-events: auto;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.project-nav-row:hover .project-count,
+.project-nav-row:focus-within .project-count {
+  opacity: 0;
+}
+
+.project-nav-row:hover .project-add,
+.project-nav-row:focus-within .project-add {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.design-sublist {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 2px 22px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.design-subrow {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+
+.design-subrow:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.design-subrow[data-active] {
+  background: var(--surface-selected);
+  color: var(--text);
+}
+
+.design-subrow span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.design-sublist-empty {
+  margin: 4px 8px;
+  color: var(--text-faint);
+  font-size: 11px;
 }
 
 .navigation-badge {
@@ -458,10 +636,8 @@ button:disabled,
 
 .generation-settings-button {
   height: 34px;
-  /* Fixed width keeps the button's edges stable so the settings popover (anchored to the button)
-     does not drift sideways when the selected provider/model label changes length. */
-  width: 248px;
-  flex: 0 0 auto;
+  max-width: min(248px, 42vw);
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -486,11 +662,12 @@ button:disabled,
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   background: var(--surface-1);
-  box-shadow: 0 18px 40px rgb(0 0 0 / 22%);
+  box-shadow: var(--shadow-overlay);
 }
 
 .generation-settings-popover { min-width: 660px; }
 .project-popover { min-width: 260px; }
+.project-popover.layout-menu { min-width: 208px; }
 
 .generation-settings-columns {
   display: grid;
@@ -503,7 +680,7 @@ button:disabled,
 .generation-settings-column h2 { margin: 0 5px 8px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
 .generation-settings-menu,
-.project-popover [role='menu'] { padding: 5px; outline: none; }
+.project-popover [role='menu'] { display: grid; gap: 2px; padding: 5px; outline: none; }
 
 .generation-settings-menu [role='menuitem'],
 .project-popover [role='menuitem'] {
@@ -523,7 +700,12 @@ button:disabled,
 .generation-settings-menu [role='menuitem'][data-focused],
 .project-popover [role='menuitem'][data-focused] { background: var(--surface-3); color: var(--text); }
 .generation-settings-menu [role='menuitem'][data-disabled] { color: var(--text-faint); cursor: default; }
-.generation-settings-menu svg { width: 15px; color: var(--success); }
+.generation-settings-menu [role='menuitem'] svg,
+.project-popover [role='menuitem'] > svg { width: 15px; flex: 0 0 auto; color: var(--success); }
+.project-popover [role='menuitem'] > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.project-popover [role='menuitem'] > span svg { width: 16px; flex: 0 0 auto; color: var(--text-faint); }
+.project-popover-section { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+.project-popover-header { display: block; padding: 6px 9px 3px; color: var(--text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
 .effort-control { display: grid; align-content: start; gap: 10px; padding-inline: 14px; }
 .effort-control > span, .effort-labels { color: var(--text-subtle); font-size: 11px; }
@@ -1004,6 +1186,120 @@ button:disabled,
   font-size: 12px;
 }
 
+.project-context-fixed {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.project-context-fixed svg {
+  width: 16px;
+  color: var(--text-faint);
+}
+
+.design-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+.design-card {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-1);
+  cursor: pointer;
+  text-align: left;
+}
+
+.design-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.design-card-thumb {
+  display: block;
+  aspect-ratio: 16 / 10;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.design-card-thumb .mini-preview,
+.design-card-thumb .mini-preview-image {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.design-card-body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px 14px;
+}
+
+.design-card-body strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.design-card-body small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.design-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.design-card-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.design-card-status {
+  justify-self: start;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.design-card-status[data-busy] {
+  background: var(--surface-accent);
+  color: var(--accent-strong);
+}
+
 .workspace-main {
   min-width: 0;
   min-height: 0;
@@ -1074,24 +1370,30 @@ button:disabled,
   width: 15px;
 }
 
+/* Caret appended to every DropdownButton trigger; rotates while the React Aria menu is open. */
+.dropdown-caret {
+  width: 14px;
+  flex: 0 0 auto;
+  transition: transform 140ms ease;
+}
+
+button[aria-expanded="true"] .dropdown-caret {
+  transform: rotate(180deg);
+}
+
+/* Revision-history popover: its own base so the rich rows are not constrained by the generic
+   menu-item styling. Rows highlight via React Aria's data-focused (pointer hover and keyboard). */
 .history-popover {
-  position: absolute;
-  top: 42px;
-  left: 52px;
-  width: 320px;
-  display: grid;
-  gap: 4px;
-  padding: 10px;
+  min-width: 320px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
-  background: var(--surface-2);
+  background: var(--surface-1);
   box-shadow: var(--shadow-overlay);
 }
 
-.history-popover > strong {
-  padding: 5px 7px 8px;
-  font-size: 12px;
-}
+.history-popover [role='menu'] { display: grid; gap: 2px; padding: 6px; outline: none; }
 
 .history-row {
   display: grid;
@@ -1105,10 +1407,12 @@ button:disabled,
   color: var(--text-subtle);
   text-align: left;
   cursor: pointer;
+  outline: none;
 }
 
 .history-row:hover,
-.history-row[data-active] {
+.history-row[data-focused],
+.history-row-active {
   background: var(--surface-selected);
   color: var(--text);
 }
@@ -1153,6 +1457,50 @@ button:disabled,
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(380px, 43%) 8px minmax(0, 1fr);
+}
+
+.preview-freeze {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.workspace-single {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-single .conversation-pane,
+.workspace-single .preview-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-right: 0;
+}
+
+.popped-preview-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-subtle);
+  font-size: 13px;
+}
+
+.popped-preview-note svg {
+  width: 18px;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.popped-preview-note .secondary-action {
+  margin-left: auto;
 }
 
 .workspace-divider {
@@ -1383,6 +1731,7 @@ button:disabled,
 }
 
 .preview-surface {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: grid;

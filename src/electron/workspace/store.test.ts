@@ -68,11 +68,11 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
-  it('keeps linked source metadata separate from managed design artifacts', () => {
+  it('names a linked project after its source folder while keeping metadata separate from artifacts', () => {
     const { store } = createStore()
-    const linked = store.createLinkedDesign('First', 'Existing app', 'C:\\projects\\existing-app')
+    const linked = store.createLinkedDesign('First', 'A calm dashboard', 'C:\\projects\\existing-app')
 
-    expect(linked).toMatchObject({ projectName: 'Existing app', sourceProjectPath: 'C:\\projects\\existing-app' })
+    expect(linked).toMatchObject({ title: 'A calm dashboard', projectName: 'existing-app', sourceProjectPath: 'C:\\projects\\existing-app' })
     store.close()
   })
 
@@ -93,15 +93,22 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
-  it('persists the workspace divider layout across reopen', () => {
+  it('persists the workspace layout mode and divider across reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    store.saveLayout(created.id, { conversationWidth: 57 })
+    store.saveLayout(created.id, { conversationWidth: 57, mode: 'preview' })
     store.close()
 
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id)?.layout).toEqual({ conversationWidth: 57 })
+    expect(reopened.getDesign(created.id)?.layout).toEqual({ conversationWidth: 57, mode: 'preview' })
     reopened.close()
+  })
+
+  it('defaults the layout mode to split for designs saved before the mode existed', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    expect(store.getDesign(created.id)?.layout).toEqual({ conversationWidth: 43, mode: 'split' })
+    store.close()
   })
 
   it('stores a generated thumbnail outside the immutable revision snapshot', () => {
@@ -144,6 +151,40 @@ describe('WorkspaceStore', () => {
     expect(recovered?.invalidCandidates).toMatchObject([{ prompt: 'Unsafe change', diagnostic: 'Unsafe script.' }])
     expect(recovered?.messages.at(-1)?.role).toBe('system')
     reopened.close()
+  })
+
+  it('groups designs under first-class projects and aggregates their activity', () => {
+    const { store } = createStore()
+    const first = store.createStandaloneDesign('A calm dashboard', 'Calm dashboard')
+    store.createDesignInProject(first.projectId, 'A settings screen', 'Settings screen')
+
+    const projects = store.listProjects()
+    const project = projects.find((candidate) => candidate.id === first.projectId)
+    expect(project).toMatchObject({ name: 'Calm dashboard', kind: 'standalone', designCount: 2 })
+    expect(store.listDesignsByProject(first.projectId).map((design) => design.title)).toEqual(expect.arrayContaining(['Calm dashboard', 'Settings screen']))
+    store.close()
+  })
+
+  it('reuses an existing linked project when the same folder is opened again', () => {
+    const { store } = createStore()
+    const first = store.createLinkedDesign('First', 'Existing app', 'C:\\projects\\existing-app')
+    const second = store.createLinkedDesign('Second', 'Existing app', 'C:\\projects\\existing-app')
+
+    expect(second.projectId).toBe(first.projectId)
+    const projects = store.listProjects()
+    expect(projects.filter((candidate) => candidate.sourceProjectPath === 'C:\\projects\\existing-app')).toHaveLength(1)
+    expect(projects.find((candidate) => candidate.id === first.projectId)?.designCount).toBe(2)
+    store.close()
+  })
+
+  it('reports the summary for a single project with its most recent design', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('A calm dashboard', 'Calm dashboard')
+
+    const summary = store.getProjectSummary(created.projectId)
+    expect(summary).toMatchObject({ id: created.projectId, name: 'Calm dashboard', designCount: 1, latestDesignTitle: 'Calm dashboard', latestPrompt: 'A calm dashboard' })
+    expect(store.getProjectSummary('missing-project')).toBeNull()
+    store.close()
   })
 
   it('persists the selected application theme across reopen', () => {

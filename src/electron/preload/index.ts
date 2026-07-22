@@ -14,8 +14,10 @@ contextBridge.exposeInMainWorld('omnidesign', {
   },
   workspace: {
     list: () => ipcRenderer.invoke('workspace:list'),
+    listProjects: () => ipcRenderer.invoke('workspace:list-projects'),
+    getProject: (projectId: string) => ipcRenderer.invoke('workspace:get-project', { projectId }),
     get: (designId: string) => ipcRenderer.invoke('workspace:get', { designId }),
-    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, sourceProjectPath?: string | null) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: sourceProjectPath ?? null }),
+    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, target?: { sourceProjectPath?: string | null; projectId?: string | null } | null) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: target?.sourceProjectPath ?? null, projectId: target?.projectId ?? null }),
     generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null }),
     chooseProjectFolder: () => ipcRenderer.invoke('workspace:choose-project-folder'),
     cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),
@@ -42,6 +44,9 @@ contextBridge.exposeInMainWorld('omnidesign', {
     show: (request: PreviewRequest) => ipcRenderer.invoke('preview:show', request),
     resize: (bounds: PreviewRequest['bounds']) => ipcRenderer.invoke('preview:resize', bounds),
     hide: () => ipcRenderer.invoke('preview:hide'),
+    popOut: (request: { designId: string; revisionId: string }) => ipcRenderer.invoke('preview:pop-out', request),
+    setSuspended: (suspended: boolean) => ipcRenderer.invoke('preview:set-suspended', suspended),
+    freeze: () => ipcRenderer.invoke('preview:freeze'),
     onDiagnostic: (listener: (event: { designId: string; revisionId: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, diagnostic: { designId: string; revisionId: string }) => listener(diagnostic)
       ipcRenderer.on('preview:diagnostic', handler)
@@ -51,6 +56,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
       const handler = (_event: Electron.IpcRendererEvent, thumbnail: { designId: string; revisionId: string }) => listener(thumbnail)
       ipcRenderer.on('preview:thumbnail', handler)
       return () => ipcRenderer.removeListener('preview:thumbnail', handler)
+    },
+    onPoppedIn: (listener: (event: { designId: string }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: { designId: string }) => listener(payload)
+      ipcRenderer.on('preview:popped-in', handler)
+      return () => ipcRenderer.removeListener('preview:popped-in', handler)
     },
   },
 })

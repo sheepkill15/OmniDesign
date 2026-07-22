@@ -69,6 +69,8 @@ interface InvalidCandidate {
   readonly createdAt: string
 }
 
+type LayoutMode = 'split' | 'conversation' | 'preview' | 'popped'
+
 interface GenerationSelection {
   readonly providerId: 'mock' | 'codex' | 'claude'
   readonly modelId: string
@@ -111,11 +113,35 @@ interface OmniDesignDocument {
   readonly queuePaused: boolean
   readonly lastSelection: GenerationSelection
   readonly generationSteps: readonly GenerationStep[]
-  readonly layout: { readonly conversationWidth: number }
+  readonly layout: { readonly conversationWidth: number; readonly mode: LayoutMode }
   readonly messages: readonly DesignMessage[]
   readonly invalidCandidates: readonly InvalidCandidate[]
   readonly generationJobs: readonly GenerationJob[]
   readonly revisions: readonly DesignRevision[]
+}
+
+interface ProjectSummary {
+  readonly id: string
+  readonly name: string
+  readonly kind: 'standalone' | 'linked'
+  readonly sourceProjectPath: string | null
+  readonly sourceAvailable: boolean
+  readonly designCount: number
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly thumbnailDataUrl: string | null
+  readonly latestDesignTitle: string | null
+  readonly latestPrompt: string | null
+}
+
+interface ProjectDetail {
+  readonly project: ProjectSummary
+  readonly designs: readonly OmniDesignDocument[]
+}
+
+interface CreateDesignTarget {
+  readonly sourceProjectPath?: string | null
+  readonly projectId?: string | null
 }
 
 interface GenerationActivity {
@@ -140,8 +166,10 @@ interface Window {
     }
     readonly workspace: {
       list(): Promise<OmniDesignDocument[]>
+      listProjects(): Promise<ProjectSummary[]>
+      getProject(projectId: string): Promise<ProjectDetail | null>
       get(designId: string): Promise<OmniDesignDocument | null>
-      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, sourceProjectPath?: string | null): Promise<OmniDesignDocument>
+      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null): Promise<OmniDesignDocument>
       generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>
       cancelGeneration(jobId: string): Promise<GenerationJob>
@@ -149,7 +177,7 @@ interface Window {
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string): Promise<void>
-      saveLayout(designId: string, layout: { readonly conversationWidth: number }): Promise<void>
+      saveLayout(designId: string, layout: { readonly conversationWidth: number; readonly mode: LayoutMode }): Promise<void>
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
@@ -164,8 +192,12 @@ interface Window {
       show(request: { readonly designId: string; readonly revisionId: string; readonly bounds: PreviewBounds }): Promise<void>
       resize(bounds: PreviewBounds): Promise<void>
       hide(): Promise<void>
+      popOut(request: { readonly designId: string; readonly revisionId: string }): Promise<void>
+      setSuspended(suspended: boolean): Promise<void>
+      freeze(): Promise<string | null>
       onDiagnostic(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
       onThumbnail(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
+      onPoppedIn(listener: (event: { readonly designId: string }) => void): () => void
     }
   }
 }
