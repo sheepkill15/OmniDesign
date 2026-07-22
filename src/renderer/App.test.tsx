@@ -525,6 +525,23 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.preview.hide).not.toHaveBeenCalled()
   })
 
+  it('keeps supplied references visible with the submitted conversation message', async () => {
+    const attachedDesign: OmniDesignDocument = {
+      ...design,
+      messages: [{ ...design.messages[0], attachments: [{
+        id: '123e4567-e89b-42d3-a456-426614174000', name: 'reference.pdf', path: 'C:\\references\\reference.pdf', kind: 'file', size: 42, modifiedAt: '2026-07-22T12:00:00.000Z', selectedAt: '2026-07-22T12:00:00.000Z', status: 'available',
+      }] }],
+    }
+    const bridge = installBridge([attachedDesign], attachedDesign)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+
+    expect(await screen.findByLabelText('References supplied with this prompt')).toHaveTextContent('reference.pdf')
+    expect(bridge.workspace.get).not.toHaveBeenCalled()
+  })
+
   it('expands a project in the sidebar to open a specific design', async () => {
     const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
     const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }

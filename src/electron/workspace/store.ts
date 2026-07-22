@@ -82,6 +82,7 @@ interface MessageRow {
   id: string
   role: Message['role']
   text: string
+  attachments_json: string
   created_at: string
 }
 
@@ -329,6 +330,10 @@ const migrationTwentyOne = `
 ALTER TABLE generation_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'fresh' CHECK (mode IN ('fresh', 'continue'));
 `
 
+const migrationTwentyTwo = `
+ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]';
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -417,25 +422,25 @@ export class WorkspaceStore {
     return row?.id ?? null
   }
 
-  public createStandaloneDesign(prompt: string, title: string): Design {
+  public createStandaloneDesign(prompt: string, title: string, attachments: readonly Attachment[] = []): Design {
     const projectId = randomUUID()
     const now = new Date().toISOString()
     this.database.prepare('INSERT INTO projects (id, name, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
       .run(projectId, title, 'standalone', now, now)
-    return this.createDesignInProject(projectId, prompt, title)
+    return this.createDesignInProject(projectId, prompt, title, attachments)
   }
 
   // Linking a folder that OmniDesign already tracks reuses that project instead of registering a
   // duplicate, so opening the same folder twice adds a design rather than a second project. A linked
   // project is named after its source folder, not the design generated inside it.
-  public createLinkedDesign(prompt: string, title: string, sourcePath: string): Design {
+  public createLinkedDesign(prompt: string, title: string, sourcePath: string, attachments: readonly Attachment[] = []): Design {
     const existingProjectId = this.findProjectBySourcePath(sourcePath)
-    if (existingProjectId) return this.createDesignInProject(existingProjectId, prompt, title)
+    if (existingProjectId) return this.createDesignInProject(existingProjectId, prompt, title, attachments)
     const projectId = randomUUID()
     const now = new Date().toISOString()
     this.database.prepare('INSERT INTO projects (id, name, kind, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(projectId, folderName(sourcePath), 'linked', sourcePath, now, now)
-    return this.createDesignInProject(projectId, prompt, title)
+    return this.createDesignInProject(projectId, prompt, title, attachments)
   }
 
   public registerLinkedProject(sourcePath: string): ProjectSummary {
@@ -448,7 +453,7 @@ export class WorkspaceStore {
     return this.getProjectSummary(projectId)!
   }
 
-  public createDesignInProject(projectId: string, prompt: string, title: string): Design {
+  public createDesignInProject(projectId: string, prompt: string, title: string, attachments: readonly Attachment[] = []): Design {
     const designId = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
@@ -457,19 +462,19 @@ export class WorkspaceStore {
       this.database.prepare('INSERT INTO designs (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run(designId, projectId, title, now, now)
       if (prompt) {
-        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-          .run(randomUUID(), designId, 'user', prompt, now)
+        this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments), now)
       }
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, projectId)
     })
     return this.requireDesign(designId)
   }
 
-  public addPrompt(designId: string, prompt: string): void {
+  public addPrompt(designId: string, prompt: string, attachments: readonly Attachment[] = []): void {
     const now = new Date().toISOString()
     this.transaction(() => {
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'user', prompt, now)
+      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments), now)
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
   }
@@ -842,7 +847,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -863,7 +868,7 @@ export class WorkspaceStore {
   }
 
   private hydrateDesign(row: DesignRow): Design {
-    const messageRows = this.database.prepare('SELECT id, role, text, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
+    const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
       SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at
@@ -895,7 +900,7 @@ export class WorkspaceStore {
       },
       generationSteps: this.listGenerationStepsForDesign(row.id),
       layout: layoutSchema.parse(JSON.parse(row.layout_json)),
-      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, createdAt: message.created_at })),
+      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
         id: candidate.id,
         prompt: candidate.prompt,

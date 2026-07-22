@@ -1,5 +1,5 @@
 import { compileTailwindCss, validateCompiledDesign } from './compiler.js'
-import type { Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme, TrashItem } from './contracts.js'
+import type { Attachment, Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { generateMockDesign } from './mockGenerator.js'
@@ -53,10 +53,10 @@ export class WorkspaceService {
   public restoreTrashItem(kind: 'project' | 'design', id: string): ProjectSummary | Design { return kind === 'project' ? this.store.restoreProject(id) : this.store.restoreDesign(id) }
   public purgeTrashItem(kind: 'project' | 'design', id: string): void { this.store.purgeTrashItem(kind, id) }
 
-  private createDesignRecord(prompt: string, title: string, target: CreateDesignTarget | undefined): Design {
-    if (target?.projectId) return this.store.createDesignInProject(target.projectId, prompt, title)
-    if (target?.sourceProjectPath) return this.store.createLinkedDesign(prompt, title, target.sourceProjectPath)
-    return this.store.createStandaloneDesign(prompt, title)
+  private createDesignRecord(prompt: string, title: string, target: CreateDesignTarget | undefined, attachments: readonly Attachment[] = []): Design {
+    if (target?.projectId) return this.store.createDesignInProject(target.projectId, prompt, title, attachments)
+    if (target?.sourceProjectPath) return this.store.createLinkedDesign(prompt, title, target.sourceProjectPath, attachments)
+    return this.store.createStandaloneDesign(prompt, title, attachments)
   }
 
   public getDesignRepositoryPath(designId: string): string {
@@ -64,9 +64,9 @@ export class WorkspaceService {
     return this.repositories.getPath(designId)
   }
 
-  public async createDesign(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget): Promise<Design> {
+  public async createDesign(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget, attachments: readonly Attachment[] = []): Promise<Design> {
     const generated = generateMockDesign(prompt)
-    const design = this.createDesignRecord(prompt, generated.title, target)
+    const design = this.createDesignRecord(prompt, generated.title, target, attachments)
     onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up design repository…' })
     this.repositories.initialize(design.id)
     return this.generate(design.id, prompt, onActivity, generated.html, false)

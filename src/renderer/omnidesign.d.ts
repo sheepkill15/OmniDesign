@@ -58,6 +58,7 @@ interface DesignMessage {
   readonly id: string
   readonly role: 'user' | 'assistant' | 'system'
   readonly text: string
+  readonly attachments?: readonly DesignAttachment[]
   readonly createdAt: string
 }
 

@@ -11,13 +11,6 @@ export const revisionSchema = z.object({
   thumbnailDataUrl: z.string().nullable(),
 })
 
-export const messageSchema = z.object({
-  id: z.string().min(1),
-  role: z.enum(['user', 'assistant', 'system']),
-  text: z.string(),
-  createdAt: z.string().datetime(),
-})
-
 export const previewDiagnosticSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['console', 'runtime', 'load']),
@@ -54,6 +47,14 @@ export const attachmentSchema = z.object({
   modifiedAt: z.string().datetime().nullable(),
   selectedAt: z.string().datetime(),
   status: z.enum(['available', 'changed', 'missing']),
+})
+
+export const messageSchema = z.object({
+  id: z.string().min(1),
+  role: z.enum(['user', 'assistant', 'system']),
+  text: z.string(),
+  attachments: z.array(attachmentSchema).default([]),
+  createdAt: z.string().datetime(),
 })
 
 export const projectSummarySchema = z.object({

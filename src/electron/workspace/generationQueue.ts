@@ -100,6 +100,7 @@ export class GenerationQueue {
     let pauseQueue = false
     try {
       this.store.setGenerationJobState(job.id, 'running')
+      this.store.addPrompt(job.designId, job.prompt, job.attachments)
       let failed = false
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {

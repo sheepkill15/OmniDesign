@@ -190,7 +190,7 @@ function registerIpc(): void {
       target = { projectId: project.id, sourceProjectPath: null }
     }
     if (request.providerId === 'mock') {
-      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, target)
+      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, target, request.attachments)
       requireWorkspace().rememberSelection(design.id, selection)
       return requireWorkspace().getDesign(design.id) ?? design
     }

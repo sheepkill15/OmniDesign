@@ -995,6 +995,7 @@ button:disabled,
 .attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 12px; }
 .attachment-chip[data-status="changed"], .attachment-chip[data-status="missing"] { color: var(--warning, #c58a2a); border-color: currentColor; }
 .attachment-chip button { color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; }
+.message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 
 .theme-options {
   display: grid;
