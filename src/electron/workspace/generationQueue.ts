@@ -84,10 +84,18 @@ export class GenerationQueue {
     try {
       this.store.setGenerationJobState(job.id, 'running')
       let failed = false
-      await this.runJob(job, signal, (activity) => {
-        failed ||= activity.stage === 'failed'
-        this.onActivity(activity)
-      })
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await this.runJob(job, signal, (activity) => {
+            failed ||= activity.stage === 'failed'
+            this.onActivity(activity)
+          })
+          break
+        } catch (error) {
+          if (signal.aborted || !isTransientProviderError(error) || attempt === 2) throw error
+          this.onActivity({ designId: job.designId, stage: 'generating', detail: `Provider connection failed. Retrying (${attempt + 2} of 3)…` })
+        }
+      }
       pauseQueue = signal.aborted || failed
       this.store.setGenerationJobState(job.id, signal.aborted ? 'cancelled' : failed ? 'failed' : 'completed', signal.aborted ? 'Cancelled by the user.' : failed ? 'Generation did not produce a valid revision.' : null)
     } catch (error) {
@@ -109,4 +117,9 @@ export class GenerationQueue {
     this.pausedDesignIds.add(designId)
     this.store.pauseGenerationQueue(designId)
   }
+}
+
+export function isTransientProviderError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /\b(timeout|timed out|network|transport|connection|econn|socket|rate limit|429|502|503|504|temporar)/i.test(message)
 }

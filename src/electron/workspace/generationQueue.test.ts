@@ -93,6 +93,35 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
+  it('automatically retries transient provider failures up to three attempts', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    let attempts = 0
+    const activity: string[] = []
+    const queue = new GenerationQueue(store, async () => {
+      attempts += 1
+      if (attempts < 3) throw new Error('Network connection timed out.')
+    }, (event) => activity.push(event.detail))
+    const job = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6')
+
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'completed')
+    expect(attempts).toBe(3)
+    expect(activity).toEqual(expect.arrayContaining(['Provider connection failed. Retrying (2 of 3)…', 'Provider connection failed. Retrying (3 of 3)…']))
+    store.close()
+  })
+
+  it('does not retry non-transient provider failures', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const runner = vi.fn(async () => { throw new Error('Model is not available.') })
+    const queue = new GenerationQueue(store, runner, () => undefined)
+    const job = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6')
+
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'failed')
+    expect(runner).toHaveBeenCalledTimes(1)
+    store.close()
+  })
+
   it('cancels queued work and retries interrupted work as a new queued job', async () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')
