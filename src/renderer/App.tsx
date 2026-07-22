@@ -601,7 +601,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   useEffect(() => {
     const pending = window.omnidesign?.settings.getGenerationDefaults?.()
     if (!pending) return
-    void pending.then((saved) => { if (saved) setSelection(saved) })
+    void pending.then((saved) => { if (saved) setSelection(saved) }).catch((reason: unknown) => setError(`Generation defaults could not be loaded. ${reason instanceof Error ? reason.message : ''}`.trim()))
   }, [])
   useEffect(() => {
     const selectedProvider = readyProviders.find((provider) => provider.id === selection.providerId)
@@ -621,7 +621,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   }, [initialProject])
   const applySelection = (next: GenerationSelection) => {
     setSelection(next)
-    void window.omnidesign?.settings.saveGenerationDefaults?.(next)
+    void window.omnidesign?.settings.saveGenerationDefaults?.(next).catch((reason: unknown) => setError(`Generation defaults could not be saved. ${reason instanceof Error ? reason.message : ''}`.trim()))
   }
   const target = (): CreateDesignTarget | null => {
     if (fixedProject) return { projectId: fixedProject.id }
@@ -634,7 +634,15 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
     : selectedProject ? selectedProject.name : sourceProjectPath ? sourceProjectPath.split(/[\\/]/).filter(Boolean).at(-1) : 'Standalone design'
   const chooseTarget = (key: string) => {
     if (key === 'standalone') { setSelectedProject(null); setSourceProjectPath(null); setCloneTarget(null); return }
-    if (key === 'folder') { setSelectedProject(null); setCloneTarget(null); void window.omnidesign?.workspace.chooseProjectFolder().then((path) => { if (path) { setSourceProjectPath(path); setSelectedProject(null) } }); return }
+    if (key === 'folder') {
+      setSelectedProject(null)
+      setCloneTarget(null)
+      setError(null)
+      void window.omnidesign?.workspace.chooseProjectFolder().then((folderPath) => {
+        if (folderPath) { setSourceProjectPath(folderPath); setSelectedProject(null) }
+      }).catch((reason: unknown) => setError(`The project folder could not be selected. ${reason instanceof Error ? reason.message : ''}`.trim()))
+      return
+    }
     if (key === 'clone') { setCloneModalOpen(true); return }
     if (key.startsWith('project:')) {
       const project = projects.find((candidate) => candidate.id === key.slice('project:'.length))
@@ -642,8 +650,13 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
     }
   }
   const chooseCloneDestination = async () => {
-    const directory = await window.omnidesign?.workspace.chooseProjectFolder()
-    if (directory) setCloneDestinationDirectory(directory)
+    setError(null)
+    try {
+      const directory = await window.omnidesign?.workspace.chooseProjectFolder()
+      if (directory) setCloneDestinationDirectory(directory)
+    } catch (reason) {
+      setError(`The clone destination could not be selected. ${reason instanceof Error ? reason.message : ''}`.trim())
+    }
   }
   const confirmCloneTarget = () => {
     if (!cloneRemoteUrl.trim() || !cloneDestinationDirectory) return
@@ -661,7 +674,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
       setPrompt('')
       setAttachments([])
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Unable to create the design.')
+      setError(`The design could not be created. ${reason instanceof Error && reason.message ? reason.message : 'Please review the selected project and provider, then try again.'}`)
     }
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -671,8 +684,13 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
     }
   }
   const chooseAttachments = async (kind: AttachmentPickerKind) => {
-    const selected = await window.omnidesign?.workspace.chooseAttachments(kind)
-    if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
+    setError(null)
+    try {
+      const selected = await window.omnidesign?.workspace.chooseAttachments(kind)
+      if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
+    } catch (reason) {
+      setError(`References could not be attached. ${reason instanceof Error ? reason.message : ''}`.trim())
+    }
   }
 
   return (

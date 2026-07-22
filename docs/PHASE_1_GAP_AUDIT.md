@@ -40,6 +40,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Global generation controls now expose scoped busy labels and actionable inline failures, while provider discovery failures retain available development tooling and show the underlying diagnostic instead of collapsing silently to an unexplained empty state.
 - Settings no longer claim persistence before writes finish: controls expose a saving state, failed writes roll back the optimistic value, and both load and save failures remain visible with their local diagnostic.
 - Initial and background workspace refresh failures now preserve the last loaded shell state and expose a persistent sidebar diagnostic with Retry instead of failing silently or leaving unexplained empty navigation.
+- Initial composer operations now retain the draft and report actionable local diagnostics when project-folder selection, clone-destination selection, attachment selection, saved generation defaults, or design creation fails.
 
 ## Remaining functional gaps
 

@@ -470,6 +470,20 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
   })
 
+  it('keeps the initial draft and explains when design creation fails', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.create).mockRejectedValueOnce(new Error('Git executable is unavailable.'))
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The design could not be created. Git executable is unavailable.')
+    expect(prompt).toHaveValue('A calm dashboard')
+    expect(screen.getByRole('region', { name: 'Create a design' })).toBeInTheDocument()
+  })
+
   it('stays in the workspace when active-work removal is cancelled', async () => {
     const bridge = installBridge()
     vi.mocked(bridge.workspace.trash).mockResolvedValue({ cancelled: true })
@@ -699,6 +713,18 @@ describe('Phase 1 walking skeleton UI', () => {
       id: '123e4567-e89b-42d3-a456-426614174000', name: 'reference.pdf', path: 'C:\\references\\reference.pdf', kind: 'file', size: 42, modifiedAt: '2026-07-22T12:00:00.000Z', selectedAt: '2026-07-22T12:00:00.000Z', status: 'available',
     }]))
     expect(bridge.workspace.chooseAttachments).toHaveBeenCalledWith('files')
+  })
+
+  it('explains when initial reference selection fails', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.chooseAttachments).mockRejectedValueOnce(new Error('File picker unavailable.'))
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files or folders' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Choose files…' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('References could not be attached. File picker unavailable.')
+    expect(screen.getByRole('textbox', { name: 'What would you like to design?' })).toBeInTheDocument()
   })
 
   it('uses the shared project chooser for associating a standalone design', async () => {
