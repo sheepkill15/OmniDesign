@@ -427,6 +427,18 @@ export class WorkspaceStore {
     return row?.id ?? null
   }
 
+  private findTrashedProjectBySourcePath(sourcePath: string): string | null {
+    const row = this.database.prepare("SELECT id FROM projects WHERE source_path = ? AND trashed_at IS NOT NULL AND kind = 'linked'").get(sourcePath) as { id: string } | undefined
+    return row?.id ?? null
+  }
+
+  private reviveTrashedProjectForSourcePath(sourcePath: string): ProjectSummary | null {
+    const projectId = this.findTrashedProjectBySourcePath(sourcePath)
+    if (!projectId) return null
+    this.database.prepare('UPDATE projects SET trashed_at = NULL, updated_at = ? WHERE id = ? AND trashed_at IS NOT NULL').run(new Date().toISOString(), projectId)
+    return this.getProjectSummary(projectId)
+  }
+
   public createStandaloneDesign(prompt: string, title: string, attachments: readonly Attachment[] = []): Design {
     const projectId = randomUUID()
     const now = new Date().toISOString()
@@ -441,6 +453,8 @@ export class WorkspaceStore {
   public createLinkedDesign(prompt: string, title: string, sourcePath: string, attachments: readonly Attachment[] = []): Design {
     const existingProjectId = this.findProjectBySourcePath(sourcePath)
     if (existingProjectId) return this.createDesignInProject(existingProjectId, prompt, title, attachments)
+    const revivedProject = this.reviveTrashedProjectForSourcePath(sourcePath)
+    if (revivedProject) return this.createDesignInProject(revivedProject.id, prompt, title, attachments)
     const projectId = randomUUID()
     const now = new Date().toISOString()
     this.database.prepare('INSERT INTO projects (id, name, kind, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -451,6 +465,8 @@ export class WorkspaceStore {
   public registerLinkedProject(sourcePath: string): ProjectSummary {
     const existingProjectId = this.findProjectBySourcePath(sourcePath)
     if (existingProjectId) return this.getProjectSummary(existingProjectId)!
+    const revivedProject = this.reviveTrashedProjectForSourcePath(sourcePath)
+    if (revivedProject) return revivedProject
     const projectId = randomUUID()
     const now = new Date().toISOString()
     this.database.prepare('INSERT INTO projects (id, name, kind, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')

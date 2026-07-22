@@ -178,6 +178,22 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('revives a trashed linked project without restoring its old designs when its source folder is selected again', () => {
+    const { store } = createStore()
+    const folder = mkdtempSync(path.join(tmpdir(), 'omnidesign-relinked-'))
+    directories.push(folder)
+    const first = store.createLinkedDesign('First', 'Existing app', folder)
+    store.moveProjectToTrash(first.projectId)
+
+    const second = store.createLinkedDesign('Second', 'Another screen', folder)
+
+    expect(second.projectId).toBe(first.projectId)
+    expect(store.getProjectSummary(first.projectId)?.designCount).toBe(1)
+    expect(store.getDesign(first.id)).toBeNull()
+    expect(store.listTrash()).toMatchObject([{ id: first.id, kind: 'design' }])
+    store.close()
+  })
+
   it('keeps linked-design history available while a source folder is unavailable and can reconnect it', () => {
     const { store } = createStore()
     const missingFolder = path.join(tmpdir(), `omnidesign-missing-${randomUUID()}`)
