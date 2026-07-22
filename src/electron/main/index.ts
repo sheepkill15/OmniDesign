@@ -133,12 +133,20 @@ function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewCon
   return new PreviewController(
     window,
     (designId, revisionId, diagnostic) => {
-      store.addPreviewDiagnostic(designId, revisionId, diagnostic)
-      window.webContents.send('preview:diagnostic', { designId, revisionId })
+      try {
+        store.addPreviewDiagnostic(designId, revisionId, diagnostic)
+      } catch {
+        return
+      }
+      if (!window.isDestroyed()) window.webContents.send('preview:diagnostic', { designId, revisionId })
     },
     (designId, revisionId, png) => {
-      store.saveThumbnail(designId, revisionId, png)
-      window.webContents.send('preview:thumbnail', { designId, revisionId })
+      try {
+        store.saveThumbnail(designId, revisionId, png)
+      } catch {
+        return
+      }
+      if (!window.isDestroyed()) window.webContents.send('preview:thumbnail', { designId, revisionId })
     },
     (designId) => {
       if (!window.isDestroyed()) window.webContents.send('preview:popped-in', { designId })
