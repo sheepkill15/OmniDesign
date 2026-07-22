@@ -446,13 +446,16 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('opens a single-design project straight into its workspace', async () => {
-    installBridge([design])
+    const bridge = installBridge([design])
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
 
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
+    vi.mocked(bridge.preview.hide).mockClear()
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Calm dashboard' }))
+    expect(bridge.preview.hide).not.toHaveBeenCalled()
   })
 
   it('expands a project in the sidebar to open a specific design', async () => {

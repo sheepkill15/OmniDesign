@@ -884,6 +884,7 @@ export function App() {
   // A project with exactly one design opens straight into its workspace; empty or multi-design projects
   // open the project page (composer plus design grid).
   const openProject = async (project: ProjectSummary) => {
+    if (project.designCount === 1 && activeDesign?.projectId === project.id) return
     void window.omnidesign?.preview.hide()
     closePanels()
     const detail = await workspaceApi?.getProject(project.id)
