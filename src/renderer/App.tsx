@@ -25,7 +25,8 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, Dialog, Header, Heading, Input, Menu, MenuItem, MenuSection, Modal, ModalOverlay, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { AppModal } from './components/AppModal'
 import { DropdownButton } from './components/DropdownButton'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
@@ -431,11 +432,8 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
         </Button>
       </div>
       {error && <p className="generation-recovery" role="alert">{error}</p>}
-      <ModalOverlay isOpen={cloneModalOpen} onOpenChange={setCloneModalOpen} className="modal-overlay">
-        <Modal className="clone-modal">
-          <Dialog>
-            {({ close }) => <>
-              <Heading slot="title">Clone Git repository</Heading>
+      <AppModal isOpen={cloneModalOpen} onOpenChange={setCloneModalOpen} className="clone-modal" title="Clone Git repository">
+        {(close) => <>
               <p>OmniDesign will create a new repository folder inside the destination you choose. Nothing is cloned until you submit this design prompt.</p>
               <div className="clone-modal-fields">
                 <TextField aria-label="Git repository URL"><Input value={cloneRemoteUrl} onChange={(event) => setCloneRemoteUrl(event.target.value)} placeholder="git@github.com:team/project.git" /></TextField>
@@ -444,9 +442,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
               <p className="clone-modal-note">For example, <code>project.git</code> will be cloned to a new <code>project</code> folder inside the destination.</p>
               <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="primary-action" isDisabled={!cloneRemoteUrl.trim() || !cloneDestinationDirectory} onPress={confirmCloneTarget}>Use repository</Button></div>
             </>}
-          </Dialog>
-        </Modal>
-      </ModalOverlay>
+      </AppModal>
     </section>
   )
 }
