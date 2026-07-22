@@ -61,7 +61,7 @@ export class CodexAdapter implements ProviderAdapter {
         model: request.modelId,
         sandbox: request.workspacePath ? 'workspace-write' : 'read-only',
         approvalPolicy: 'never',
-        ...(request.workspacePath ? { runtimeWorkspaceRoots: [request.workspacePath] } : {}),
+        ...(request.workspacePath ? { runtimeWorkspaceRoots: [request.workspacePath, ...(request.referencePaths ?? [])] } : {}),
         ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       })
       if (!isObject(thread) || !isObject(thread.thread) || typeof thread.thread.id !== 'string') {
@@ -150,7 +150,7 @@ export class CodexAdapter implements ProviderAdapter {
         sandboxPolicy: request.workspacePath
           ? { type: 'workspaceWrite', networkAccess: true, writableRoots: [] }
           : { type: 'readOnly', networkAccess: true },
-        ...(request.workspacePath ? { cwd: request.workspacePath, runtimeWorkspaceRoots: [request.workspacePath] } : {}),
+        ...(request.workspacePath ? { cwd: request.workspacePath, runtimeWorkspaceRoots: [request.workspacePath, ...(request.referencePaths ?? [])] } : {}),
         ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
         input: [{ type: 'text', text: request.prompt }],
       }).catch((error: unknown) => done(error instanceof Error ? error : new Error('Codex failed to start the turn.')))

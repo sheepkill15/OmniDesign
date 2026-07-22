@@ -37,10 +37,10 @@ describe('real provider adapter contracts', () => {
     mocks.startJsonRpcProcess.mockReturnValue(rpc)
     const activity = vi.fn()
 
-    await expect(new CodexAdapter().prompt({ modelId: 'gpt-5.6', prompt: 'Name this design' }, activity)).resolves.toEqual({ modelId: 'gpt-5.6', text: 'Short answer' })
+    await expect(new CodexAdapter().prompt({ modelId: 'gpt-5.6', prompt: 'Name this design', workspacePath: 'C:\\workspace\\design', referencePaths: ['C:\\projects\\aurora'] }, activity)).resolves.toEqual({ modelId: 'gpt-5.6', text: 'Short answer' })
 
-    expect(rpc.request).toHaveBeenCalledWith('thread/start', expect.objectContaining({ sandbox: 'read-only', approvalPolicy: 'never' }))
-    expect(rpc.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({ sandboxPolicy: { type: 'readOnly', networkAccess: true } }))
+    expect(rpc.request).toHaveBeenCalledWith('thread/start', expect.objectContaining({ sandbox: 'workspace-write', approvalPolicy: 'never', runtimeWorkspaceRoots: ['C:\\workspace\\design', 'C:\\projects\\aurora'] }))
+    expect(rpc.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({ sandboxPolicy: { type: 'workspaceWrite', networkAccess: true, writableRoots: [] }, runtimeWorkspaceRoots: ['C:\\workspace\\design', 'C:\\projects\\aurora'] }))
     expect(activity).toHaveBeenCalledWith(expect.objectContaining({ kind: 'text', detail: 'Short answer' }))
   })
 
@@ -53,9 +53,9 @@ describe('real provider adapter contracts', () => {
     const controller = new AbortController()
     const activity = vi.fn()
 
-    await expect(new ClaudeAdapter().prompt({ modelId: 'haiku', prompt: 'Name this design', signal: controller.signal }, activity)).resolves.toEqual({ modelId: 'haiku', text: 'Short answer' })
+    await expect(new ClaudeAdapter().prompt({ modelId: 'haiku', prompt: 'Name this design', signal: controller.signal, workspacePath: 'C:\\workspace\\design', referencePaths: ['C:\\projects\\aurora'] }, activity)).resolves.toEqual({ modelId: 'haiku', text: 'Short answer' })
 
-    expect(mocks.runCommand).toHaveBeenCalledWith('claude', expect.arrayContaining(['--permission-mode', 'plan', '--no-session-persistence']), expect.objectContaining({ signal: controller.signal }))
+    expect(mocks.runCommand).toHaveBeenCalledWith('claude', expect.arrayContaining(['--permission-mode', 'acceptEdits', '--add-dir', 'C:\\projects\\aurora', '--no-session-persistence']), expect.objectContaining({ signal: controller.signal }))
     expect(activity).toHaveBeenCalledWith(expect.objectContaining({ kind: 'result', detail: 'Short answer' }))
   })
 })

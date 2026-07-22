@@ -109,6 +109,16 @@ describe('ProviderService', () => {
     }), expect.any(Function))
   })
 
+  it('passes a linked project through as a provider reference root', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"Done"}' })
+
+    await service.runDesignAgent({ requestId: 'request-3', providerId: 'codex', modelId: 'model-1', prompt: 'Match Aurora', workspacePath: 'C:\\workspace\\design', sourceProjectPath: 'C:\\projects\\aurora' })
+
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ referencePaths: ['C:\\projects\\aurora'], instructions: expect.stringContaining('Inspect its relevant source') }), expect.any(Function))
+  })
+
   it('rejects duplicate adapter identities', () => {
     expect(() => new ProviderService([createAdapter('codex'), createAdapter('codex')])).toThrow(
       'Provider adapter identifiers must be unique.',

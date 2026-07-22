@@ -17,7 +17,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 
 ### 1. Enforceable read-only provider access — blocking security gap
 
-Linked-project and attachment paths are currently passed to providers as explicit read-only instructions. That is not an enforceable filesystem boundary. Before Phase 1 can be complete, each adapter must provide a verified mechanism that permits reads from explicitly selected external roots while denying writes there. The current Codex app-server adapter only establishes the managed design workspace as its runtime root; the Claude adapter runs from that workspace but has no verified external-root policy.
+Linked-project and attachment paths are passed to providers as explicit read-only instructions. A selected linked project is also supplied as a provider-visible reference root: Codex receives it in `runtimeWorkspaceRoots`, and Claude receives it through `--add-dir`. This enables real exploration, but the adapters have no verified external-root write-denial policy; the instructions are not an enforceable filesystem boundary. Before Phase 1 can be complete, each adapter must provide a verified mechanism that permits reads from explicitly selected external roots while denying writes there.
 
 Required proof:
 

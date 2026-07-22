@@ -9,6 +9,7 @@ import type {
 export type ProviderAdapterPrompt = Pick<ProviderPrompt, 'modelId' | 'effort' | 'prompt'> & {
   readonly signal?: AbortSignal
   readonly workspacePath?: string
+  readonly referencePaths?: readonly string[]
   readonly instructions?: string
   readonly outputSchema?: Record<string, unknown>
 }

@@ -75,6 +75,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       '--model', request.modelId,
       ...(request.effort ? ['--effort', request.effort] : []),
       '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
+      ...(request.referencePaths ?? []).flatMap((referencePath) => ['--add-dir', referencePath]),
       '--no-session-persistence',
       ...(request.instructions ? ['--append-system-prompt', request.instructions] : []),
       ...(request.outputSchema ? ['--json-schema', JSON.stringify(request.outputSchema)] : []),

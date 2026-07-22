@@ -38,7 +38,7 @@ export function createDesignAgentInstructions(workspacePath: string, attachments
     '- Use Alpine.js v3 directives (x-data, x-show, x-on/@click, x-text, etc.) directly; the runtime is already provided via .build/alpine.js.',
     '- index.html must remain a complete HTML document with <html> and <body> elements.',
     'Do not claim which files changed or whether a revision was created; OmniDesign determines that from Git and validation.',
-    ...(sourceProjectPath ? [`A linked source project is available for READ-ONLY reference at ${sourceProjectPath}. Never edit, delete, rename, or create files there.`] : []),
+    ...(sourceProjectPath ? [`A linked source project is available for READ-ONLY reference at ${sourceProjectPath}. Inspect its relevant source, styles, assets, and configuration before implementing the design so the result adopts its existing design language. Never edit, delete, rename, or create files there.`] : []),
     ...(attachments.length ? ['User-provided references are READ-ONLY. Use them only when relevant; never modify, delete, rename, or copy them into the design repository:', ...attachments.map((attachment) => `- ${attachment.path}${attachment.status === 'available' ? '' : ` (${attachment.status}; ask the user before relying on it)`}`)] : []),
     'When you finish, respond only with a JSON object matching the required schema. Its response value is your concise conversational reply to the user.',
   ].join('\n')

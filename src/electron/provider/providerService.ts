@@ -61,6 +61,7 @@ export class ProviderService {
       ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
       workspacePath: request.workspacePath,
+      ...(request.sourceProjectPath ? { referencePaths: [request.sourceProjectPath] } : {}),
       instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath),
       outputSchema: agentCompletionOutputSchema,
     }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
