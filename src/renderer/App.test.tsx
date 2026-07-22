@@ -52,7 +52,10 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
   const projects = [...projectMap.values()]
   const bridge = {
     providers: {
-      discover: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] }]),
+      discover: vi.fn().mockResolvedValue([
+        { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Ready', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] },
+        { id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] },
+      ]),
       prompt: vi.fn(),
       onActivity: vi.fn().mockReturnValue(() => undefined),
     },
@@ -140,6 +143,40 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Generation settings' })).toHaveTextContent('Development provider'))
+  })
+
+  it('keeps project access available while generation waits for a provider', async () => {
+    const bridge = installBridge([design])
+    vi.mocked(bridge.providers.discover).mockResolvedValue([])
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A new direction' } })
+    expect(await screen.findByText('Connect a provider to start generating.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create design' })).toBeDisabled()
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    expect(within(sidebar).getByRole('button', { name: 'Calm dashboard' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open providers' }))
+    expect(await screen.findByRole('heading', { name: 'Providers' })).toBeInTheDocument()
+    expect(bridge.workspace.create).not.toHaveBeenCalled()
+  })
+
+  it('preserves a follow-up draft when its previous provider is unavailable', async () => {
+    const bridge = installBridge([design])
+    vi.mocked(bridge.providers.discover).mockResolvedValue([])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    const prompt = await screen.findByRole('textbox', { name: 'Request a design change' })
+    fireEvent.change(prompt, { target: { value: 'Keep this draft safe' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    expect(screen.getByText('Generation is unavailable.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send change' })).toBeDisabled()
+    expect(prompt).toHaveValue('Keep this draft safe')
+    expect(bridge.workspace.generate).not.toHaveBeenCalled()
   })
 
   it('opens provider availability and refreshes local provider discovery', async () => {

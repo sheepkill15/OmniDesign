@@ -13,13 +13,14 @@ type Placement = ComponentProps<typeof Popover>['placement']
 // rotates while open (see the [aria-expanded] rule in styles.css). onOpenChange lets a caller freeze
 // and detach the isolated preview while a menu sits over it, which removes the focus contention that
 // would otherwise disrupt React Aria's focus-driven menu behavior.
-export function DropdownButton({ trigger, children, label, triggerClassName, popoverClassName, placement = 'bottom', onOpenChange }: {
+export function DropdownButton({ trigger, children, label, triggerClassName, popoverClassName, placement = 'bottom', isDisabled = false, onOpenChange }: {
   readonly trigger: ReactNode
   readonly children: ReactNode
   readonly label?: string
   readonly triggerClassName?: string
   readonly popoverClassName?: string
   readonly placement?: Placement
+  readonly isDisabled?: boolean
   readonly onOpenChange?: (isOpen: boolean) => void
 }) {
   const previewOverlay = useContext(PreviewOverlayContext)
@@ -29,7 +30,7 @@ export function DropdownButton({ trigger, children, label, triggerClassName, pop
       else previewOverlay?.close()
       onOpenChange?.(isOpen)
     }}>
-      <Button className={triggerClassName} aria-label={label}>
+      <Button className={triggerClassName} aria-label={label} isDisabled={isDisabled}>
         {trigger}
         <ChevronDownIcon className="dropdown-caret" aria-hidden="true" />
       </Button>

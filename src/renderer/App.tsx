@@ -433,7 +433,7 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
   readonly onChange: (selection: { providerId: ProviderId; modelId: string; effort: string | null }) => void
 }) {
   const available = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
-  const provider = providerId === 'mock' ? undefined : available.find((candidate) => candidate.id === providerId)
+  const provider = available.find((candidate) => candidate.id === providerId)
   const model = provider?.models.find((candidate) => candidate.id === modelId) ?? provider?.models[0]
   const efforts = model?.effortLevels ?? []
   const defaultEffort = (levels: readonly ProviderEffortLevel[]) => levels.find((candidate) => candidate.isDefault)?.id ?? levels[0]?.id ?? null
@@ -452,16 +452,16 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
       triggerClassName="generation-settings-button"
       popoverClassName="generation-settings-popover"
       placement="top"
-      trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span></>}
+      isDisabled={!available.length}
+      trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider ? `${provider.name} · ${model?.name ?? 'Choose model'}` : 'No provider available'}</span></>}
     >
         <div className="generation-settings-columns">
           <section className="generation-settings-column"><h2>Provider</h2><Menu aria-label="Provider" className="generation-settings-menu" shouldCloseOnSelect={false}>
-            <MenuItem id="mock" onAction={() => selectProvider('mock')}><span>Development provider</span>{providerId === 'mock' && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
             {available.map((candidate) => <MenuItem id={candidate.id} key={candidate.id} onAction={() => selectProvider(candidate.id)}><span>{candidate.name}</span>{providerId === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
           </Menu></section>
           <section className="generation-settings-column"><h2>Model</h2><Menu aria-label="Model" className="generation-settings-menu" shouldCloseOnSelect={false}>
             {(provider?.models ?? []).map((candidate) => <MenuItem id={`model-${candidate.id}`} key={candidate.id} onAction={() => onChange({ providerId, modelId: candidate.id, effort: effortForModel(candidate.effortLevels) })}><span>{candidate.name}</span>{model?.id === candidate.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
-            {!provider && <MenuItem id="mock-model" isDisabled>Mock v1</MenuItem>}
+            {!provider && <MenuItem id="no-model" isDisabled>No models available</MenuItem>}
           </Menu></section>
           <section className="generation-settings-column effort-control" data-disabled={!efforts.length || undefined}>
             <h2>Effort</h2><span>{efforts[effortIndex]?.name ?? 'Not supported by this model'}</span>
@@ -500,13 +500,14 @@ function ProjectSelectionMenu({ projects, includeStandalone = true, onAction }: 
   )
 }
 
-function NewDesignComposer({ providers, busy, fixedProject, projects = [], initialProject = null, onCreate }: {
+function NewDesignComposer({ providers, busy, fixedProject, projects = [], initialProject = null, onCreate, onOpenProviders }: {
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly fixedProject?: ProjectSummary
   readonly projects?: readonly ProjectSummary[]
   readonly initialProject?: ProjectSummary | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
+  readonly onOpenProviders: () => void
 }) {
   const [prompt, setPrompt] = useState('')
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
@@ -519,11 +520,21 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   const [cloneDestinationDirectory, setCloneDestinationDirectory] = useState('')
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>([])
   const [error, setError] = useState<string | null>(null)
+  const hasUsableSelection = readyProviders.some((provider) => provider.id === selection.providerId && provider.models.some((model) => model.id === selection.modelId))
   useEffect(() => {
     const pending = window.omnidesign?.settings.getGenerationDefaults?.()
     if (!pending) return
     void pending.then((saved) => { if (saved) setSelection(saved) })
   }, [])
+  useEffect(() => {
+    const selectedProvider = readyProviders.find((provider) => provider.id === selection.providerId)
+    if (selectedProvider?.models.some((model) => model.id === selection.modelId)) return
+    const provider = readyProviders[0]
+    const model = provider?.models[0]
+    if (!provider || !model) return
+    const effort = model.effortLevels.find((candidate) => candidate.isDefault)?.id ?? model.effortLevels[0]?.id ?? null
+    setSelection({ providerId: provider.id, modelId: model.id, effort })
+  }, [readyProviders, selection.modelId, selection.providerId])
   // Pre-fill the target when a project's "+" launched this composer.
   useEffect(() => {
     if (!initialProject) return
@@ -566,7 +577,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   }
   const submit = async () => {
     const value = prompt.trim()
-    if (!value || busy) return
+    if (!value || busy || !hasUsableSelection) return
     setError(null)
     try {
       await onCreate(value, selection.providerId, selection.modelId, selection.effort, target(), attachments)
@@ -603,10 +614,11 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
               </DropdownButton>}
         </div>
         <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />
-        <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy} onPress={() => void submit()}>
+        <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy || !hasUsableSelection} onPress={() => void submit()}>
           {busy ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}
         </Button>
       </div>
+      {!readyProviders.length && <div className="no-provider-notice" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>Connect a provider to start generating.</strong><small>You can still open projects and review or export existing designs.</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       {error && <p className="generation-recovery" role="alert">{error}</p>}
       <AppModal isOpen={cloneModalOpen} onOpenChange={setCloneModalOpen} className="clone-modal" title="Clone Git repository">
         {(close) => <>
@@ -635,7 +647,7 @@ function ProjectThumbnail({ title, thumbnailDataUrl }: { readonly title: string;
   return <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>
 }
 
-function Home({ projects, providers, busy, activity, composerProject, onCreate, onOpen }: {
+function Home({ projects, providers, busy, activity, composerProject, onCreate, onOpen, onOpenProviders }: {
   readonly projects: readonly ProjectSummary[]
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
@@ -643,12 +655,13 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   readonly composerProject: ProjectSummary | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
   readonly onOpen: (project: ProjectSummary) => void
+  readonly onOpenProviders: () => void
 }) {
   return (
     <main className="home-main">
       <div className="home-content">
         <header className="page-heading"><h1>Start with an idea.</h1><p>Turn it into something you can see, use, and refine—without leaving your local workspace.</p></header>
-        <NewDesignComposer providers={providers} busy={busy} projects={projects} initialProject={composerProject} onCreate={onCreate} />
+        <NewDesignComposer providers={providers} busy={busy} projects={projects} initialProject={composerProject} onCreate={onCreate} onOpenProviders={onOpenProviders} />
         {busy
           ? <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>
           : activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
@@ -663,7 +676,7 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
                 <ArrowRightIcon className="row-arrow" aria-hidden="true" />
               </Button>
             ))}
-            {!projects.length && <div className="empty-designs"><DocumentDuplicateIcon aria-hidden="true" /><strong>Your first design starts above</strong><p>The development provider will generate, compile, validate, and save it locally.</p></div>}
+            {!projects.length && <div className="empty-designs"><DocumentDuplicateIcon aria-hidden="true" /><strong>Your first design starts above</strong><p>A connected provider will generate, compile, validate, and save it locally.</p></div>}
           </div>
         </section>
       </div>
@@ -671,7 +684,7 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   )
 }
 
-function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onReconnect, onConvertToStandalone, onTrashProject }: {
+function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onReconnect, onConvertToStandalone, onTrashProject, onOpenProviders }: {
   readonly project: ProjectSummary
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
@@ -682,6 +695,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   readonly onReconnect: (project: ProjectSummary) => Promise<void>
   readonly onConvertToStandalone: (project: ProjectSummary) => Promise<void>
   readonly onTrashProject: (project: ProjectSummary) => Promise<void>
+  readonly onOpenProviders: () => void
 }) {
   const [designs, setDesigns] = useState<readonly OmniDesignDocument[]>([])
   const load = useCallback(async () => {
@@ -699,7 +713,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
           {project.kind === 'linked' && !project.sourceAvailable && <div className="generation-recovery" role="status"><span><strong>Source folder unavailable.</strong> Your saved designs are safe; reconnect the folder or keep this project standalone.</span><Button className="secondary-action" onPress={() => void onReconnect(project)}>Reconnect folder</Button><Button className="secondary-action" onPress={() => void onConvertToStandalone(project)}>Convert to standalone</Button></div>}
           <Button className="secondary-action" onPress={() => void onTrashProject(project)}><TrashIcon aria-hidden="true" />Remove project</Button>
         </header>
-        <NewDesignComposer providers={providers} busy={busy} fixedProject={project} onCreate={onCreate} />
+        <NewDesignComposer providers={providers} busy={busy} fixedProject={project} onCreate={onCreate} onOpenProviders={onOpenProviders} />
         {busy && <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>}
         <section className="recent-section" aria-labelledby="project-designs">
           <div className="section-heading"><h2 id="project-designs">Designs</h2><span>{designs.length ? `${designs.length} design${designs.length === 1 ? '' : 's'}` : 'No designs yet'}</span></div>
@@ -789,7 +803,7 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
   )
 }
 
-function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation }: {
+function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
   readonly projects: readonly ProjectSummary[]
@@ -804,6 +818,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   readonly onAssociate: (design: OmniDesignDocument, projectId: string) => Promise<void>
   readonly onAssociateAndRestart: (design: OmniDesignDocument, projectId: string) => Promise<void>
   readonly onDismissAssociation: () => void
+  readonly onOpenProviders: () => void
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
@@ -827,6 +842,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const retryableJob = [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
   const api = window.omnidesign?.workspace
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
+  const hasUsableSelection = readyProviders.some((provider) => provider.id === selection.providerId && provider.models.some((model) => model.id === selection.modelId))
   const runWorkspaceAction = async <T,>(action: () => Promise<T>, failureMessage: string): Promise<T | undefined> => {
     setFeedback(null)
     try {
@@ -926,7 +942,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   }
 
   const submit = async () => {
-    if (!api || !draft.trim() || busy || !selectedIsHead) return
+    if (!api || !draft.trim() || busy || !selectedIsHead || !hasUsableSelection) return
     const prompt = draft.trim()
     const submittedAttachments = attachments
     setDraft('')
@@ -1067,7 +1083,8 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        {!hasUsableSelection && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
     </section>
   )
@@ -1160,9 +1177,18 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   )
 }
 
+const developmentProvider: ProviderStatus = {
+  id: 'mock',
+  name: 'Development provider',
+  installed: true,
+  authenticated: true,
+  detail: 'Available for local development and automated testing.',
+  models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }],
+}
+
 function useProviders(): { readonly label: string; readonly providers: readonly ProviderStatus[]; readonly loading: boolean; readonly refresh: () => void } {
   const [label, setLabel] = useState('Development provider')
-  const [providers, setProviders] = useState<ProviderStatus[]>([])
+  const [providers, setProviders] = useState<ProviderStatus[]>(import.meta.env.DEV || window.omnidesign?.providers.developmentProviderEnabled ? [developmentProvider] : [])
   const [loading, setLoading] = useState(false)
   const refresh = useCallback(() => {
     const api = window.omnidesign?.providers
@@ -1398,10 +1424,10 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => setAssociationNotice(null)} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => setAssociationNotice(null)} onOpenProviders={openProviders} />
         : activeProject
-        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
-        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}
+        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onOpenProviders={openProviders} />
+        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpen={openProject} onOpenProviders={openProviders} />}
     </div>
   )
 }

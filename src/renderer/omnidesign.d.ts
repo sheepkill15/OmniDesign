@@ -11,7 +11,7 @@ interface ProviderEffortLevel {
 }
 
 interface ProviderStatus {
-  readonly id: 'codex' | 'claude'
+  readonly id: 'mock' | 'codex' | 'claude'
   readonly name: string
   readonly installed: boolean
   readonly authenticated: boolean
@@ -189,6 +189,7 @@ interface PreviewBounds {
 interface Window {
   readonly omnidesign: {
     readonly providers: {
+      readonly developmentProviderEnabled: boolean
       discover(): Promise<ProviderStatus[]>
       prompt(request: { requestId: string; providerId: 'codex' | 'claude'; modelId: string; effort?: string; prompt: string }): Promise<ProviderReply>
       onActivity(listener: (activity: ProviderActivity) => void): () => void

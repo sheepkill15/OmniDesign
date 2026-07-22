@@ -4,6 +4,7 @@ import type { GenerationActivity, GenerationSelection, Layout, PreviewRequest } 
 
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
+    developmentProviderEnabled: Boolean(process.env.VITE_DEV_SERVER_URL || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1'),
     discover: () => ipcRenderer.invoke('providers:discover'),
     prompt: (request: ProviderPrompt) => ipcRenderer.invoke('providers:prompt', request),
     onActivity: (listener: (activity: ProviderActivity) => void) => {

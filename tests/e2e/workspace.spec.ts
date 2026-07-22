@@ -16,7 +16,7 @@ async function launchWorkspace(userDataDirectory: string) {
     executablePath: electronExecutable,
     args: ['.'],
     cwd: projectDirectory,
-    env: { ...process.env, OMNIDESIGN_USER_DATA_DIR: userDataDirectory },
+    env: { ...process.env, OMNIDESIGN_USER_DATA_DIR: userDataDirectory, OMNIDESIGN_ENABLE_MOCK_PROVIDER: '1' },
   })
   return { app, window: await app.firstWindow() }
 }

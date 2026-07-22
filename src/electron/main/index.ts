@@ -39,6 +39,7 @@ import { createDesignTitlePrompt, fallbackDesignTitle, normalizeDesignTitle, sel
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
+const developmentProviderEnabled = Boolean(developmentServerUrl || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1')
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let preview: PreviewController | null = null
@@ -183,9 +184,12 @@ function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewCon
 }
 
 function registerIpc(): void {
-  ipcMain.handle('providers:discover', (event) => {
+  ipcMain.handle('providers:discover', async (event) => {
     authorize(event)
-    return providers.discover()
+    const discovered = await providers.discover()
+    return developmentProviderEnabled
+      ? [{ id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Available for local development and automated testing.', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] }, ...discovered]
+      : discovered
   })
   ipcMain.handle('providers:prompt', (event, request: unknown) => {
     authorize(event)

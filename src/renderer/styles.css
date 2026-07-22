@@ -601,6 +601,43 @@ button:disabled,
   margin-left: auto;
 }
 
+.no-provider-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px 12px 15px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
+}
+
+.no-provider-notice > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--warning);
+}
+
+.no-provider-notice > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.no-provider-notice strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.no-provider-notice small {
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.no-provider-notice .secondary-action {
+  margin-left: auto;
+}
+
 .project-context,
 .control-button,
 .text-button {
