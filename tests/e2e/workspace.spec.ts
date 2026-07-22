@@ -68,6 +68,8 @@ test('keeps a removed standalone design recoverable across an Electron restart',
   try {
     const firstRun = await launchWorkspace(userDataDirectory)
     activeApp = firstRun.app
+    const pageErrors: string[] = []
+    firstRun.window.on('pageerror', (error) => pageErrors.push(error.message))
     const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
     await prompt.fill('A disposable landing page')
     await prompt.press('Enter')
@@ -75,6 +77,8 @@ test('keeps a removed standalone design recoverable across an Electron restart',
     await firstRun.window.getByRole('button', { name: 'Remove' }).click()
     await firstRun.window.getByRole('button', { name: 'Trash' }).click()
     await expect(firstRun.window.getByText('A disposable landing page', { exact: true })).toBeVisible()
+    await firstRun.window.waitForTimeout(200)
+    expect(pageErrors).toEqual([])
     await firstRun.app.close()
     activeApp = null
 

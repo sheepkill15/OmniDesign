@@ -1017,7 +1017,11 @@ export function App() {
   }
   const restoreTrash = async (item: TrashItem) => { await workspaceApi?.restoreTrash(item.kind, item.id); await refresh() }
   const purgeTrash = async (item: TrashItem) => { await workspaceApi?.purgeTrash(item.kind, item.id); await refresh() }
-  const trashDesign = async (design: OmniDesignDocument) => { await workspaceApi?.trash('design', design.id); home() }
+  const trashDesign = async (design: OmniDesignDocument) => {
+    await workspaceApi?.trash('design', design.id)
+    await window.omnidesign?.preview.hide()
+    home()
+  }
   const trashProject = async (project: ProjectSummary) => { await workspaceApi?.trash('project', project.id); home() }
   const associateDesign = async (design: OmniDesignDocument, projectId: string) => {
     const associated = await workspaceApi?.associateDesign(design.id, projectId)

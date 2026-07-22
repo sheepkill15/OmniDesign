@@ -331,6 +331,7 @@ function registerIpc(): void {
   ipcMain.handle('preview:show', (event, value: unknown) => {
     authorize(event)
     const request = previewRequestSchema.parse(value)
+    if (!requireWorkspace().getDesign(request.designId)) return
     const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
     preview?.show(request.designId, request.revisionId, files, request.bounds)
   })
@@ -341,6 +342,7 @@ function registerIpc(): void {
   ipcMain.handle('preview:pop-out', (event, value: unknown) => {
     authorize(event)
     const request = selectRevisionRequestSchema.parse(value)
+    if (!requireWorkspace().getDesign(request.designId)) return
     const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
     preview?.popOut(request.designId, request.revisionId, files)
   })
