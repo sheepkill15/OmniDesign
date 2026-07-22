@@ -64,6 +64,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       }),
       listTrash: vi.fn().mockResolvedValue([]),
       cloneProject: vi.fn(),
+      registerLinkedProject: vi.fn(),
       reconnectProject: vi.fn(),
       convertProjectToStandalone: vi.fn(),
       trash: vi.fn().mockResolvedValue(undefined),
@@ -280,6 +281,21 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
     expect(bridge.preview.show).toHaveBeenCalled()
     expect(bridge.preview.hide).not.toHaveBeenCalled()
+  })
+
+  it('uses the shared project chooser for associating a standalone design', async () => {
+    installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Design conversation' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Associate' }))
+    expect(screen.getByRole('menuitem', { name: 'Choose local project folder…' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Clone Git repository…' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Standalone design' })).not.toBeInTheDocument()
   })
 
 

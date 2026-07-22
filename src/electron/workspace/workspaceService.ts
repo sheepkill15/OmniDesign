@@ -41,6 +41,7 @@ export class WorkspaceService {
   public associateDesignWithProject(designId: string, projectId: string): Design { return this.store.associateDesignWithProject(designId, projectId) }
 
   public listTrash(): TrashItem[] { return this.store.listTrash() }
+  public registerLinkedProject(sourceProjectPath: string): ProjectSummary { return this.store.registerLinkedProject(sourceProjectPath) }
   public async cloneProject(remoteUrl: string, destinationDirectory: string, onActivity: (detail: string) => void): Promise<ProjectSummary> {
     const sourceProjectPath = await cloneRepository(remoteUrl, destinationDirectory, (activity) => onActivity(activity.detail))
     return this.store.registerLinkedProject(sourceProjectPath)

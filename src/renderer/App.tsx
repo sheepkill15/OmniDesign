@@ -320,6 +320,25 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
   )
 }
 
+function ProjectSelectionMenu({ projects, includeStandalone = true, onAction }: {
+  readonly projects: readonly ProjectSummary[]
+  readonly includeStandalone?: boolean
+  readonly onAction: (key: string) => void
+}) {
+  const linkedProjects = projects.filter((project) => project.kind === 'linked')
+  return (
+    <Menu aria-label="Design project" onAction={(key) => onAction(String(key))}>
+      {includeStandalone && <MenuItem id="standalone">Standalone design</MenuItem>}
+      <MenuItem id="folder">Choose local project folder…</MenuItem>
+      <MenuItem id="clone">Clone Git repository…</MenuItem>
+      {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
+        <Header className="project-popover-header">Add to a project</Header>
+        {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
+      </MenuSection>}
+    </Menu>
+  )
+}
+
 function NewDesignComposer({ providers, busy, fixedProject, projects = [], initialProject = null, onCreate }: {
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
@@ -338,9 +357,6 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   const [cloneRemoteUrl, setCloneRemoteUrl] = useState('')
   const [cloneDestinationDirectory, setCloneDestinationDirectory] = useState('')
   const [error, setError] = useState<string | null>(null)
-  // Only linked (folder-backed) projects are meaningful reuse targets; standalone projects stay the
-  // private container of their single design.
-  const linkedProjects = projects.filter((project) => project.kind === 'linked')
   useEffect(() => {
     const pending = window.omnidesign?.settings.getGenerationDefaults?.()
     if (!pending) return
@@ -415,15 +431,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
           {fixedProject
             ? <span className="project-context project-context-fixed">{fixedProject.kind === 'linked' ? <FolderIcon aria-hidden="true" /> : <DocumentDuplicateIcon aria-hidden="true" />}{fixedProject.name}</span>
             : <DropdownButton triggerClassName="project-context" popoverClassName="project-popover" placement="top" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}</>}>
-                <Menu aria-label="Design project" onAction={(key) => chooseTarget(String(key))}>
-                  <MenuItem id="standalone">Standalone design</MenuItem>
-                  <MenuItem id="folder">Choose local project folder…</MenuItem>
-                  <MenuItem id="clone">Clone Git repository…</MenuItem>
-                  {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
-                    <Header className="project-popover-header">Add to a project</Header>
-                    {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
-                  </MenuSection>}
-                </Menu>
+                <ProjectSelectionMenu projects={projects} onAction={chooseTarget} />
               </DropdownButton>}
         </div>
         <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />
@@ -631,6 +639,11 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
   const [historyOpen, setHistoryOpen] = useState(false)
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
   const [associateMenuOpen, setAssociateMenuOpen] = useState(false)
+  const [associateCloneOpen, setAssociateCloneOpen] = useState(false)
+  const [associateCloneUrl, setAssociateCloneUrl] = useState('')
+  const [associateCloneDestination, setAssociateCloneDestination] = useState('')
+  const [associateCloneError, setAssociateCloneError] = useState<string | null>(null)
+  const [associatingClone, setAssociatingClone] = useState(false)
   const [freezeFrame, setFreezeFrame] = useState<string | null>(null)
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
@@ -647,7 +660,7 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
   // The isolated preview is a native layer painted above the DOM. While a header overlay sits over the
   // docked preview, capture its current frame, show that still image on the preview surface, then hide
   // the native layer so the overlay paints cleanly over the frozen frame — with no visible gap.
-  const overlayCoversPreview = historyOpen || layoutMenuOpen || associateMenuOpen
+  const overlayCoversPreview = historyOpen || layoutMenuOpen || associateMenuOpen || associateCloneOpen
   const coverPreviewForOverlay = () => {
     const preview = window.omnidesign?.preview
     if (!preview) return
@@ -758,6 +771,41 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
     onChange(await api.generate(design.id, `Adapt this design to the established design language of ${associatedProjectName}. Preserve its purpose while aligning visual language, interaction patterns, and relevant project conventions.`, selection.providerId, selection.modelId, selection.effort ?? undefined, attachments))
     onDismissAssociation()
   }
+  const chooseAssociationTarget = async (key: string) => {
+    if (!api) return
+    if (key === 'folder') {
+      const folder = await api.chooseProjectFolder()
+      if (!folder) return
+      const project = await api.registerLinkedProject(folder)
+      await onAssociate(design, project.id)
+      return
+    }
+    if (key === 'clone') {
+      coverPreviewForOverlay()
+      setAssociateCloneError(null)
+      setAssociateCloneOpen(true)
+      return
+    }
+    if (key.startsWith('project:')) await onAssociate(design, key.slice('project:'.length))
+  }
+  const chooseAssociateCloneDestination = async () => {
+    const folder = await api?.chooseProjectFolder()
+    if (folder) setAssociateCloneDestination(folder)
+  }
+  const confirmAssociateClone = async () => {
+    if (!api || !associateCloneUrl.trim() || !associateCloneDestination || associatingClone) return
+    setAssociatingClone(true)
+    setAssociateCloneError(null)
+    try {
+      const project = await api.cloneProject(associateCloneUrl.trim(), associateCloneDestination)
+      await onAssociate(design, project.id)
+      setAssociateCloneOpen(false)
+    } catch (reason) {
+      setAssociateCloneError(reason instanceof Error ? reason.message : 'Unable to clone and associate the repository.')
+    } finally {
+      setAssociatingClone(false)
+    }
+  }
 
   const previewStatus = selectedRevision
     ? selectedRevision.diagnostics.length ? `${selectedRevision.diagnostics.length} diagnostic${selectedRevision.diagnostics.length === 1 ? '' : 's'} captured` : 'Offline · validated'
@@ -821,15 +869,25 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
               ))}
             </Menu>
           </DropdownButton>
-            {projects.some((project) => project.kind === 'linked' && project.id !== design.projectId) && <DropdownButton triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" onOpenChange={(open) => { if (open) coverPreviewForOverlay(); setAssociateMenuOpen(open) }} trigger={<><FolderIcon aria-hidden="true" />Associate</>}>
-            <Menu aria-label="Associate design with project" onAction={(key) => void onAssociate(design, String(key))}>
-              {projects.filter((project) => project.kind === 'linked' && project.id !== design.projectId).map((project) => <MenuItem id={project.id} key={project.id}>{project.name}</MenuItem>)}
-            </Menu>
-          </DropdownButton>}
+            <DropdownButton triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" onOpenChange={(open) => { if (open) coverPreviewForOverlay(); setAssociateMenuOpen(open) }} trigger={<><FolderIcon aria-hidden="true" />Associate</>}>
+              <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
+            </DropdownButton>
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
           <Button className="toolbar-button" onPress={() => void onTrash(design)}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
+      <AppModal isOpen={associateCloneOpen} onOpenChange={setAssociateCloneOpen} className="clone-modal" title="Clone and associate repository">
+        {(close) => <>
+          <p>OmniDesign will clone the repository into a new folder inside the destination you choose, then associate this design with it.</p>
+          <div className="clone-modal-fields">
+            <TextField aria-label="Git repository URL"><Input value={associateCloneUrl} onChange={(event) => setAssociateCloneUrl(event.target.value)} placeholder="git@github.com:team/project.git" /></TextField>
+            <div className="clone-destination"><TextField aria-label="Destination folder"><Input value={associateCloneDestination} onChange={(event) => setAssociateCloneDestination(event.target.value)} placeholder="Destination folder" /></TextField><Button className="secondary-action" onPress={() => void chooseAssociateCloneDestination()}>Choose folder</Button></div>
+          </div>
+          <p className="clone-modal-note">For example, <code>project.git</code> will be cloned to a new <code>project</code> folder inside the destination.</p>
+          {associateCloneError && <p className="generation-recovery" role="alert">{associateCloneError}</p>}
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" isDisabled={!associateCloneUrl.trim() || !associateCloneDestination || associatingClone} onPress={() => void confirmAssociateClone()}>{associatingClone ? 'Cloning…' : 'Clone and associate'}</Button></div>
+        </>}
+      </AppModal>
       {mode === 'split'
         ? <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
             {conversationPane}

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     associateDesign: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-design', { designId, projectId }),
     listTrash: () => ipcRenderer.invoke('workspace:list-trash'),
     cloneProject: (remoteUrl: string, destinationPath: string) => ipcRenderer.invoke('workspace:clone-project', { remoteUrl, destinationPath }),
+    registerLinkedProject: (sourceProjectPath: string) => ipcRenderer.invoke('workspace:register-linked-project', { sourceProjectPath }),
     reconnectProject: (projectId: string, sourceProjectPath: string) => ipcRenderer.invoke('workspace:reconnect-project', { projectId, sourceProjectPath }),
     convertProjectToStandalone: (projectId: string) => ipcRenderer.invoke('workspace:convert-project-to-standalone', { projectId }),
     trash: (kind: 'project' | 'design', id: string) => ipcRenderer.invoke('workspace:trash', { kind, id }),

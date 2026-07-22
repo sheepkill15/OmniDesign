@@ -88,6 +88,10 @@ export const cloneProjectRequestSchema = z.object({
   destinationPath: z.string().trim().min(1).max(32_000),
 })
 
+export const registerLinkedProjectRequestSchema = z.object({
+  sourceProjectPath: z.string().trim().min(1).max(32_000),
+})
+
 export const trashItemSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['project', 'design']),
@@ -222,6 +226,7 @@ export type ProjectSummary = z.infer<typeof projectSummarySchema>
 export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
 export type ReconnectProjectRequest = z.infer<typeof reconnectProjectRequestSchema>
 export type CloneProjectRequest = z.infer<typeof cloneProjectRequestSchema>
+export type RegisterLinkedProjectRequest = z.infer<typeof registerLinkedProjectRequestSchema>
 export type TrashItem = z.infer<typeof trashItemSchema>
 export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>

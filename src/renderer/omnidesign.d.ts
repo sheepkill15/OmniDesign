@@ -198,6 +198,7 @@ interface Window {
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
       listTrash(): Promise<TrashItem[]>
       cloneProject(remoteUrl: string, destinationPath: string): Promise<ProjectSummary>
+      registerLinkedProject(sourceProjectPath: string): Promise<ProjectSummary>
       reconnectProject(projectId: string, sourceProjectPath: string): Promise<ProjectSummary>
       convertProjectToStandalone(projectId: string): Promise<ProjectSummary>
       trash(kind: 'project' | 'design', id: string): Promise<void>

@@ -17,6 +17,7 @@ import {
   previewRequestSchema,
   projectIdRequestSchema,
   reconnectProjectRequestSchema,
+  registerLinkedProjectRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
@@ -217,6 +218,10 @@ function registerIpc(): void {
     return requireWorkspace().cloneProject(request.remoteUrl, request.destinationPath, (detail) => {
       if (!event.sender.isDestroyed()) event.sender.send('workspace:clone-activity', detail)
     })
+  })
+  ipcMain.handle('workspace:register-linked-project', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().registerLinkedProject(registerLinkedProjectRequestSchema.parse(value).sourceProjectPath)
   })
   ipcMain.handle('workspace:reconnect-project', (event, value: unknown) => {
     authorize(event)
