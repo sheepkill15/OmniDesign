@@ -1997,6 +1997,11 @@ button[aria-expanded="true"] .dropdown-caret {
   text-transform: uppercase;
 }
 
+.generation-recovery-details { margin-top: 5px; }
+.generation-recovery-details summary { width: fit-content; color: var(--text-faint); cursor: pointer; font-size: 11px; }
+.generation-recovery-details summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.generation-recovery-details pre { max-width: min(520px, 55vw); max-height: 140px; margin: 8px 0 0; overflow: auto; color: var(--text-faint); font: 11px/1.5 ui-monospace, monospace; white-space: pre-wrap; }
+
 .conversation-activity {
   margin: 0 0 26px;
   border-left: 2px solid var(--border);

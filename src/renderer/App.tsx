@@ -293,6 +293,16 @@ function Settings({ theme, notificationsEnabled, generationDetail, onThemeChange
   )
 }
 
+function describeStoppedGeneration(job: GenerationJob): { readonly title: string; readonly message: string; readonly openProviders: boolean } {
+  const error = job.error ?? ''
+  if (job.state === 'interrupted') return { title: 'Generation interrupted', message: 'OmniDesign closed before this work finished. Continue from retained files or retry from the last revision.', openProviders: false }
+  if (job.state === 'cancelled') return { title: 'Generation cancelled', message: 'The previous revision is still active. Continue from retained files or start a fresh retry.', openProviders: false }
+  if (/ENOTFOUND|ECONN|network|offline|fetch failed|socket|timed? out/i.test(error)) return { title: 'Provider connection unavailable', message: 'Check your connection and provider service, then retry.', openProviders: false }
+  if (/auth|sign.?in|log.?in|unauthorized|credential/i.test(error)) return { title: 'Provider sign-in required', message: 'Sign in again or choose another available provider before continuing.', openProviders: true }
+  if (/model.*(?:unavailable|not found|unsupported)|selected model/i.test(error)) return { title: 'Selected model unavailable', message: 'Choose an available provider and model before sending another prompt.', openProviders: true }
+  return { title: 'Generation failed', message: 'Review the technical details, then continue partial work or retry from the last revision.', openProviders: false }
+}
+
 function EditableTitle({ value, label, variant, onSave }: {
   readonly value: string
   readonly label: string
@@ -886,6 +896,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
   const activeJob = [...design.generationJobs].reverse().find((job) => ['queued', 'running'].includes(job.state))
   const retryableJob = [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
+  const stoppedGeneration = retryableJob ? describeStoppedGeneration(retryableJob) : null
   const api = window.omnidesign?.workspace
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
   const hasUsableSelection = readyProviders.some((provider) => provider.id === selection.providerId && provider.models.some((model) => model.id === selection.modelId))
@@ -1117,7 +1128,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
         {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && (activeJob.state === 'queued' ? <Button className="secondary-action" onPress={() => void removeGeneration()}>Remove</Button> : <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>)}</div>}
         {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
-        {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
+        {!activeJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
         {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
           <strong>Latest candidate was not activated</strong>
           <p>{latestInvalidCandidate.diagnostic}</p>

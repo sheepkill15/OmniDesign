@@ -860,6 +860,26 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.workspace.retryGeneration).toHaveBeenCalledWith('e0684c4c-0d07-4ece-9d6f-22c2f523e399')
   })
 
+  it('turns provider failures into actionable recovery while retaining diagnostics', async () => {
+    const failedDesign: OmniDesignDocument = {
+      ...design,
+      generationJobs: [{
+        id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Try again', providerId: 'codex', modelId: 'gpt-5.6', state: 'failed',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'fetch failed: ENOTFOUND api.openai.com', attachments: [],
+      }],
+    }
+    installBridge([failedDesign], failedDesign)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    expect(await screen.findByText('Provider connection unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Check your connection and provider service, then retry.')).toBeInTheDocument()
+    const details = screen.getByText('Technical details').closest('details')
+    expect(details).not.toHaveAttribute('open')
+    expect(details).toHaveTextContent('ENOTFOUND api.openai.com')
+  })
+
   it('opens a single-design project straight into its workspace', async () => {
     const bridge = installBridge([design])
     render(<App />)
