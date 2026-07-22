@@ -1980,8 +1980,8 @@ button[aria-expanded="true"] .dropdown-caret {
 
 .message-user .message-bubble p {
   color: var(--text);
-  font-size: 15px;
-  line-height: 1.6;
+  /* Match the agent reply's body size (14px) so both sides of the conversation read the same. */
+  line-height: 1.65;
 }
 
 /* The agent's reply gets its own bubble too (a different tone and mirrored corner) so it is easy to
