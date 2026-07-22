@@ -258,6 +258,10 @@ button:disabled,
   color: var(--text-subtle);
 }
 
+.project-nav-row[data-standalone] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .project-nav-row:hover {
   background: var(--surface-2);
 }
@@ -632,10 +636,8 @@ button:disabled,
 
 .generation-settings-button {
   height: 34px;
-  /* Fixed width keeps the button's edges stable so the settings popover (anchored to the button)
-     does not drift sideways when the selected provider/model label changes length. */
-  width: 248px;
-  flex: 0 0 auto;
+  max-width: min(248px, 42vw);
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
   gap: 7px;

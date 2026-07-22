@@ -235,6 +235,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('pre-fills the composer target from a project row add button', async () => {
     const bridge = installBridge([design])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(design), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Calm dashboard' }])
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
@@ -393,6 +394,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenCalledWith(true))
     // Selecting a revision closes the React Aria menu, which restores the live preview layer.
     fireEvent.click(screen.getByRole('menuitem', { name: /Current head/ }))
+    expect(bridge.workspace.selectRevision).not.toHaveBeenCalled()
     await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenLastCalledWith(false))
   })
 
@@ -456,7 +458,8 @@ describe('Phase 1 walking skeleton UI', () => {
   it('expands a project in the sidebar to open a specific design', async () => {
     const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
     const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
-    installBridge([first, second])
+    const bridge = installBridge([first, second])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
@@ -470,7 +473,8 @@ describe('Phase 1 walking skeleton UI', () => {
   it('opens a multi-design project to its design grid and into a chosen design', async () => {
     const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
     const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
-    installBridge([first, second])
+    const bridge = installBridge([first, second])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
@@ -479,5 +483,15 @@ describe('Phase 1 walking skeleton UI', () => {
     const grid = await screen.findByRole('group', { name: 'Designs in this project' })
     fireEvent.click(within(grid).getByRole('button', { name: /Settings screen/ }))
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
+  })
+
+  it('keeps standalone designs as direct sidebar entries without expansion or an add button', async () => {
+    installBridge([design])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    await within(sidebar).findByRole('button', { name: 'Calm dashboard' })
+    expect(within(sidebar).queryByRole('button', { name: 'Expand Calm dashboard' })).not.toBeInTheDocument()
+    expect(within(sidebar).queryByRole('button', { name: 'New design in Calm dashboard' })).not.toBeInTheDocument()
   })
 })

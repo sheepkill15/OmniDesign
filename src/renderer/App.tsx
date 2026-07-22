@@ -59,34 +59,35 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
   readonly onOpenDesign: (project: ProjectSummary, design: OmniDesignDocument) => void
   readonly onAddDesign: (project: ProjectSummary) => void
 }) {
+  const isStandalone = project.kind === 'standalone'
   const [expanded, setExpanded] = useState(false)
   const [designs, setDesigns] = useState<readonly OmniDesignDocument[]>([])
   const loadDesigns = useCallback(async () => {
     const detail = await window.omnidesign?.workspace.getProject(project.id)
     if (detail) setDesigns(detail.designs)
   }, [project.id])
-  useEffect(() => { if (expanded) void loadDesigns() }, [expanded, loadDesigns, project.updatedAt, project.designCount])
+  useEffect(() => { if (!isStandalone && expanded) void loadDesigns() }, [isStandalone, expanded, loadDesigns, project.updatedAt, project.designCount])
   const ProjectIcon = project.kind === 'linked' ? FolderIcon : DocumentDuplicateIcon
 
   return (
     <div className="project-nav-item">
-      <div className="project-nav-row" data-active={project.id === activeProjectId || undefined}>
-        <Button className="project-disclosure" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${project.name}`} aria-expanded={expanded} onPress={() => setExpanded((current) => !current)}>
+      <div className="project-nav-row" data-standalone={isStandalone || undefined} data-active={project.id === activeProjectId || undefined}>
+        {!isStandalone && <Button className="project-disclosure" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${project.name}`} aria-expanded={expanded} onPress={() => setExpanded((current) => !current)}>
           <ChevronRightIcon aria-hidden="true" data-expanded={expanded || undefined} />
-        </Button>
+        </Button>}
         <Button className="project-open" onPress={() => onOpen(project)}>
           <ProjectIcon aria-hidden="true" />
           <span>{project.name}</span>
         </Button>
         <span className="project-trailing">
-          <span className="project-count" aria-hidden="true">{project.designCount}</span>
-          <TooltipTrigger delay={350}>
-            <Button className="project-add" aria-label={`New design in ${project.name}`} onPress={() => onAddDesign(project)}><PlusIcon aria-hidden="true" /></Button>
-            <Tooltip className="tooltip">New design in {project.name}</Tooltip>
-          </TooltipTrigger>
+          {!isStandalone && <><span className="project-count" aria-hidden="true">{project.designCount}</span>
+            <TooltipTrigger delay={350}>
+              <Button className="project-add" aria-label={`New design in ${project.name}`} onPress={() => onAddDesign(project)}><PlusIcon aria-hidden="true" /></Button>
+              <Tooltip className="tooltip">New design in {project.name}</Tooltip>
+            </TooltipTrigger></>}
         </span>
       </div>
-      {expanded && (
+      {!isStandalone && expanded && (
         <div className="design-sublist" role="group" aria-label={`${project.name} designs`}>
           {designs.map((design) => (
             <Button className="design-subrow" data-active={design.id === activeDesignId || undefined} key={design.id} onPress={() => onOpenDesign(project, design)}>
@@ -265,7 +266,8 @@ function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChan
       label="Generation settings"
       triggerClassName="generation-settings-button"
       popoverClassName="generation-settings-popover"
-      placement="top end"
+      placement="top start"
+      crossOffset={148}
       trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider?.name ?? 'Development provider'} · {model?.name ?? 'Mock v1'}</span></>}
     >
         <div className="generation-settings-columns">
@@ -644,7 +646,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
     setDraft('')
   }
   const selectRevision = async (revisionId: string) => {
-    if (!api) return
+    if (!api || revisionId === design.selectedRevisionId) return
     onChange(await api.selectRevision(design.id, revisionId))
   }
   const restore = async () => {

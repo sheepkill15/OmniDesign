@@ -155,6 +155,7 @@ export class PreviewController {
   private loadDocument(designId: string, revisionId: string, files: RevisionFiles): void {
     const view = this.view
     if (!view || view.webContents.isDestroyed()) return
+    if (this.designId === designId && this.revisionId === revisionId) return
     const token = randomUUID()
     this.documents.clear()
     this.documents.set(token, files)
