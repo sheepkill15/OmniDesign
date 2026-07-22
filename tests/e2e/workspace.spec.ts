@@ -159,6 +159,10 @@ test('applies and persists the trusted application theme across primary screens'
     })
 
     await firstRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
+    const notifications = firstRun.window.getByRole('switch', { name: 'System notifications' })
+    await expect(notifications).toBeChecked()
+    await notifications.press('Space')
+    await expect(notifications).not.toBeChecked()
     await firstRun.window.getByText('Light', { exact: true }).click()
     await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
     const lightColors = await firstRun.window.evaluate(() => {
@@ -181,6 +185,8 @@ test('applies and persists the trusted application theme across primary screens'
     activeApp = secondRun.app
     await expect(secondRun.window.getByRole('heading', { name: 'Start with an idea.' })).toBeVisible()
     await expect(secondRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
+    await secondRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
+    await expect(secondRun.window.getByRole('switch', { name: 'System notifications' })).not.toBeChecked()
   } finally {
     await activeApp?.close().catch(() => undefined)
     await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

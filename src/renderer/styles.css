@@ -949,8 +949,63 @@ button:disabled,
 .editable-title-workspace .secondary-action { height: 28px; }
 .editable-title-workspace .text-button { height: 28px; padding: 0 6px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; }
-.settings-row span { display: grid; gap: 4px; }
+.settings-row > span { display: grid; gap: 4px; }
 .settings-row small { color: var(--text-subtle); }
+
+.settings-switch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+  padding: 5px 0 5px 7px;
+  border-radius: var(--radius-control);
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+
+.settings-switch-state {
+  min-width: 20px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.settings-switch-track {
+  width: 34px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.settings-switch-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-subtle);
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.settings-switch[data-selected] {
+  color: var(--text);
+}
+
+.settings-switch[data-selected] .settings-switch-track {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.settings-switch[data-selected] .settings-switch-thumb {
+  transform: translateX(14px);
+  background: var(--accent-text);
+}
+
+.settings-switch:hover .settings-switch-track {
+  border-color: var(--text-subtle);
+}
 
 .section-heading-actions {
   display: flex;
@@ -2021,5 +2076,20 @@ button[aria-expanded="true"] .dropdown-caret {
     outline: 2px solid Highlight;
     outline-offset: 2px;
     box-shadow: none;
+  }
+
+  .settings-switch-track {
+    border-color: ButtonText;
+    forced-color-adjust: none;
+  }
+
+  .settings-switch[data-selected] .settings-switch-track {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  .settings-switch-thumb,
+  .settings-switch[data-selected] .settings-switch-thumb {
+    background: CanvasText;
   }
 }

@@ -27,7 +27,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, Switch, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { AppModal } from './components/AppModal'
 import { DropdownButton } from './components/DropdownButton'
 import { PreviewOverlayContext } from './components/PreviewOverlayContext'
@@ -249,7 +249,7 @@ function Settings({ theme, notificationsEnabled, generationDetail, onThemeChange
         </section>
         <section className="settings-section" aria-labelledby="notifications-heading">
           <div className="section-heading"><h2 id="notifications-heading">Notifications</h2><span>Saved locally</span></div>
-          <div className="settings-row"><span><strong>System notifications</strong><small>Notify when generation completes or needs attention.</small></span><Button className="secondary-action" onPress={() => onNotificationsChange(!notificationsEnabled)}>{notificationsEnabled ? 'On' : 'Off'}</Button></div>
+          <div className="settings-row"><span><strong>System notifications</strong><small>Notify when generation completes or needs attention.</small></span><Switch aria-label="System notifications" className="settings-switch" isSelected={notificationsEnabled} onChange={onNotificationsChange}><span className="settings-switch-state">{notificationsEnabled ? 'On' : 'Off'}</span><span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span></Switch></div>
         </section>
         <section className="settings-section" aria-labelledby="generation-detail-heading">
           <div className="section-heading"><h2 id="generation-detail-heading">Generation details</h2><span>Saved locally</span></div>

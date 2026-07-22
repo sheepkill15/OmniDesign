@@ -732,7 +732,9 @@ describe('Phase 1 walking skeleton UI', () => {
     const bridge = installBridge()
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'On' }))
+    const notifications = await screen.findByRole('switch', { name: 'System notifications' })
+    expect(notifications).toBeChecked()
+    fireEvent.click(notifications)
     expect(bridge.settings.saveNotificationsEnabled).toHaveBeenCalledWith(false)
   })
 
