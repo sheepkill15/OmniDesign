@@ -61,6 +61,12 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
         const project = projects.find((candidate) => candidate.id === projectId)
         return project ? { project, designs: initialDesigns.filter((candidate) => candidate.projectId === projectId) } : null
       }),
+      listTrash: vi.fn().mockResolvedValue([]),
+      reconnectProject: vi.fn(),
+      convertProjectToStandalone: vi.fn(),
+      trash: vi.fn().mockResolvedValue(undefined),
+      restoreTrash: vi.fn().mockResolvedValue(undefined),
+      purgeTrash: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(createdDesign),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
@@ -126,6 +132,15 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
 
     await waitFor(() => expect(bridge.providers.discover).toHaveBeenCalledTimes(3))
+  })
+
+  it('opens the recoverable trash view', async () => {
+    installBridge()
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    expect(await screen.findByRole('heading', { name: 'Trash' })).toBeInTheDocument()
+    expect(screen.getByText('No deleted projects or designs.')).toBeInTheDocument()
   })
 
   it('shows active work globally and can cancel it from the generations view', async () => {

@@ -139,6 +139,17 @@ interface ProjectDetail {
   readonly designs: readonly OmniDesignDocument[]
 }
 
+interface TrashItem {
+  readonly id: string
+  readonly kind: 'project' | 'design'
+  readonly name: string
+  readonly projectId: string | null
+  readonly projectName: string | null
+  readonly sourceProjectPath: string | null
+  readonly trashedAt: string
+  readonly purgeAt: string
+}
+
 interface CreateDesignTarget {
   readonly sourceProjectPath?: string | null
   readonly projectId?: string | null
@@ -168,6 +179,12 @@ interface Window {
       list(): Promise<OmniDesignDocument[]>
       listProjects(): Promise<ProjectSummary[]>
       getProject(projectId: string): Promise<ProjectDetail | null>
+      listTrash(): Promise<TrashItem[]>
+      reconnectProject(projectId: string, sourceProjectPath: string): Promise<ProjectSummary>
+      convertProjectToStandalone(projectId: string): Promise<ProjectSummary>
+      trash(kind: 'project' | 'design', id: string): Promise<void>
+      restoreTrash(kind: 'project' | 'design', id: string): Promise<ProjectSummary | OmniDesignDocument>
+      purgeTrash(kind: 'project' | 'design', id: string): Promise<void>
       get(designId: string): Promise<OmniDesignDocument | null>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null): Promise<OmniDesignDocument>
       generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string): Promise<OmniDesignDocument>

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
-import type { Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme } from './contracts.js'
+import type { Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme, TrashItem } from './contracts.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -47,6 +47,16 @@ interface ProjectRow {
   updated_at: string
   design_count: number
   last_design_activity: string | null
+}
+
+interface TrashRow {
+  id: string
+  kind: 'project' | 'design'
+  name: string
+  project_id: string | null
+  project_name: string | null
+  source_path: string | null
+  trashed_at: string
 }
 
 interface GenerationStepRow {
@@ -297,6 +307,13 @@ ALTER TABLE revisions_rebuilt RENAME TO revisions;
 CREATE INDEX revisions_by_design ON revisions(design_id, created_at);
 `
 
+const migrationEighteen = `
+ALTER TABLE projects ADD COLUMN trashed_at TEXT;
+ALTER TABLE designs ADD COLUMN trashed_at TEXT;
+CREATE INDEX projects_by_trash ON projects(trashed_at);
+CREATE INDEX designs_by_trash ON designs(trashed_at);
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -308,6 +325,7 @@ export class WorkspaceStore {
     this.database = new DatabaseSync(path.join(storageDirectory, 'omnidesign.sqlite'), { timeout: 5_000 })
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;')
     this.migrate()
+    this.purgeExpiredTrash()
   }
 
   public close(): void {
@@ -324,6 +342,7 @@ export class WorkspaceStore {
              d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort
       FROM designs d JOIN projects p ON p.id = d.project_id
+      WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
       ORDER BY d.updated_at DESC
     `).all() as unknown as DesignRow[]
     return rows.map((row) => this.hydrateDesign(row))
@@ -334,7 +353,7 @@ export class WorkspaceStore {
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort
-      FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ?
+      FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
   }
@@ -345,7 +364,8 @@ export class WorkspaceStore {
              COUNT(d.id) AS design_count,
              MAX(d.updated_at) AS last_design_activity
       FROM projects p
-      LEFT JOIN designs d ON d.project_id = p.id
+      LEFT JOIN designs d ON d.project_id = p.id AND d.trashed_at IS NULL
+      WHERE p.trashed_at IS NULL
       GROUP BY p.id
       ORDER BY COALESCE(MAX(d.updated_at), p.updated_at) DESC, p.rowid DESC
     `).all() as unknown as ProjectRow[]
@@ -358,8 +378,8 @@ export class WorkspaceStore {
              COUNT(d.id) AS design_count,
              MAX(d.updated_at) AS last_design_activity
       FROM projects p
-      LEFT JOIN designs d ON d.project_id = p.id
-      WHERE p.id = ?
+      LEFT JOIN designs d ON d.project_id = p.id AND d.trashed_at IS NULL
+      WHERE p.id = ? AND p.trashed_at IS NULL
       GROUP BY p.id
     `).get(projectId) as unknown as ProjectRow | undefined
     return row ? this.hydrateProject(row) : null
@@ -371,14 +391,14 @@ export class WorkspaceStore {
              d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort
       FROM designs d JOIN projects p ON p.id = d.project_id
-      WHERE d.project_id = ?
+      WHERE d.project_id = ? AND d.trashed_at IS NULL
       ORDER BY d.updated_at DESC, d.rowid DESC
     `).all(projectId) as unknown as DesignRow[]
     return rows.map((row) => this.hydrateDesign(row))
   }
 
   public findProjectBySourcePath(sourcePath: string): string | null {
-    const row = this.database.prepare('SELECT id FROM projects WHERE source_path = ?').get(sourcePath) as { id: string } | undefined
+    const row = this.database.prepare('SELECT id FROM projects WHERE source_path = ? AND trashed_at IS NULL').get(sourcePath) as { id: string } | undefined
     return row?.id ?? null
   }
 
@@ -407,7 +427,7 @@ export class WorkspaceStore {
     const designId = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
-      const project = this.database.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
+      const project = this.database.prepare('SELECT id FROM projects WHERE id = ? AND trashed_at IS NULL').get(projectId)
       if (!project) throw new Error('Project not found.')
       this.database.prepare('INSERT INTO designs (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run(designId, projectId, title, now, now)
@@ -427,6 +447,94 @@ export class WorkspaceStore {
         .run(randomUUID(), designId, 'user', prompt, now)
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
+  }
+
+  public reconnectProject(projectId: string, sourcePath: string): ProjectSummary {
+    if (!existsSync(sourcePath)) throw new Error('The selected source folder is unavailable.')
+    const existing = this.findProjectBySourcePath(sourcePath)
+    if (existing && existing !== projectId) throw new Error('That folder is already linked to another OmniDesign project.')
+    const result = this.database.prepare(`
+      UPDATE projects SET source_path = ?, kind = 'linked', updated_at = ?
+      WHERE id = ? AND trashed_at IS NULL
+    `).run(sourcePath, new Date().toISOString(), projectId)
+    if (result.changes !== 1) throw new Error('Project not found.')
+    return this.getProjectSummary(projectId)!
+  }
+
+  public convertProjectToStandalone(projectId: string): ProjectSummary {
+    const result = this.database.prepare(`
+      UPDATE projects SET source_path = NULL, kind = 'standalone', updated_at = ?
+      WHERE id = ? AND trashed_at IS NULL
+    `).run(new Date().toISOString(), projectId)
+    if (result.changes !== 1) throw new Error('Project not found.')
+    return this.getProjectSummary(projectId)!
+  }
+
+  public moveProjectToTrash(projectId: string): void {
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      const project = this.database.prepare('SELECT id FROM projects WHERE id = ? AND trashed_at IS NULL').get(projectId)
+      if (!project) throw new Error('Project not found.')
+      this.database.prepare('UPDATE projects SET trashed_at = ? WHERE id = ?').run(now, projectId)
+      this.database.prepare('UPDATE designs SET trashed_at = ? WHERE project_id = ? AND trashed_at IS NULL').run(now, projectId)
+    })
+  }
+
+  public moveDesignToTrash(designId: string): void {
+    const result = this.database.prepare('UPDATE designs SET trashed_at = ? WHERE id = ? AND trashed_at IS NULL').run(new Date().toISOString(), designId)
+    if (result.changes !== 1) throw new Error('Design not found.')
+  }
+
+  public listTrash(): TrashItem[] {
+    const rows = this.database.prepare(`
+      SELECT p.id, 'project' AS kind, p.name, NULL AS project_id, NULL AS project_name, p.source_path, p.trashed_at
+      FROM projects p WHERE p.trashed_at IS NOT NULL
+      UNION ALL
+      SELECT d.id, 'design' AS kind, d.title AS name, d.project_id, p.name AS project_name, p.source_path, d.trashed_at
+      FROM designs d JOIN projects p ON p.id = d.project_id
+      WHERE d.trashed_at IS NOT NULL AND p.trashed_at IS NULL
+      ORDER BY trashed_at DESC
+    `).all() as unknown as TrashRow[]
+    const retentionMs = 30 * 24 * 60 * 60 * 1_000
+    return rows.map((row) => ({
+      id: row.id, kind: row.kind, name: row.name, projectId: row.project_id, projectName: row.project_name,
+      sourceProjectPath: row.source_path, trashedAt: row.trashed_at,
+      purgeAt: new Date(new Date(row.trashed_at).getTime() + retentionMs).toISOString(),
+    }))
+  }
+
+  public restoreProject(projectId: string): ProjectSummary {
+    this.transaction(() => {
+      const project = this.database.prepare('SELECT id FROM projects WHERE id = ? AND trashed_at IS NOT NULL').get(projectId)
+      if (!project) throw new Error('Trashed project not found.')
+      this.database.prepare('UPDATE projects SET trashed_at = NULL, updated_at = ? WHERE id = ?').run(new Date().toISOString(), projectId)
+      this.database.prepare('UPDATE designs SET trashed_at = NULL WHERE project_id = ?').run(projectId)
+    })
+    return this.getProjectSummary(projectId)!
+  }
+
+  public restoreDesign(designId: string): Design {
+    const result = this.database.prepare(`
+      UPDATE designs SET trashed_at = NULL WHERE id = ? AND trashed_at IS NOT NULL
+        AND EXISTS (SELECT 1 FROM projects p WHERE p.id = designs.project_id AND p.trashed_at IS NULL)
+    `).run(designId)
+    if (result.changes !== 1) throw new Error('Restore the containing project before restoring this design.')
+    return this.requireDesign(designId)
+  }
+
+  public purgeTrashItem(kind: 'project' | 'design', id: string): void {
+    if (kind === 'project') {
+      const project = this.database.prepare('SELECT id FROM projects WHERE id = ? AND trashed_at IS NOT NULL').get(id) as { id: string } | undefined
+      if (!project) throw new Error('Trashed project not found.')
+      const designIds = (this.database.prepare('SELECT id FROM designs WHERE project_id = ?').all(id) as { id: string }[]).map((row) => row.id)
+      this.database.prepare('DELETE FROM projects WHERE id = ?').run(id)
+      designIds.forEach((designId) => this.removeDesignArtifacts(designId))
+      return
+    }
+    const design = this.database.prepare('SELECT id FROM designs WHERE id = ? AND trashed_at IS NOT NULL').get(id) as { id: string } | undefined
+    if (!design) throw new Error('Trashed design not found.')
+    this.database.prepare('DELETE FROM designs WHERE id = ?').run(id)
+    this.removeDesignArtifacts(id)
   }
 
   public addAssistantResponse(designId: string, response: string): Design {
@@ -657,7 +765,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -811,6 +919,24 @@ export class WorkspaceStore {
       completedAt: row.completed_at,
       error: row.error,
     })
+  }
+
+  private purgeExpiredTrash(): void {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString()
+    const expired = this.database.prepare(`
+      SELECT id, 'project' AS kind FROM projects WHERE trashed_at IS NOT NULL AND trashed_at <= ?
+      UNION ALL
+      SELECT d.id, 'design' AS kind FROM designs d JOIN projects p ON p.id = d.project_id
+      WHERE d.trashed_at IS NOT NULL AND p.trashed_at IS NULL AND d.trashed_at <= ?
+    `).all(cutoff, cutoff) as { id: string; kind: 'project' | 'design' }[]
+    expired.forEach((item) => this.purgeTrashItem(item.kind, item.id))
+  }
+
+  private removeDesignArtifacts(designId: string): void {
+    const target = path.resolve(this.artifactsDirectory, designId)
+    const root = path.resolve(this.artifactsDirectory)
+    if (path.dirname(target) !== root) throw new Error('Refusing to remove an unexpected design artifact path.')
+    rmSync(target, { recursive: true, force: true })
   }
 
   private transaction(work: () => void): void {

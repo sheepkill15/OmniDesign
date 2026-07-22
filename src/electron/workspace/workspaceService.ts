@@ -1,5 +1,5 @@
 import { compileTailwindCss, validateCompiledDesign } from './compiler.js'
-import type { Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme } from './contracts.js'
+import type { Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { generateMockDesign } from './mockGenerator.js'
@@ -37,6 +37,14 @@ export class WorkspaceService {
   public getDesign(designId: string): Design | null {
     return this.store.getDesign(designId)
   }
+
+  public listTrash(): TrashItem[] { return this.store.listTrash() }
+  public reconnectProject(projectId: string, sourceProjectPath: string): ProjectSummary { return this.store.reconnectProject(projectId, sourceProjectPath) }
+  public convertProjectToStandalone(projectId: string): ProjectSummary { return this.store.convertProjectToStandalone(projectId) }
+  public moveProjectToTrash(projectId: string): void { this.store.moveProjectToTrash(projectId) }
+  public moveDesignToTrash(designId: string): void { this.store.moveDesignToTrash(designId) }
+  public restoreTrashItem(kind: 'project' | 'design', id: string): ProjectSummary | Design { return kind === 'project' ? this.store.restoreProject(id) : this.store.restoreDesign(id) }
+  public purgeTrashItem(kind: 'project' | 'design', id: string): void { this.store.purgeTrashItem(kind, id) }
 
   private createDesignRecord(prompt: string, title: string, target: CreateDesignTarget | undefined): Design {
     if (target?.projectId) return this.store.createDesignInProject(target.projectId, prompt, title)

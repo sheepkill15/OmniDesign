@@ -63,6 +63,26 @@ export const projectIdRequestSchema = z.object({
   projectId: z.string().min(1).max(100),
 })
 
+export const reconnectProjectRequestSchema = projectIdRequestSchema.extend({
+  sourceProjectPath: z.string().min(1).max(32_000),
+})
+
+export const trashItemSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['project', 'design']),
+  name: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
+  projectName: z.string().min(1).nullable(),
+  sourceProjectPath: z.string().nullable(),
+  trashedAt: z.string().datetime(),
+  purgeAt: z.string().datetime(),
+})
+
+export const trashItemRequestSchema = z.object({
+  kind: z.enum(['project', 'design']),
+  id: z.string().min(1).max(100),
+})
+
 export const themeSchema = z.enum(['dark', 'light'])
 
 export const generationSelectionSchema = z.object({
@@ -170,6 +190,9 @@ export const exportRequestSchema = selectRevisionRequestSchema
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>
 export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
+export type ReconnectProjectRequest = z.infer<typeof reconnectProjectRequestSchema>
+export type TrashItem = z.infer<typeof trashItemSchema>
+export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
 export type Message = z.infer<typeof messageSchema>

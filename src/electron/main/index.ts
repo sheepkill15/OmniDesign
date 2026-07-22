@@ -12,11 +12,13 @@ import {
   generationStageLabel,
   previewRequestSchema,
   projectIdRequestSchema,
+  reconnectProjectRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
   themeSchema,
+  trashItemRequestSchema,
 } from '../workspace/contracts.js'
 import type { GenerationActivity } from '../workspace/contracts.js'
 import { writeOfflineZip } from '../workspace/exportService.js'
@@ -181,6 +183,31 @@ function registerIpc(): void {
   ipcMain.handle('workspace:get-project', (event, value: unknown) => {
     authorize(event)
     return requireWorkspace().getProject(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:list-trash', (event) => { authorize(event); return requireWorkspace().listTrash() })
+  ipcMain.handle('workspace:reconnect-project', (event, value: unknown) => {
+    authorize(event)
+    const request = reconnectProjectRequestSchema.parse(value)
+    return requireWorkspace().reconnectProject(request.projectId, request.sourceProjectPath)
+  })
+  ipcMain.handle('workspace:convert-project-to-standalone', (event, value: unknown) => {
+    authorize(event); return requireWorkspace().convertProjectToStandalone(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:trash', (event, value: unknown) => {
+    authorize(event)
+    const request = trashItemRequestSchema.parse(value)
+    if (request.kind === 'project') requireWorkspace().moveProjectToTrash(request.id)
+    else requireWorkspace().moveDesignToTrash(request.id)
+  })
+  ipcMain.handle('workspace:restore-trash', (event, value: unknown) => {
+    authorize(event)
+    const request = trashItemRequestSchema.parse(value)
+    return requireWorkspace().restoreTrashItem(request.kind, request.id)
+  })
+  ipcMain.handle('workspace:purge-trash', (event, value: unknown) => {
+    authorize(event)
+    const request = trashItemRequestSchema.parse(value)
+    requireWorkspace().purgeTrashItem(request.kind, request.id)
   })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)

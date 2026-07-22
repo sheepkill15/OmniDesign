@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -174,6 +175,60 @@ describe('WorkspaceStore', () => {
     const projects = store.listProjects()
     expect(projects.filter((candidate) => candidate.sourceProjectPath === 'C:\\projects\\existing-app')).toHaveLength(1)
     expect(projects.find((candidate) => candidate.id === first.projectId)?.designCount).toBe(2)
+    store.close()
+  })
+
+  it('keeps linked-design history available while a source folder is unavailable and can reconnect it', () => {
+    const { store } = createStore()
+    const missingFolder = path.join(tmpdir(), `omnidesign-missing-${randomUUID()}`)
+    const linked = store.createLinkedDesign('First', 'Existing app', missingFolder)
+
+    expect(store.getProjectSummary(linked.projectId)).toMatchObject({ sourceAvailable: false, sourceProjectPath: missingFolder })
+    expect(store.getDesign(linked.id)?.title).toBe('Existing app')
+
+    const replacement = mkdtempSync(path.join(tmpdir(), 'omnidesign-reconnected-'))
+    directories.push(replacement)
+    expect(store.reconnectProject(linked.projectId, replacement)).toMatchObject({ sourceAvailable: true, sourceProjectPath: replacement })
+    store.close()
+  })
+
+  it('moves designs to recoverable trash without touching their managed artifacts until purge', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const saved = store.addRevision(created.id, 'First')
+    store.saveThumbnail(created.id, saved.activeRevisionId!, Uint8Array.from([1]))
+    const artifactPath = path.join(directory, 'designs', created.id)
+    expect(existsSync(artifactPath)).toBe(true)
+
+    store.moveDesignToTrash(created.id)
+    expect(store.getDesign(created.id)).toBeNull()
+    expect(store.listTrash()).toMatchObject([{ id: created.id, kind: 'design', name: 'Design' }])
+    expect(existsSync(artifactPath)).toBe(true)
+
+    store.restoreDesign(created.id)
+    expect(store.getDesign(created.id)?.revisions).toHaveLength(1)
+    store.moveDesignToTrash(created.id)
+    store.purgeTrashItem('design', created.id)
+    expect(existsSync(artifactPath)).toBe(false)
+    expect(store.listTrash()).toHaveLength(0)
+    store.close()
+  })
+
+  it('restores a trashed project with all of its designs and preserves its linked source association', () => {
+    const { store } = createStore()
+    const folder = mkdtempSync(path.join(tmpdir(), 'omnidesign-linked-'))
+    directories.push(folder)
+    const first = store.createLinkedDesign('First', 'One', folder)
+    const second = store.createDesignInProject(first.projectId, 'Second', 'Two')
+
+    store.moveProjectToTrash(first.projectId)
+    expect(store.listProjects()).toHaveLength(0)
+    expect(store.listTrash()).toMatchObject([{ id: first.projectId, kind: 'project', sourceProjectPath: folder }])
+
+    const restored = store.restoreProject(first.projectId)
+    expect(restored).toMatchObject({ sourceProjectPath: folder, sourceAvailable: true, designCount: 2 })
+    expect(store.getDesign(first.id)).not.toBeNull()
+    expect(store.getDesign(second.id)).not.toBeNull()
     store.close()
   })
 

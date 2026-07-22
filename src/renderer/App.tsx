@@ -101,7 +101,7 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
   )
 }
 
-function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, homeActive, settingsOpen, providersOpen, generationsOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations }: {
+function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, homeActive, settingsOpen, providersOpen, generationsOpen, trashOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onTrash }: {
   readonly projects: readonly ProjectSummary[]
   readonly activeProjectId: string | null
   readonly activeDesignId: string | null
@@ -110,6 +110,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
   readonly settingsOpen: boolean
   readonly providersOpen: boolean
   readonly generationsOpen: boolean
+  readonly trashOpen: boolean
   readonly onHome: () => void
   readonly onOpen: (project: ProjectSummary) => void
   readonly onOpenDesign: (project: ProjectSummary, design: OmniDesignDocument) => void
@@ -117,6 +118,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
   readonly onSettings: () => void
   readonly onProviders: () => void
   readonly onGenerations: () => void
+  readonly onTrash: () => void
 }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
@@ -140,7 +142,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
       </div>
       <div className="sidebar-footer">
         <NavigationItem icon={CommandLineIcon} label="Providers" active={providersOpen} onPress={onProviders} />
-        <NavigationItem icon={TrashIcon} label="Trash" />
+        <NavigationItem icon={TrashIcon} label="Trash" active={trashOpen} onPress={onTrash} />
         <NavigationItem icon={Cog6ToothIcon} label="Settings" active={settingsOpen} onPress={onSettings} />
         <div className="account-row"><span className="avatar">OD</span><span><strong>Local workspace</strong><small>Stored on this device</small></span></div>
       </div>
@@ -232,6 +234,27 @@ function Settings({ theme, onThemeChange }: { readonly theme: 'dark' | 'light'; 
             <Radio className="theme-option" value="dark"><span className="theme-swatch theme-swatch-dark" aria-hidden="true" /><span><strong>Dark</strong><small>Default for focused design work</small></span></Radio>
             <Radio className="theme-option" value="light"><span className="theme-swatch theme-swatch-light" aria-hidden="true" /><span><strong>Light</strong><small>A bright, low-glare workspace</small></span></Radio>
           </RadioGroup>
+        </section>
+      </div>
+    </main>
+  )
+}
+
+function Trash({ items, onRestore, onPurge }: { readonly items: readonly TrashItem[]; readonly onRestore: (item: TrashItem) => Promise<void>; readonly onPurge: (item: TrashItem) => Promise<void> }) {
+  return (
+    <main className="settings-main">
+      <div className="settings-content">
+        <header className="page-heading"><h1>Trash</h1><p>Deleted projects and designs are recoverable for 30 days. Linked source folders are never deleted.</p></header>
+        <section className="settings-section" aria-labelledby="trash-heading">
+          <div className="section-heading"><h2 id="trash-heading">Recently deleted</h2><span>{items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : 'Empty'}</span></div>
+          <div className="generation-list">
+            {items.map((item) => <article className="generation-row" key={`${item.kind}-${item.id}`}>
+              <span className="generation-copy"><strong>{item.name}</strong><small>{item.kind === 'project' ? 'Project' : `Design in ${item.projectName ?? 'project'}`} · Purges {new Date(item.purgeAt).toLocaleDateString()}</small></span>
+              <Button className="secondary-action" onPress={() => void onRestore(item)}>Restore</Button>
+              <Button className="secondary-action" onPress={() => void onPurge(item)}>Delete permanently</Button>
+            </article>)}
+            {!items.length && <p className="settings-empty">No deleted projects or designs.</p>}
+          </div>
         </section>
       </div>
     </main>
@@ -432,13 +455,15 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   )
 }
 
-function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign }: {
+function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onReconnect, onConvertToStandalone }: {
   readonly project: ProjectSummary
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly activity: GenerationActivity | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => Promise<void>
   readonly onOpenDesign: (design: OmniDesignDocument) => void
+  readonly onReconnect: (project: ProjectSummary) => Promise<void>
+  readonly onConvertToStandalone: (project: ProjectSummary) => Promise<void>
 }) {
   const [designs, setDesigns] = useState<readonly OmniDesignDocument[]>([])
   const load = useCallback(async () => {
@@ -453,6 +478,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
         <header className="page-heading">
           <h1>{project.name}</h1>
           <p>{project.kind === 'linked' ? (project.sourceAvailable ? project.sourceProjectPath ?? 'Linked project' : 'Linked source folder is unavailable') : 'Standalone project'}</p>
+          {project.kind === 'linked' && !project.sourceAvailable && <div className="generation-recovery" role="status"><span><strong>Source folder unavailable.</strong> Your saved designs are safe; reconnect the folder or keep this project standalone.</span><Button className="secondary-action" onPress={() => void onReconnect(project)}>Reconnect folder</Button><Button className="secondary-action" onPress={() => void onConvertToStandalone(project)}>Convert to standalone</Button></div>}
         </header>
         <NewDesignComposer providers={providers} busy={busy} fixedProject={project} onCreate={onCreate} />
         {busy && <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>}
@@ -545,13 +571,14 @@ function LayoutMenu({ mode, onOpenChange, onChange }: { readonly mode: LayoutMod
   )
 }
 
-function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }: {
+function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, onTrash }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
   readonly activity: GenerationActivity | null
   readonly busy: boolean
   readonly onBack: () => void
   readonly onChange: (design: OmniDesignDocument) => void
+  readonly onTrash: (design: OmniDesignDocument) => Promise<void>
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -729,6 +756,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange }
             </Menu>
           </DropdownButton>
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
+          <Button className="toolbar-button" onPress={() => void onTrash(design)}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
       {mode === 'split'
@@ -793,6 +821,7 @@ function useProviders(): { readonly label: string; readonly providers: readonly 
 export function App() {
   const [designs, setDesigns] = useState<OmniDesignDocument[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([])
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null)
   const [composerProject, setComposerProject] = useState<ProjectSummary | null>(null)
@@ -802,6 +831,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [providersOpen, setProvidersOpen] = useState(false)
   const [generationsOpen, setGenerationsOpen] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const providerState = useProviders()
   const workspaceApi = window.omnidesign?.workspace
@@ -813,9 +843,10 @@ export function App() {
 
   const refresh = useCallback(async () => {
     if (!workspaceApi) return
-    const [nextDesigns, nextProjects] = await Promise.all([workspaceApi.list(), workspaceApi.listProjects()])
+    const [nextDesigns, nextProjects, nextTrash] = await Promise.all([workspaceApi.list(), workspaceApi.listProjects(), workspaceApi.listTrash()])
     setDesigns(nextDesigns)
     setProjects(nextProjects)
+    setTrashItems(nextTrash)
   }, [workspaceApi])
 
   useEffect(() => { void refresh() }, [refresh])
@@ -871,13 +902,14 @@ export function App() {
     document.documentElement.dataset.theme = nextTheme
     void window.omnidesign?.settings.saveTheme(nextTheme)
   }
-  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false) }
+  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false) }
   const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setActivity(null); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
   const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
   const openProviders = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
   const openGenerations = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
+  const openTrash = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
   const openDesign = (design: OmniDesignDocument) => { closePanels(); setActiveDesign(design) }
   const openProjectDesign = (project: ProjectSummary, design: OmniDesignDocument) => { closePanels(); setActiveProject(project); setActiveDesign(design) }
   // A project with exactly one design opens straight into its workspace; empty or multi-design projects
@@ -899,21 +931,38 @@ export function App() {
     await workspaceApi?.cancelGeneration(jobId)
     await refresh()
   }
+  const reconnectProject = async (project: ProjectSummary) => {
+    const folder = await workspaceApi?.chooseProjectFolder()
+    if (!folder) return
+    const next = await workspaceApi?.reconnectProject(project.id, folder)
+    if (next) setActiveProject(next)
+    await refresh()
+  }
+  const convertProjectToStandalone = async (project: ProjectSummary) => {
+    const next = await workspaceApi?.convertProjectToStandalone(project.id)
+    if (next) setActiveProject(next)
+    await refresh()
+  }
+  const restoreTrash = async (item: TrashItem) => { await workspaceApi?.restoreTrash(item.kind, item.id); await refresh() }
+  const purgeTrash = async (item: TrashItem) => { await workspaceApi?.purgeTrash(item.kind, item.id); await refresh() }
+  const trashDesign = async (design: OmniDesignDocument) => { await workspaceApi?.trash('design', design.id); home() }
   const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => ['queued', 'running'].includes(job.state)).length
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} />
+      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} />
       {generationsOpen
         ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} />
+        : trashOpen
+        ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} />
         : providersOpen
         ? <Providers providers={providerState.providers} loading={providerState.loading} onRefresh={providerState.refresh} />
         : settingsOpen
         ? <Settings theme={theme} onThemeChange={changeTheme} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} />
         : activeProject
-        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} />
+        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} />
         : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}
     </div>
   )
