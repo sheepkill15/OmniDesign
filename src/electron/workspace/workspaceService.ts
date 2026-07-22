@@ -1,4 +1,4 @@
-import { compileTailwindCss, validateCompiledDesign } from './compiler.js'
+import { compileTailwindCss, findDesignQualityWarnings, validateCompiledDesign } from './compiler.js'
 import type { Attachment, Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
@@ -98,9 +98,13 @@ export class WorkspaceService {
         this.throwIfCancelled(signal)
         onActivity({ designId, stage: 'validating', detail: 'Checking document structure and preview security.' })
         validateCompiledDesign(candidate)
+        const qualityWarnings = findDesignQualityWarnings(candidate)
+        if (qualityWarnings.length && repairAttempt < maxRepairAttempts) throw new Error(`Design quality checks need repair: ${qualityWarnings.join(' ')}`)
         onActivity({ designId, stage: 'saving', detail: 'Committing the revision to the design repository.' })
         const gitCommit = this.repositories.commitRevision(designId, candidate, tailwindCss, `Apply design revision: ${prompt}`)
-        const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
+        let saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
+        for (const warning of qualityWarnings) this.store.addPreviewDiagnostic(designId, saved.activeRevisionId!, { kind: 'quality', level: 'warning', message: warning, source: null, line: null })
+        if (qualityWarnings.length) saved = this.store.getDesign(designId) ?? saved
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved
       } catch (error) {
@@ -160,6 +164,7 @@ export class WorkspaceService {
     modelId: string,
     response: string,
     onActivity: ActivityListener,
+    allowRepair = false,
   ): Promise<Design> {
     const current = this.store.getDesign(designId)
     if (!current) throw new Error('Design not found.')
@@ -170,20 +175,24 @@ export class WorkspaceService {
       const tailwindCss = await compileTailwindCss(indexHtml)
       onActivity({ designId, stage: 'validating', detail: 'Checking the agent workspace result.' })
       validateCompiledDesign(indexHtml)
+      const qualityWarnings = findDesignQualityWarnings(indexHtml)
+      if (qualityWarnings.length && allowRepair) throw new Error(`Design quality checks need repair: ${qualityWarnings.join(' ')}`)
       onActivity({ designId, stage: 'saving', detail: 'Committing the agent revision to the design repository.' })
       const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`)
       if (gitCommit === null) {
         onActivity({ designId, stage: 'complete', detail: 'No changes to save; recorded the response.' })
         return this.store.addAssistantResponse(designId, response)
       }
-      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response)
+      let saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response)
+      for (const warning of qualityWarnings) this.store.addPreviewDiagnostic(designId, saved.activeRevisionId!, { kind: 'quality', level: 'warning', message: warning, source: null, line: null })
+      if (qualityWarnings.length) saved = this.store.getDesign(designId) ?? saved
       onActivity({ designId, stage: 'complete', detail: 'Agent result is ready to preview.' })
       return saved
     } catch (error) {
       const diagnostic = error instanceof Error ? error.message : 'Agent result validation failed.'
       const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic)
       this.store.addAssistantResponse(designId, response)
-      onActivity({ designId, stage: 'failed', detail: diagnostic })
+      onActivity({ designId, stage: allowRepair ? 'repairing' : 'failed', detail: allowRepair ? `The candidate needs repair: ${diagnostic}` : diagnostic })
       return rejected
     }
   }

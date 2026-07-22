@@ -312,7 +312,7 @@ function collectDiagnostics(designs: readonly OmniDesignDocument[]): DiagnosticL
       design,
       revisionId: revision.id,
       level: diagnostic.level,
-      title: diagnostic.kind === 'runtime' ? 'Preview runtime issue' : diagnostic.kind === 'load' ? 'Preview load issue' : 'Preview console issue',
+      title: diagnostic.kind === 'runtime' ? 'Preview runtime issue' : diagnostic.kind === 'load' ? 'Preview load issue' : diagnostic.kind === 'quality' ? 'Design quality warning' : 'Preview console issue',
       detail: diagnostic.message,
       context: `${design.projectName} · ${design.title}${diagnostic.source ? ` · ${diagnostic.source}${diagnostic.line ? `:${diagnostic.line}` : ''}` : ''}`,
       createdAt: diagnostic.createdAt,

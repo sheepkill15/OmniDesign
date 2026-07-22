@@ -46,7 +46,7 @@ interface DesignRevision {
 
 interface PreviewDiagnostic {
   readonly id: string
-  readonly kind: 'console' | 'runtime' | 'load'
+  readonly kind: 'console' | 'runtime' | 'load' | 'quality'
   readonly level: 'warning' | 'error'
   readonly message: string
   readonly source: string | null

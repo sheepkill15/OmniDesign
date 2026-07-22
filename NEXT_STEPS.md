@@ -179,6 +179,15 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 ## Current Handoff State
 
+- Active work is on `feature/phase-1-project-lifecycle`; `docs/PHASE_1_GAP_AUDIT.md` is the current evidence-based completion ledger.
+- The Phase 1 functional slice now includes standalone and linked projects, local-folder and deferred Git-clone creation, multiple designs, project association, editable names, attachments, real Codex/Claude generation, per-design queues, cancellation/retry/continue, history/restoration, all preview layouts, offline export, persistent trash, global diagnostics, cross-platform notifications, dark/light themes, and restart recovery.
+- Codex and Claude discovery/prompt contracts have direct tests. Live Windows acceptance on 2026-07-22 exercised authenticated Codex CLI 0.144.6 and Claude Code 2.1.215 through generation and offline export. Both samples were responsive and interactive without console errors; the shared agent-quality contract now requires language, viewport, one main landmark, and one h1, with up to three provider repair attempts before non-blocking warnings are accepted and retained.
+- Recent polish added confirmed permanent deletion and bulk empty-trash behavior, actionable workspace success/error feedback, draft restoration after failed submission, per-design background activity, unique preview diagnostics, and persistent inline title editing.
+- Full Phase 1 completion is still withheld. Enforceable read-only access to linked projects and attachments remains explicitly deferred by the product owner and documented as a blocking security gap; broader trusted-UI visual/keyboard/forced-colors acceptance and the final requirement-by-requirement audit remain open.
+- Continue with focused, test-gated polish slices. Preserve generated-preview isolation and keep the deferred external-root restriction explicit rather than claiming completion.
+
+## Historical Handoff Notes (superseded where they conflict with the status above)
+
 - Phase 1 implementation has begun on `feature/phase-1-core`. A working development-provider slice can create, iterate, preview, persist, reopen, select/restore history, and export a standalone design.
 - Runtime verification on Windows created two revisions in Electron, rendered the generated result through the isolated `WebContentsView`, restarted the application, and recovered both revisions from local storage.
 - The walking skeleton is complete: it captures and persists preview console, runtime, and load diagnostics; its per-design split-divider state survives restart and is keyboard operable; aspect-ratio-preserving revision thumbnails are captured through the isolated preview and persisted as managed artifacts; and invalid candidates persist outside completed history without replacing the prior valid revision. The built Electron application has automated coverage for creation, preview framing, offline export, close, relaunch, and recovery with isolated test storage.

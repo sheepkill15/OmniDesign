@@ -466,22 +466,29 @@ void app.whenReady().then(() => {
         return
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
-      onActivity({ designId: job.designId, stage: 'generating', detail: `Starting ${job.providerId} in the design's Git repository.` })
-      const reply = await providers.runDesignAgent({
-        requestId: job.id,
-        providerId: job.providerId,
-        modelId: job.modelId,
-      ...(job.effort ? { effort: job.effort } : {}),
-        prompt: job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt,
-      signal,
-      workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
-      attachments: job.attachments,
-      sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
-      }, (activity) => {
-        onActivity({ designId: job.designId, stage: 'generating', detail: activity.detail ?? activity.label })
-      })
-      if (signal.aborted) throw new Error('Generation was cancelled.')
-      await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity)
+      let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? `Starting ${job.providerId} in the design's Git repository.` : `Starting repair ${attempt} of 3.` })
+        const reply = await providers.runDesignAgent({
+          requestId: `${job.id}-${attempt}`,
+          providerId: job.providerId,
+          modelId: job.modelId,
+          ...(job.effort ? { effort: job.effort } : {}),
+          prompt: agentPrompt,
+          signal,
+          workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
+          attachments: job.attachments,
+          sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
+        }, (activity) => {
+          onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: activity.detail ?? activity.label })
+        })
+        if (signal.aborted) throw new Error('Generation was cancelled.')
+        const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
+        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3)
+        if (saved.invalidCandidates.length === invalidCount) return
+        const diagnostic = saved.invalidCandidates.at(-1)?.diagnostic ?? 'The candidate did not pass validation.'
+        agentPrompt = `Repair the current index.html in place and finish the original request. Validation feedback: ${diagnostic}`
+      }
     },
     recordActivity,
   )

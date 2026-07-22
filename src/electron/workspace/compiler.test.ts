@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collectTailwindCandidates, compileTailwindCss, validateCompiledDesign } from './compiler.js'
+import { collectTailwindCandidates, compileTailwindCss, findDesignQualityWarnings, validateCompiledDesign } from './compiler.js'
 
 describe('design compiler', () => {
   it('collects complete Tailwind candidates and compiles a standalone stylesheet', async () => {
@@ -44,5 +44,15 @@ describe('design compiler', () => {
     expect(() => validateCompiledDesign('<html><head><link rel="stylesheet" href=".build/tailwind.css"><script defer src=".build/alpine.js"></script></head><body></body></html>')).not.toThrow()
     // Local filesystem access stays blocked.
     expect(() => validateCompiledDesign('<html><body><img src="file:///C:/secret.png"></body></html>')).toThrow(/file:/)
+  })
+
+  it('reports the baseline semantic document quality required for generated designs', () => {
+    expect(findDesignQualityWarnings('<html><head></head><body><h2>Dashboard</h2></body></html>')).toEqual([
+      'Set a language on the html element.',
+      'Add a responsive viewport meta tag.',
+      'Use exactly one main landmark (found 0).',
+      'Use exactly one h1 heading (found 0).',
+    ])
+    expect(findDesignQualityWarnings('<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main><h1>Dashboard</h1></main></body></html>')).toEqual([])
   })
 })

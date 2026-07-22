@@ -13,7 +13,7 @@ export const revisionSchema = z.object({
 
 export const previewDiagnosticSchema = z.object({
   id: z.string().min(1),
-  kind: z.enum(['console', 'runtime', 'load']),
+  kind: z.enum(['console', 'runtime', 'load', 'quality']),
   level: z.enum(['warning', 'error']),
   message: z.string().min(1),
   source: z.string().nullable(),

@@ -339,6 +339,24 @@ ALTER TABLE messages ADD COLUMN generation_job_id TEXT REFERENCES generation_job
 CREATE INDEX messages_by_generation_job ON messages(generation_job_id);
 `
 
+const migrationTwentyFour = `
+CREATE TABLE preview_diagnostics_rebuilt (
+  id TEXT PRIMARY KEY,
+  revision_id TEXT NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('console', 'runtime', 'load', 'quality')),
+  level TEXT NOT NULL CHECK (level IN ('warning', 'error')),
+  message TEXT NOT NULL,
+  source TEXT,
+  line INTEGER,
+  created_at TEXT NOT NULL
+) STRICT;
+INSERT INTO preview_diagnostics_rebuilt (id, revision_id, kind, level, message, source, line, created_at)
+  SELECT id, revision_id, kind, level, message, source, line, created_at FROM preview_diagnostics;
+DROP TABLE preview_diagnostics;
+ALTER TABLE preview_diagnostics_rebuilt RENAME TO preview_diagnostics;
+CREATE INDEX preview_diagnostics_by_revision ON preview_diagnostics(revision_id, created_at);
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -927,7 +945,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.

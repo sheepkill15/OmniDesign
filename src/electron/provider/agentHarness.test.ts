@@ -24,6 +24,7 @@ describe('agent completion payload', () => {
     const instructions = createDesignAgentInstructions('C:\\workspace\\design')
     expect(instructions).toContain('C:\\workspace\\design')
     expect(instructions).toContain('Do not claim which files changed')
+    expect(instructions).toContain('exactly one <main> landmark and one <h1>')
     expect(() => createDesignAgentInstructions('relative/design')).toThrow('must be absolute')
   })
 
