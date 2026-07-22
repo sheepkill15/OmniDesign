@@ -41,9 +41,9 @@ Attachments can be selected in an existing design workspace, but the initial hom
 
 The specification's optional Windows notifications and persisted preference to disable them are not implemented. The in-app generation badge updates, but it is not a substitute for the full notifications behavior.
 
-### 6. Project removal UI completeness
+### 6. Project removal while generations are active
 
-The persistence layer supports project/design trash and restoration. The trusted UI currently exposes design removal and Trash, but needs an intentional project-removal action with the required active-generation confirmation flow.
+The trusted UI now exposes project and design removal plus Trash restoration. It still needs the required confirmation, cancellation, and dependent-queue pause behavior when a project or design being removed has active generation work.
 
 ### 7. Quality and acceptance coverage
 
