@@ -924,6 +924,9 @@ button:disabled,
 .settings-section {
   margin-top: 42px;
 }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; }
+.settings-row span { display: grid; gap: 4px; }
+.settings-row small { color: var(--text-subtle); }
 
 .settings-section input {
   width: 100%;

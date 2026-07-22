@@ -226,6 +226,8 @@ interface Window {
     readonly settings: {
       getTheme(): Promise<'dark' | 'light'>
       saveTheme(theme: 'dark' | 'light'): Promise<void>
+      getNotificationsEnabled(): Promise<boolean>
+      saveNotificationsEnabled(enabled: boolean): Promise<void>
       getGenerationDefaults(): Promise<GenerationSelection>
       saveGenerationDefaults(selection: GenerationSelection): Promise<void>
     }

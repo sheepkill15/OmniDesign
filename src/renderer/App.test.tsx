@@ -100,6 +100,8 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     settings: {
       getTheme: vi.fn().mockResolvedValue('dark'),
       saveTheme: vi.fn().mockResolvedValue(undefined),
+      getNotificationsEnabled: vi.fn().mockResolvedValue(true),
+      saveNotificationsEnabled: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as Window['omnidesign']
   Object.defineProperty(window, 'omnidesign', { value: bridge, configurable: true })
@@ -524,6 +526,14 @@ describe('Phase 1 walking skeleton UI', () => {
     vi.mocked(bridge.preview.hide).mockClear()
     fireEvent.click(within(sidebar).getByRole('button', { name: 'Calm dashboard' }))
     expect(bridge.preview.hide).not.toHaveBeenCalled()
+  })
+
+  it('lets the user disable system notifications', async () => {
+    const bridge = installBridge()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'On' }))
+    expect(bridge.settings.saveNotificationsEnabled).toHaveBeenCalledWith(false)
   })
 
   it('keeps supplied references visible with the submitted conversation message', async () => {

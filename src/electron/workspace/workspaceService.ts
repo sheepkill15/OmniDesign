@@ -207,6 +207,9 @@ export class WorkspaceService {
     this.store.saveTheme(theme)
   }
 
+  public getNotificationsEnabled(): boolean { return this.store.getNotificationsEnabled() }
+  public saveNotificationsEnabled(enabled: boolean): void { this.store.saveNotificationsEnabled(enabled) }
+
   public getGenerationDefaults(): GenerationSelection {
     return this.store.getGenerationDefaults()
   }

@@ -773,6 +773,18 @@ export class WorkspaceStore {
     return this.requireGenerationJob(retryId)
   }
 
+  public getNotificationsEnabled(): boolean {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'notifications.enabled'").get() as { value: string } | undefined
+    return setting?.value !== 'false'
+  }
+
+  public saveNotificationsEnabled(enabled: boolean): void {
+    this.database.prepare(`
+      INSERT INTO settings (key, value) VALUES ('notifications.enabled', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(String(enabled))
+  }
+
   public continueGenerationJob(id: string): GenerationJob {
     const previous = this.requireGenerationJob(id)
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')

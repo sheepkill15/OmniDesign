@@ -39,7 +39,7 @@ Attachments can be selected for both initial and follow-up prompts, and their re
 
 ### 5. Notifications and settings
 
-The specification's optional Windows notifications and persisted preference to disable them are not implemented. The in-app generation badge updates, but it is not a substitute for the full notifications behavior.
+The in-app generation badge updates, and cross-platform system notifications for completed or attention-needed generation can be disabled through a persisted preference.
 
 ### 6. Quality and acceptance coverage
 

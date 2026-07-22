@@ -271,6 +271,17 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('persists the system notification preference across reopen', () => {
+    const { directory, store } = createStore()
+    expect(store.getNotificationsEnabled()).toBe(true)
+    store.saveNotificationsEnabled(false)
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getNotificationsEnabled()).toBe(false)
+    reopened.close()
+  })
+
   it('persists attachment references without copying content and snapshots them on queued work', () => {
     const { directory, store } = createStore()
     const attachmentPath = path.join(directory, 'reference.txt')

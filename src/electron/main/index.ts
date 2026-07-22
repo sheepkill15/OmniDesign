@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, protocol, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
@@ -128,6 +128,10 @@ function recordActivity(activity: GenerationActivity): void {
     } catch {
       // The design may have been removed while a late activity arrived; the live event below is enough.
     }
+  }
+  if (workspaceStore?.getNotificationsEnabled() && ['complete', 'failed', 'cancelled', 'interrupted'].includes(activity.stage)) {
+    const title = workspaceStore.getDesign(activity.designId)?.title ?? 'Design generation'
+    new Notification({ title: 'OmniDesign', body: `${title}: ${activity.detail}` }).show()
   }
   sendGenerationActivity(activity)
 }
@@ -444,6 +448,14 @@ void app.whenReady().then(() => {
     preview?.destroy()
     preview = null
     mainWindow = null
+  })
+  ipcMain.handle('settings:get-notifications-enabled', (event) => {
+    authorize(event)
+    return requireWorkspace().getNotificationsEnabled()
+  })
+  ipcMain.handle('settings:save-notifications-enabled', (event, value: unknown) => {
+    authorize(event)
+    requireWorkspace().saveNotificationsEnabled(Boolean(value))
   })
   mainWindow.on('close', (event) => {
     const activeJobs = store.listGenerationJobs(['queued', 'running'])

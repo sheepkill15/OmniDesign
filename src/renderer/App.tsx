@@ -226,7 +226,7 @@ function Providers({ providers, loading, onRefresh }: {
   )
 }
 
-function Settings({ theme, onThemeChange }: { readonly theme: 'dark' | 'light'; readonly onThemeChange: (theme: 'dark' | 'light') => void }) {
+function Settings({ theme, notificationsEnabled, onThemeChange, onNotificationsChange }: { readonly theme: 'dark' | 'light'; readonly notificationsEnabled: boolean; readonly onThemeChange: (theme: 'dark' | 'light') => void; readonly onNotificationsChange: (enabled: boolean) => void }) {
   return (
     <main className="settings-main">
       <div className="settings-content">
@@ -237,6 +237,10 @@ function Settings({ theme, onThemeChange }: { readonly theme: 'dark' | 'light'; 
             <Radio className="theme-option" value="dark"><span className="theme-swatch theme-swatch-dark" aria-hidden="true" /><span><strong>Dark</strong><small>Default for focused design work</small></span></Radio>
             <Radio className="theme-option" value="light"><span className="theme-swatch theme-swatch-light" aria-hidden="true" /><span><strong>Light</strong><small>A bright, low-glare workspace</small></span></Radio>
           </RadioGroup>
+        </section>
+        <section className="settings-section" aria-labelledby="notifications-heading">
+          <div className="section-heading"><h2 id="notifications-heading">Notifications</h2><span>Saved locally</span></div>
+          <div className="settings-row"><span><strong>System notifications</strong><small>Notify when generation completes or needs attention.</small></span><Button className="secondary-action" onPress={() => onNotificationsChange(!notificationsEnabled)}>{notificationsEnabled ? 'On' : 'Off'}</Button></div>
         </section>
       </div>
     </main>
@@ -998,6 +1002,7 @@ export function App() {
   const [generationsOpen, setGenerationsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const providerState = useProviders()
   const workspaceApi = window.omnidesign?.workspace
 
@@ -1022,6 +1027,7 @@ export function App() {
       setTheme(savedTheme)
       document.documentElement.dataset.theme = savedTheme
     })
+    void api.getNotificationsEnabled().then(setNotificationsEnabled)
   }, [])
   useEffect(() => {
     if (!workspaceApi) return
@@ -1098,6 +1104,10 @@ export function App() {
     await workspaceApi?.cancelGeneration(jobId)
     await refresh()
   }
+  const changeNotifications = (enabled: boolean) => {
+    setNotificationsEnabled(enabled)
+    void window.omnidesign?.settings.saveNotificationsEnabled(enabled)
+  }
   const reconnectProject = async (project: ProjectSummary) => {
     const folder = await workspaceApi?.chooseProjectFolder()
     if (!folder) return
@@ -1135,7 +1145,7 @@ export function App() {
         : providersOpen
         ? <Providers providers={providerState.providers} loading={providerState.loading} onRefresh={providerState.refresh} />
         : settingsOpen
-        ? <Settings theme={theme} onThemeChange={changeTheme} />
+        ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} />
         : activeDesign
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associatedProjectName={associationNotice?.designId === activeDesign.id ? associationNotice.projectName : null} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} onDismissAssociation={() => setAssociationNotice(null)} />
         : activeProject

@@ -54,6 +54,8 @@ contextBridge.exposeInMainWorld('omnidesign', {
   settings: {
     getTheme: () => ipcRenderer.invoke('settings:get-theme'),
     saveTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('settings:save-theme', theme),
+    getNotificationsEnabled: () => ipcRenderer.invoke('settings:get-notifications-enabled'),
+    saveNotificationsEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:save-notifications-enabled', enabled),
     getGenerationDefaults: () => ipcRenderer.invoke('settings:get-generation-defaults'),
     saveGenerationDefaults: (selection: GenerationSelection) => ipcRenderer.invoke('settings:save-generation-defaults', selection),
   },
