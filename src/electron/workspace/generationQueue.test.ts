@@ -173,6 +173,25 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
+  it('waits for active provider work to settle before completing cancellation', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const pending = deferred()
+    const queue = new GenerationQueue(store, async (_job, signal) => {
+      await pending.promise
+      if (signal.aborted) throw new Error('Generation was cancelled.')
+    }, () => undefined)
+    const job = queue.enqueue(design.id, 'Active prompt')
+
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'running')
+    const cancellation = queue.cancelAndWait(job.id)
+    expect(store.getGenerationJob(job.id)?.state).toBe('running')
+    pending.resolve()
+    await cancellation
+    expect(store.getGenerationJob(job.id)?.state).toBe('cancelled')
+    store.close()
+  })
+
   it('pauses later prompts for a design after a failed predecessor', async () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')

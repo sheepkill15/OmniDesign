@@ -7,6 +7,7 @@ type JobRunner = (job: GenerationJob, signal: AbortSignal, onActivity: ActivityL
 export class GenerationQueue {
   private readonly runningDesignIds = new Set<string>()
   private readonly abortControllers = new Map<string, AbortController>()
+  private readonly executionPromises = new Map<string, Promise<void>>()
   private readonly pausedDesignIds = new Set<string>()
   private runningCount = 0
   private draining = false
@@ -57,6 +58,12 @@ export class GenerationQueue {
     return job
   }
 
+  public async cancelAndWait(jobId: string): Promise<GenerationJob> {
+    const job = this.cancel(jobId)
+    await this.executionPromises.get(jobId)
+    return this.store.getGenerationJob(jobId) ?? job
+  }
+
   public continue(jobId: string): GenerationJob {
     const job = this.store.continueGenerationJob(jobId)
     this.pausedDesignIds.delete(job.designId)
@@ -85,7 +92,8 @@ export class GenerationQueue {
     this.runningDesignIds.add(job.designId)
     const abortController = new AbortController()
     this.abortControllers.set(job.id, abortController)
-    void this.execute(job, abortController.signal)
+    const execution = this.execute(job, abortController.signal).finally(() => this.executionPromises.delete(job.id))
+    this.executionPromises.set(job.id, execution)
   }
 
   private async execute(job: GenerationJob, signal: AbortSignal): Promise<void> {

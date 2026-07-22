@@ -204,11 +204,29 @@ function registerIpc(): void {
   ipcMain.handle('workspace:convert-project-to-standalone', (event, value: unknown) => {
     authorize(event); return requireWorkspace().convertProjectToStandalone(projectIdRequestSchema.parse(value).projectId)
   })
-  ipcMain.handle('workspace:trash', (event, value: unknown) => {
+  ipcMain.handle('workspace:trash', async (event, value: unknown) => {
     authorize(event)
     const request = trashItemRequestSchema.parse(value)
+    const designs = request.kind === 'project'
+      ? requireWorkspace().getProject(request.id)?.designs ?? []
+      : [requireWorkspace().getDesign(request.id)].filter((design): design is NonNullable<typeof design> => design !== null)
+    const activeJobs = designs.flatMap((design) => design.generationJobs).filter((job) => job.state === 'queued' || job.state === 'running')
+    if (activeJobs.length) {
+      const choice = dialog.showMessageBoxSync(mainWindow!, {
+        type: 'warning',
+        title: 'Remove active work?',
+        message: `${activeJobs.length} generation${activeJobs.length === 1 ? '' : 's'} will be cancelled before this item moves to Trash.`,
+        detail: 'The source folder is not affected. Partial output and diagnostics remain available in the retained design workspace.',
+        buttons: ['Keep working', 'Cancel generations and remove'],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      if (choice !== 1) return { cancelled: true }
+      await Promise.all(activeJobs.map((job) => requireGenerationQueue().cancelAndWait(job.id)))
+    }
     if (request.kind === 'project') requireWorkspace().moveProjectToTrash(request.id)
     else requireWorkspace().moveDesignToTrash(request.id)
+    return { cancelled: false }
   })
   ipcMain.handle('workspace:restore-trash', (event, value: unknown) => {
     authorize(event)
