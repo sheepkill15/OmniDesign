@@ -1105,6 +1105,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const previewStatus = selectedRevision
     ? selectedRevision.diagnostics.length ? `${selectedRevision.diagnostics.length} diagnostic${selectedRevision.diagnostics.length === 1 ? '' : 's'} captured` : 'Offline · validated'
     : 'Waiting for revision'
+  const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
 
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
@@ -1149,7 +1150,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     <main className="workspace-main">
       <header className="workspace-toolbar">
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
-        <span className="workspace-title"><EditableTitle value={design.title} label="design" variant="workspace" onSave={renameDesign} /><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
+        <span className="workspace-title"><EditableTitle value={design.title} label="design" variant="workspace" onSave={renameDesign} /><small>{providerStatus} · {busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
             <LayoutMenu mode={mode} onChange={setMode} />
           <DropdownButton
@@ -1164,7 +1165,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
                   {revision.thumbnailDataUrl
                     ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
                     : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
-                  <span><strong>{index === 0 ? 'Current head' : new Date(revision.createdAt).toLocaleString()}</strong><small>{revision.prompt}</small></span>
+                  <span><strong>{index === 0 ? `Current head · ${new Date(revision.createdAt).toLocaleString()}` : new Date(revision.createdAt).toLocaleString()}</strong><small>{revision.prompt}</small></span>
                 </MenuItem>
               ))}
             </Menu>

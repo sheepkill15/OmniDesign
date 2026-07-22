@@ -631,6 +631,18 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
 
     expect(screen.getByRole('img', { name: 'Preview of revision current head' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
+    expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent(new Date(thumbnailDesign.revisions[0].createdAt).toLocaleString())
+    expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent('A calm dashboard')
+  })
+
+  it('shows the selected provider and saved state in the design header', async () => {
+    const codexDesign: OmniDesignDocument = { ...design, lastSelection: { providerId: 'codex', modelId: 'gpt-5.6', effort: 'low' } }
+    installBridge([codexDesign], codexDesign)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    expect(await screen.findByText('codex · gpt-5.6 · Saved locally')).toBeInTheDocument()
   })
 
   it('shows the selected revision diagnostic count in the preview status', async () => {
