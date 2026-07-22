@@ -97,6 +97,41 @@ body {
   background: var(--background);
 }
 
+.fatal-error {
+  width: min(560px, calc(100% - 48px));
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  margin: 0 auto;
+  color: var(--text-subtle);
+}
+
+.fatal-error-mark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .08em;
+}
+
+.fatal-error-eyebrow { margin: 0 0 8px; color: var(--danger); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.fatal-error h1 { margin: 0; color: var(--text); font-size: 32px; font-weight: 500; letter-spacing: -.025em; }
+.fatal-error > p:not(.fatal-error-eyebrow) { max-width: 520px; margin: 14px 0 24px; font-size: 14px; line-height: 1.65; }
+.fatal-error .primary-action { min-height: 38px; padding: 0 15px; border: 0; border-radius: var(--radius-control); background: var(--accent); color: var(--accent-text); cursor: pointer; font-size: 12px; font-weight: 600; }
+.fatal-error details { width: 100%; margin-top: 28px; border-top: 1px solid var(--border); padding-top: 14px; }
+.fatal-error summary { color: var(--text-faint); cursor: pointer; font-size: 11px; }
+.fatal-error summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.fatal-error pre { max-height: 180px; overflow: auto; padding: 12px; background: var(--surface-1); color: var(--text-subtle); font: 11px/1.55 ui-monospace, monospace; white-space: pre-wrap; }
+
 button,
 textarea {
   font: inherit;
