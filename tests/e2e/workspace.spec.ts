@@ -136,6 +136,48 @@ test('keeps a removed standalone design recoverable across an Electron restart',
   }
 })
 
+test('applies and persists the trusted application theme across primary screens', async () => {
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-theme-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const firstRun = await launchWorkspace(userDataDirectory)
+    activeApp = firstRun.app
+    await expect(firstRun.window.getByRole('heading', { name: 'Start with an idea.' })).toBeVisible()
+    await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'dark')
+    const darkColors = await firstRun.window.evaluate(() => {
+      const style = getComputedStyle(document.body)
+      return { background: style.backgroundColor, foreground: style.color }
+    })
+
+    await firstRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
+    await firstRun.window.getByText('Light', { exact: true }).click()
+    await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
+    const lightColors = await firstRun.window.evaluate(() => {
+      const style = getComputedStyle(document.body)
+      return { background: style.backgroundColor, foreground: style.color }
+    })
+    expect(lightColors).not.toEqual(darkColors)
+
+    await firstRun.window.getByRole('button', { name: 'Home', exact: true }).click()
+    const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('A light theme workspace check')
+    await prompt.press('Enter')
+    await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
+    await expect(firstRun.window.getByRole('button', { name: /Layout/ })).toBeVisible()
+    await firstRun.app.close()
+    activeApp = null
+
+    const secondRun = await launchWorkspace(userDataDirectory)
+    activeApp = secondRun.app
+    await expect(secondRun.window.getByRole('heading', { name: 'Start with an idea.' })).toBeVisible()
+    await expect(secondRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('opens the layout menu and dismisses it', async () => {
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-e2e-'))
   let activeApp: ElectronApplication | null = null
