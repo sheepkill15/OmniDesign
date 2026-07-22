@@ -62,6 +62,32 @@ test('creates and recovers a standalone design in the built Electron app', async
   }
 })
 
+test('keeps a removed standalone design recoverable across an Electron restart', async () => {
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-trash-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const firstRun = await launchWorkspace(userDataDirectory)
+    activeApp = firstRun.app
+    const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('A disposable landing page')
+    await prompt.press('Enter')
+    await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await firstRun.window.getByRole('button', { name: 'Remove' }).click()
+    await firstRun.window.getByRole('button', { name: 'Trash' }).click()
+    await expect(firstRun.window.getByText('A disposable landing page', { exact: true })).toBeVisible()
+    await firstRun.app.close()
+    activeApp = null
+
+    const secondRun = await launchWorkspace(userDataDirectory)
+    activeApp = secondRun.app
+    await secondRun.window.getByRole('button', { name: 'Trash' }).click()
+    await expect(secondRun.window.getByText('A disposable landing page', { exact: true })).toBeVisible()
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true })
+  }
+})
+
 test('opens the layout menu and dismisses it', async () => {
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-e2e-'))
   let activeApp: ElectronApplication | null = null

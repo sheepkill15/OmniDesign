@@ -206,13 +206,17 @@ describe('WorkspaceStore', () => {
     expect(store.listTrash()).toMatchObject([{ id: created.id, kind: 'design', name: 'Design', projectId: created.projectId }])
     expect(existsSync(artifactPath)).toBe(true)
 
-    store.restoreDesign(created.id)
-    expect(store.getDesign(created.id)?.revisions).toHaveLength(1)
-    store.moveDesignToTrash(created.id)
-    store.purgeTrashItem('design', created.id)
-    expect(existsSync(artifactPath)).toBe(false)
-    expect(store.listTrash()).toHaveLength(0)
     store.close()
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.listTrash()).toMatchObject([{ id: created.id, kind: 'design', name: 'Design', projectId: created.projectId }])
+
+    reopened.restoreDesign(created.id)
+    expect(reopened.getDesign(created.id)?.revisions).toHaveLength(1)
+    reopened.moveDesignToTrash(created.id)
+    reopened.purgeTrashItem('design', created.id)
+    expect(existsSync(artifactPath)).toBe(false)
+    expect(reopened.listTrash()).toHaveLength(0)
+    reopened.close()
   })
 
   it('moves only the selected design when it belongs to a linked project', () => {
