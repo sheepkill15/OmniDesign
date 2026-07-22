@@ -158,6 +158,28 @@ test('applies and persists the trusted application theme across primary screens'
       return { background: style.backgroundColor, foreground: style.color }
     })
 
+    const visitPrimaryScreens = async (theme: 'dark' | 'light') => {
+      for (const screen of ['Generations', 'Providers', 'Diagnostics', 'Trash', 'Settings'] as const) {
+        await firstRun.window.getByRole('button', { name: screen, exact: true }).click()
+        await expect(firstRun.window.getByRole('heading', { name: screen, exact: true })).toBeVisible()
+        await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', theme)
+        await expect.poll(() => firstRun.window.evaluate(() => ({
+          horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          bodyOverflow: getComputedStyle(document.body).overflow,
+          mainOverflow: getComputedStyle(document.querySelector('main')!).overflowY,
+        }))).toEqual({ horizontal: false, bodyOverflow: 'hidden', mainOverflow: 'auto' })
+      }
+    }
+
+    await visitPrimaryScreens('dark')
+    await firstRun.window.getByRole('button', { name: 'Home', exact: true }).click()
+    const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('A theme coverage workspace')
+    await prompt.press('Enter')
+    await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await expect(firstRun.window.getByRole('button', { name: /Layout/ })).toBeVisible()
+
     await firstRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
     const notifications = firstRun.window.getByRole('switch', { name: 'System notifications' })
     await expect(notifications).toBeChecked()
@@ -171,10 +193,9 @@ test('applies and persists the trusted application theme across primary screens'
     })
     expect(lightColors).not.toEqual(darkColors)
 
+    await visitPrimaryScreens('light')
     await firstRun.window.getByRole('button', { name: 'Home', exact: true }).click()
-    const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
-    await prompt.fill('A light theme workspace check')
-    await prompt.press('Enter')
+    await firstRun.window.getByRole('button', { name: 'A theme coverage workspace', exact: true }).click()
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
     await expect(firstRun.window.getByRole('button', { name: /Layout/ })).toBeVisible()
