@@ -423,6 +423,16 @@ export class WorkspaceStore {
     return this.createDesignInProject(projectId, prompt, title)
   }
 
+  public registerLinkedProject(sourcePath: string): ProjectSummary {
+    const existingProjectId = this.findProjectBySourcePath(sourcePath)
+    if (existingProjectId) return this.getProjectSummary(existingProjectId)!
+    const projectId = randomUUID()
+    const now = new Date().toISOString()
+    this.database.prepare('INSERT INTO projects (id, name, kind, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(projectId, folderName(sourcePath), 'linked', sourcePath, now, now)
+    return this.getProjectSummary(projectId)!
+  }
+
   public createDesignInProject(projectId: string, prompt: string, title: string): Design {
     const designId = randomUUID()
     const now = new Date().toISOString()

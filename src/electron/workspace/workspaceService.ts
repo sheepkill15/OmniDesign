@@ -4,6 +4,7 @@ import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
+import { cloneRepository } from './gitClone.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
 
@@ -39,6 +40,10 @@ export class WorkspaceService {
   }
 
   public listTrash(): TrashItem[] { return this.store.listTrash() }
+  public async cloneProject(remoteUrl: string, destinationPath: string, onActivity: (detail: string) => void): Promise<ProjectSummary> {
+    await cloneRepository(remoteUrl, destinationPath, (activity) => onActivity(activity.detail))
+    return this.store.registerLinkedProject(destinationPath)
+  }
   public reconnectProject(projectId: string, sourceProjectPath: string): ProjectSummary { return this.store.reconnectProject(projectId, sourceProjectPath) }
   public convertProjectToStandalone(projectId: string): ProjectSummary { return this.store.convertProjectToStandalone(projectId) }
   public moveProjectToTrash(projectId: string): void { this.store.moveProjectToTrash(projectId) }

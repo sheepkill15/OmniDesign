@@ -109,7 +109,7 @@ export async function runCommand(
 }
 
 function emitLines(remainder: string, chunk: string, listener?: (line: string) => void): string {
-  const lines = `${remainder}${chunk}`.split(/\r?\n/)
+  const lines = `${remainder}${chunk}`.split(/\r\n|\r|\n/)
   const nextRemainder = lines.pop() ?? ''
   if (listener) for (const line of lines) if (line) listener(line)
   return nextRemainder
@@ -129,7 +129,7 @@ export function resolveSpawnInvocation(resolved: ResolvedCommand, args: readonly
   }
 }
 
-export async function resolveProviderCommand(command: string): Promise<ResolvedCommand> {
+export async function resolveInstalledCommand(command: string, displayName = `${command} CLI`): Promise<ResolvedCommand> {
   const candidates = process.platform === 'win32' ? await windowsCandidates(command) : [command]
   for (const candidate of candidates) {
     const resolved: ResolvedCommand = {
@@ -143,5 +143,9 @@ export async function resolveProviderCommand(command: string): Promise<ResolvedC
       continue
     }
   }
-  throw new Error(`${command} CLI is not installed, executable, or available on Electron's PATH.`)
+  throw new Error(`${displayName} is not installed, executable, or available on Electron's PATH.`)
+}
+
+export async function resolveProviderCommand(command: string): Promise<ResolvedCommand> {
+  return resolveInstalledCommand(command, `${command} CLI`)
 }

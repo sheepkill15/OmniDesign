@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     listProjects: () => ipcRenderer.invoke('workspace:list-projects'),
     getProject: (projectId: string) => ipcRenderer.invoke('workspace:get-project', { projectId }),
     listTrash: () => ipcRenderer.invoke('workspace:list-trash'),
+    cloneProject: (remoteUrl: string, destinationPath: string) => ipcRenderer.invoke('workspace:clone-project', { remoteUrl, destinationPath }),
     reconnectProject: (projectId: string, sourceProjectPath: string) => ipcRenderer.invoke('workspace:reconnect-project', { projectId, sourceProjectPath }),
     convertProjectToStandalone: (projectId: string) => ipcRenderer.invoke('workspace:convert-project-to-standalone', { projectId }),
     trash: (kind: 'project' | 'design', id: string) => ipcRenderer.invoke('workspace:trash', { kind, id }),
@@ -38,6 +39,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
       const handler = (_event: Electron.IpcRendererEvent, activity: GenerationActivity) => listener(activity)
       ipcRenderer.on('workspace:activity', handler)
       return () => ipcRenderer.removeListener('workspace:activity', handler)
+    },
+    onCloneActivity: (listener: (detail: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, detail: string) => listener(detail)
+      ipcRenderer.on('workspace:clone-activity', handler)
+      return () => ipcRenderer.removeListener('workspace:clone-activity', handler)
     },
   },
   settings: {

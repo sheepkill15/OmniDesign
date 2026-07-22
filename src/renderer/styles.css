@@ -923,6 +923,30 @@ button:disabled,
   margin-top: 42px;
 }
 
+.settings-section input {
+  width: 100%;
+  height: 40px;
+  margin: 10px 0;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.settings-section input:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.clone-destination {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
 .theme-options {
   display: grid;
   gap: 10px;

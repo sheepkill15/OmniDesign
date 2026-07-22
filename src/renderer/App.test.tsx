@@ -62,6 +62,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
         return project ? { project, designs: initialDesigns.filter((candidate) => candidate.projectId === projectId) } : null
       }),
       listTrash: vi.fn().mockResolvedValue([]),
+      cloneProject: vi.fn(),
       reconnectProject: vi.fn(),
       convertProjectToStandalone: vi.fn(),
       trash: vi.fn().mockResolvedValue(undefined),
@@ -79,6 +80,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       saveLayout: vi.fn().mockResolvedValue(undefined),
       exportRevision: vi.fn().mockResolvedValue({ canceled: true }),
       onActivity: vi.fn((listener: (activity: GenerationActivity) => void) => { listeners.push(listener); return () => undefined }),
+      onCloneActivity: vi.fn().mockReturnValue(() => undefined),
     },
     preview: {
       show: vi.fn().mockResolvedValue(undefined),

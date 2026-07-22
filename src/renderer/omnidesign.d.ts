@@ -180,6 +180,7 @@ interface Window {
       listProjects(): Promise<ProjectSummary[]>
       getProject(projectId: string): Promise<ProjectDetail | null>
       listTrash(): Promise<TrashItem[]>
+      cloneProject(remoteUrl: string, destinationPath: string): Promise<ProjectSummary>
       reconnectProject(projectId: string, sourceProjectPath: string): Promise<ProjectSummary>
       convertProjectToStandalone(projectId: string): Promise<ProjectSummary>
       trash(kind: 'project' | 'design', id: string): Promise<void>
@@ -198,6 +199,7 @@ interface Window {
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
+      onCloneActivity(listener: (detail: string) => void): () => void
     }
     readonly settings: {
       getTheme(): Promise<'dark' | 'light'>

@@ -25,7 +25,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, Header, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { DropdownButton } from './components/DropdownButton'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
@@ -419,7 +419,35 @@ function ProjectThumbnail({ title, thumbnailDataUrl }: { readonly title: string;
   return <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>
 }
 
-function Home({ projects, providers, busy, activity, composerProject, onCreate, onOpen }: {
+function CloneProjectForm({ onClone }: { readonly onClone: (remoteUrl: string, destinationPath: string) => Promise<void> }) {
+  const [remoteUrl, setRemoteUrl] = useState('')
+  const [destinationPath, setDestinationPath] = useState('')
+  const [progress, setProgress] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [running, setRunning] = useState(false)
+  useEffect(() => window.omnidesign?.workspace.onCloneActivity((detail) => setProgress(detail)), [])
+  const chooseDestination = async () => {
+    const directory = await window.omnidesign?.workspace.chooseProjectFolder()
+    if (directory) setDestinationPath(directory)
+  }
+  const submit = async () => {
+    if (!remoteUrl.trim() || !destinationPath || running) return
+    setRunning(true); setError(null); setProgress('Preparing clone…')
+    try { await onClone(remoteUrl.trim(), destinationPath) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Git clone failed.') }
+    finally { setRunning(false) }
+  }
+  return <section className="settings-section" aria-labelledby="clone-project-heading">
+    <div className="section-heading"><h2 id="clone-project-heading">Clone a Git repository</h2><span>Uses your installed Git credentials</span></div>
+    <TextField aria-label="Remote Git URL"><Input value={remoteUrl} onChange={(event) => setRemoteUrl(event.target.value)} placeholder="git@github.com:team/project.git" /></TextField>
+    <div className="clone-destination"><TextField aria-label="Clone destination"><Input value={destinationPath} onChange={(event) => setDestinationPath(event.target.value)} placeholder="Choose an empty destination folder" /></TextField><Button className="secondary-action" onPress={() => void chooseDestination()}>Choose folder</Button></div>
+    <Button className="secondary-action" isDisabled={!remoteUrl.trim() || !destinationPath || running} onPress={() => void submit()}>{running ? 'Cloning…' : 'Clone and open project'}</Button>
+    {progress && <p className="settings-empty" role="status">{progress}</p>}
+    {error && <p className="generation-recovery" role="alert">{error}</p>}
+  </section>
+}
+
+function Home({ projects, providers, busy, activity, composerProject, onCreate, onOpen, onClone }: {
   readonly projects: readonly ProjectSummary[]
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
@@ -427,12 +455,14 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   readonly composerProject: ProjectSummary | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => Promise<void>
   readonly onOpen: (project: ProjectSummary) => void
+  readonly onClone: (remoteUrl: string, destinationPath: string) => Promise<void>
 }) {
   return (
     <main className="home-main">
       <div className="home-content">
         <header className="page-heading"><h1>Start with an idea.</h1><p>Turn it into something you can see, use, and refine—without leaving your local workspace.</p></header>
         <NewDesignComposer providers={providers} busy={busy} projects={projects} initialProject={composerProject} onCreate={onCreate} />
+        <CloneProjectForm onClone={onClone} />
         {busy
           ? <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>
           : activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
@@ -931,6 +961,14 @@ export function App() {
     await workspaceApi?.cancelGeneration(jobId)
     await refresh()
   }
+  const cloneProject = async (remoteUrl: string, destinationPath: string) => {
+    if (!workspaceApi) return
+    const project = await workspaceApi.cloneProject(remoteUrl, destinationPath)
+    await refresh()
+    setActiveProject(project)
+    setActiveDesign(null)
+    setComposerProject(null)
+  }
   const reconnectProject = async (project: ProjectSummary) => {
     const folder = await workspaceApi?.chooseProjectFolder()
     if (!folder) return
@@ -963,7 +1001,7 @@ export function App() {
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} />
-        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}
+        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} onClone={cloneProject} />}
     </div>
   )
 }
