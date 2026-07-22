@@ -47,7 +47,7 @@ The current automated suite does not yet prove all Phase 1 quality gates:
 
 - representative generated designs need automated responsive and accessibility checks;
 - provider adapter contracts need capability coverage for both real adapters;
-- exported ZIPs need an offline browser-execution test, not only archive-content checks;
+- exported ZIPs are now unzipped and loaded in a fresh sandboxed Electron browser window; broader representative-design coverage remains useful;
 - all primary screens and reusable controls need explicit dark and light theme verification;
 - the close/interruption and external-root security flows need targeted Electron coverage.
 

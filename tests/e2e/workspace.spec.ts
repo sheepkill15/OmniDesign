@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { _electron as electron } from 'playwright'
 import type { ElectronApplication } from 'playwright'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { unzipSync } from 'fflate'
 
 const projectDirectory = process.cwd()
 const electronExecutable = require('electron') as string
@@ -42,6 +44,22 @@ test('creates and recovers a standalone design in the built Electron app', async
         return false
       }
     }).toBe(true)
+    const exportedDirectory = path.join(userDataDirectory, 'offline-design')
+    for (const [relativePath, content] of Object.entries(unzipSync(await readFile(exportPath)))) {
+      const destination = path.join(exportedDirectory, relativePath)
+      await mkdir(path.dirname(destination), { recursive: true })
+      await writeFile(destination, content)
+    }
+    const exportedDocument = await firstRun.app.evaluate(async ({ BrowserWindow }, fileUrl) => {
+      const exportedWindow = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
+      try {
+        await exportedWindow.loadURL(fileUrl)
+        return await exportedWindow.webContents.executeJavaScript(`({ heading: document.querySelector('h1')?.textContent, stylesheet: document.querySelector('link[href=".build/tailwind.css"]') !== null })`)
+      } finally {
+        exportedWindow.destroy()
+      }
+    }, pathToFileURL(path.join(exportedDirectory, 'index.html')).href)
+    expect(exportedDocument).toEqual({ heading: 'A calm analytics dashboard', stylesheet: true })
     await firstRun.app.close()
     activeApp = null
 
