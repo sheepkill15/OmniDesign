@@ -334,6 +334,11 @@ const migrationTwentyTwo = `
 ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]';
 `
 
+const migrationTwentyThree = `
+ALTER TABLE messages ADD COLUMN generation_job_id TEXT REFERENCES generation_jobs(id) ON DELETE SET NULL;
+CREATE INDEX messages_by_generation_job ON messages(generation_job_id);
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -720,8 +725,8 @@ export class WorkspaceStore {
         INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
       `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), now)
+      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), id, now)
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
     return this.requireGenerationJob(id)
@@ -760,6 +765,17 @@ export class WorkspaceStore {
       .run(now, id)
     if (result.changes !== 1) throw new Error('Generation job is not queued.')
     return this.requireGenerationJob(id)
+  }
+
+  public removeQueuedGenerationJob(id: string): GenerationJob {
+    const job = this.requireGenerationJob(id)
+    if (job.state !== 'queued') throw new Error('Generation job is not queued.')
+    this.transaction(() => {
+      this.database.prepare('DELETE FROM messages WHERE generation_job_id = ?').run(id)
+      this.database.prepare("DELETE FROM generation_jobs WHERE id = ? AND state = 'queued'").run(id)
+      this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), job.designId)
+    })
+    return job
   }
 
   public retryGenerationJob(id: string): GenerationJob {
@@ -868,7 +884,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.

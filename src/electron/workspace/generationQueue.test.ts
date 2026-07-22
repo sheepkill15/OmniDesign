@@ -136,6 +136,18 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
+  it('removes queued work without pausing the remaining design queue', () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const queue = new GenerationQueue(store, vi.fn(), () => undefined)
+    const queued = store.enqueueGenerationJob(design.id, 'Remove this prompt')
+
+    expect(queue.remove(queued.id)).toMatchObject({ id: queued.id, state: 'queued' })
+    expect(store.getGenerationJob(queued.id)).toBeNull()
+    expect(store.getDesign(design.id)?.queuePaused).toBe(false)
+    store.close()
+  })
+
   it('continues stopped work with the retained partial-workspace mode', async () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')

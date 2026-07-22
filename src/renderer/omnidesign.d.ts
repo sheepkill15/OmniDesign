@@ -212,6 +212,7 @@ interface Window {
       chooseAttachments(kind: 'files' | 'folder'): Promise<DesignAttachment[]>
       openAttachment(attachment: DesignAttachment): Promise<void>
       cancelGeneration(jobId: string): Promise<GenerationJob>
+      removeGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
       continueGeneration(jobId: string): Promise<GenerationJob>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>

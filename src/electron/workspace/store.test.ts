@@ -310,6 +310,18 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('removes the persisted prompt message when queued work is removed', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const queued = store.enqueueGenerationJob(created.id, 'Remove this queued prompt')
+
+    store.removeQueuedGenerationJob(queued.id)
+
+    expect(store.getGenerationJob(queued.id)).toBeNull()
+    expect(store.getDesign(created.id)?.messages.map((message) => message.text)).not.toContain('Remove this queued prompt')
+    store.close()
+  })
+
   it('associates a standalone design with a linked project without changing its history', () => {
     const { store } = createStore()
     const standalone = store.createStandaloneDesign('First', 'Standalone')

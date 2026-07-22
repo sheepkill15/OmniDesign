@@ -72,9 +72,8 @@ export class WorkspaceService {
     return this.generate(design.id, prompt, onActivity, generated.html, false)
   }
 
-  public createAgentDesignShell(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget): Design {
-    const generated = generateMockDesign(prompt)
-    const design = this.createDesignRecord('', generated.title, target)
+  public createAgentDesignShell(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget, title = generateMockDesign(prompt).title): Design {
+    const design = this.createDesignRecord('', title, target)
     onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up design repository…' })
     this.repositories.initialize(design.id)
     return design

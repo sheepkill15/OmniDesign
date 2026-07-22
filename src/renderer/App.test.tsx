@@ -78,6 +78,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       chooseAttachments: vi.fn().mockResolvedValue([]),
       openAttachment: vi.fn().mockResolvedValue(undefined),
       cancelGeneration: vi.fn().mockResolvedValue(undefined),
+      removeGeneration: vi.fn().mockResolvedValue(undefined),
       retryGeneration: vi.fn().mockResolvedValue(undefined),
       selectRevision: vi.fn().mockResolvedValue(design),
       restoreRevision: vi.fn().mockResolvedValue(design),
@@ -154,7 +155,7 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByText('No deleted projects or designs.')).toBeInTheDocument()
   })
 
-  it('shows active work globally and can cancel it from the generations view', async () => {
+  it('shows active work globally and can remove queued work from the generations view', async () => {
     const queuedDesign: OmniDesignDocument = {
       ...design,
       queuePaused: true,
@@ -171,9 +172,9 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('heading', { name: 'Generations' })).toBeInTheDocument()
     expect(screen.getByText(/Try a warmer direction/)).toBeInTheDocument()
     expect(screen.getByText(/Queue paused/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
-    await waitFor(() => expect(bridge.workspace.cancelGeneration).toHaveBeenCalledWith('7e3670bd-2f6c-444d-afd0-a26e17839964'))
+    await waitFor(() => expect(bridge.workspace.removeGeneration).toHaveBeenCalledWith('7e3670bd-2f6c-444d-afd0-a26e17839964'))
   })
 
   it('creates a design through the workspace bridge and opens the split workspace', async () => {

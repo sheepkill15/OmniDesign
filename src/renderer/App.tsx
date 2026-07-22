@@ -153,10 +153,11 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
   )
 }
 
-function Generations({ designs, onOpen, onCancel }: {
+function Generations({ designs, onOpen, onCancel, onRemove }: {
   readonly designs: readonly OmniDesignDocument[]
   readonly onOpen: (design: OmniDesignDocument) => void
   readonly onCancel: (jobId: string) => Promise<void>
+  readonly onRemove: (jobId: string) => Promise<void>
 }) {
   const jobs = designs.flatMap((design) => design.generationJobs
     .filter((job) => ['queued', 'running'].includes(job.state))
@@ -171,7 +172,9 @@ function Generations({ designs, onOpen, onCancel }: {
             {jobs.map(({ design, job }) => <article className="generation-row" key={job.id}>
               <Button className="generation-copy" onPress={() => onOpen(design)}><strong>{design.title}</strong><small>{design.queuePaused ? 'Queue paused' : job.state === 'queued' ? 'Queued' : design.generationSteps.at(-1)?.label ?? 'Running'} · {job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`} · {job.prompt}</small></Button>
               <time className="generation-elapsed" dateTime={job.startedAt ?? job.createdAt}>{formatGenerationElapsed(job.startedAt ?? job.createdAt)}</time>
-              <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>
+              {job.state === 'queued'
+                ? <Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button>
+                : <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>}
             </article>)}
             {!jobs.length && <p className="settings-empty">No generations are queued or running.</p>}
           </div>
@@ -802,6 +805,12 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     const updated = await api.get(design.id)
     if (updated) onChange(updated)
   }
+  const removeGeneration = async () => {
+    if (!api || !activeJob || activeJob.state !== 'queued') return
+    await api.removeGeneration(activeJob.id)
+    const updated = await api.get(design.id)
+    if (updated) onChange(updated)
+  }
   const continueGeneration = async () => {
     if (!api || !retryableJob) return
     await api.continueGeneration(retryableJob.id)
@@ -863,7 +872,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
         {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
           ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p>{item.message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{item.message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => void api?.openAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}</article>
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
-        {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
+        {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && (activeJob.state === 'queued' ? <Button className="secondary-action" onPress={() => void removeGeneration()}>Remove</Button> : <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>)}</div>}
         {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
         {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
           <strong>Latest candidate was not activated</strong>
@@ -1120,6 +1129,10 @@ export function App() {
     await workspaceApi?.cancelGeneration(jobId)
     await refresh()
   }
+  const removeGeneration = async (jobId: string) => {
+    await workspaceApi?.removeGeneration(jobId)
+    await refresh()
+  }
   const changeNotifications = (enabled: boolean) => {
     setNotificationsEnabled(enabled)
     void window.omnidesign?.settings.saveNotificationsEnabled(enabled)
@@ -1159,7 +1172,7 @@ export function App() {
     <div className="app-frame">
       <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} />
       {generationsOpen
-        ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} />
+        ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} />
         : trashOpen
         ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} />
         : providersOpen

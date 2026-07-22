@@ -33,6 +33,7 @@ import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewController } from '../workspace/previewController.js'
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
+import { createDesignTitlePrompt, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection } from '../workspace/designTitle.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
@@ -66,6 +67,23 @@ function isProviderPrompt(value: unknown): value is ProviderPrompt {
     && typeof request.modelId === 'string' && request.modelId.length > 0
     && (request.effort === undefined || typeof request.effort === 'string')
     && typeof request.prompt === 'string' && request.prompt.length <= 100_000
+}
+
+async function generateDesignTitle(prompt: string, providerId: 'codex' | 'claude', modelId: string, effort: string | null, attachments: readonly import('../workspace/contracts.js').Attachment[]): Promise<string> {
+  const fallback = fallbackDesignTitle(prompt)
+  try {
+    const selection = selectLightweightMetadataSelection(await providers.discover(), providerId, { modelId, effort })
+    const reply = await providers.prompt({
+      requestId: randomUUID(),
+      providerId,
+      modelId: selection.modelId,
+      ...(selection.effort ? { effort: selection.effort } : {}),
+      prompt: createDesignTitlePrompt(prompt, attachments),
+    })
+    return normalizeDesignTitle(reply.text, fallback)
+  } catch {
+    return fallback
+  }
 }
 
 function createMainWindow(): BrowserWindow {
@@ -200,7 +218,8 @@ function registerIpc(): void {
       requireWorkspace().rememberSelection(design.id, selection)
       return requireWorkspace().getDesign(design.id) ?? design
     }
-    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target)
+    const title = await generateDesignTitle(request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments)
+    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target, title)
     requireWorkspace().rememberSelection(design.id, selection)
     requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
     return requireWorkspace().getDesign(design.id) ?? design
@@ -283,6 +302,10 @@ function registerIpc(): void {
   ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
     authorize(event)
     return requireGenerationQueue().cancel(generationJobIdRequestSchema.parse(value).jobId)
+  })
+  ipcMain.handle('workspace:remove-generation', (event, value: unknown) => {
+    authorize(event)
+    return requireGenerationQueue().remove(generationJobIdRequestSchema.parse(value).jobId)
   })
   ipcMain.handle('workspace:retry-generation', (event, value: unknown) => {
     authorize(event)

@@ -58,6 +58,13 @@ export class GenerationQueue {
     return job
   }
 
+  public remove(jobId: string): GenerationJob {
+    const removed = this.store.removeQueuedGenerationJob(jobId)
+    this.onActivity({ designId: removed.designId, stage: 'queued', detail: 'Queued generation was removed.' })
+    void this.drain()
+    return removed
+  }
+
   public async cancelAndWait(jobId: string): Promise<GenerationJob> {
     const job = this.cancel(jobId)
     await this.executionPromises.get(jobId)
