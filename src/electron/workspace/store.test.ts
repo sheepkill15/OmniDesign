@@ -182,6 +182,24 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('continues stopped work before dependent prompts without duplicating its message', () => {
+    const { store } = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const stopped = store.enqueueGenerationJob(design.id, 'Build the first direction', 'codex', 'model-1')
+    const dependent = store.enqueueGenerationJob(design.id, 'Then warm the palette', 'claude', 'model-2')
+    store.setGenerationJobState(stopped.id, 'running')
+    store.setGenerationJobState(stopped.id, 'failed', 'Connection lost')
+
+    const continued = store.continueGenerationJob(stopped.id)
+    const queued = store.listGenerationJobs(['queued'])
+    const recovered = store.getDesign(design.id)
+
+    expect(continued).toMatchObject({ mode: 'continue', prompt: stopped.prompt, createdAt: stopped.createdAt })
+    expect(queued.map((job) => job.id)).toEqual([continued.id, dependent.id])
+    expect(recovered?.messages.filter((message) => message.role === 'user').map((message) => message.text)).toEqual(['First', 'Build the first direction', 'Then warm the palette'])
+    store.close()
+  })
+
   it('persists editable design and project names without changing linked source paths', () => {
     const { directory, store } = createStore()
     const standalone = store.createStandaloneDesign('First', 'Initial standalone')

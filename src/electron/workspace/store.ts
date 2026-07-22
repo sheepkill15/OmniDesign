@@ -868,7 +868,12 @@ export class WorkspaceStore {
   public continueGenerationJob(id: string): GenerationJob {
     const previous = this.requireGenerationJob(id)
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
-    return this.enqueueGenerationJob(previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, previous.attachments, 'continue')
+    const continueId = randomUUID()
+    this.database.prepare(`
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', 'queued', ?, NULL, NULL, NULL)
+    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.createdAt)
+    return this.requireGenerationJob(continueId)
   }
 
   public markGenerationJobsInterrupted(): GenerationJob[] {
