@@ -541,11 +541,11 @@ export class WorkspaceStore {
   public listTrash(): TrashItem[] {
     const rows = this.database.prepare(`
       SELECT p.id, 'project' AS kind, p.name, NULL AS project_id, NULL AS project_name, p.source_path, p.trashed_at
-      FROM projects p WHERE p.trashed_at IS NOT NULL
+      FROM projects p WHERE p.trashed_at IS NOT NULL AND p.kind = 'linked'
       UNION ALL
       SELECT d.id, 'design' AS kind, d.title AS name, d.project_id, p.name AS project_name, p.source_path, d.trashed_at
       FROM designs d JOIN projects p ON p.id = d.project_id
-      WHERE d.trashed_at IS NOT NULL AND p.trashed_at IS NULL
+      WHERE d.trashed_at IS NOT NULL AND (p.trashed_at IS NULL OR p.kind = 'standalone')
       ORDER BY trashed_at DESC
     `).all() as unknown as TrashRow[]
     const retentionMs = 30 * 24 * 60 * 60 * 1_000
@@ -567,6 +567,15 @@ export class WorkspaceStore {
   }
 
   public restoreDesign(designId: string): Design {
+    const project = this.database.prepare(`
+      SELECT p.id, p.kind, p.trashed_at FROM designs d
+      JOIN projects p ON p.id = d.project_id
+      WHERE d.id = ? AND d.trashed_at IS NOT NULL
+    `).get(designId) as { id: string; kind: 'linked' | 'standalone'; trashed_at: string | null } | undefined
+    if (project?.kind === 'standalone' && project.trashed_at) {
+      this.restoreProject(project.id)
+      return this.requireDesign(designId)
+    }
     const result = this.database.prepare(`
       UPDATE designs SET trashed_at = NULL WHERE id = ? AND trashed_at IS NOT NULL
         AND EXISTS (SELECT 1 FROM projects p WHERE p.id = designs.project_id AND p.trashed_at IS NULL)
@@ -584,8 +593,16 @@ export class WorkspaceStore {
       designIds.forEach((designId) => this.removeDesignArtifacts(designId))
       return
     }
-    const design = this.database.prepare('SELECT id FROM designs WHERE id = ? AND trashed_at IS NOT NULL').get(id) as { id: string } | undefined
+    const design = this.database.prepare(`
+      SELECT d.id, d.project_id, p.kind, p.trashed_at FROM designs d
+      JOIN projects p ON p.id = d.project_id
+      WHERE d.id = ? AND d.trashed_at IS NOT NULL
+    `).get(id) as { id: string; project_id: string; kind: 'linked' | 'standalone'; trashed_at: string | null } | undefined
     if (!design) throw new Error('Trashed design not found.')
+    if (design.kind === 'standalone' && design.trashed_at) {
+      this.purgeTrashItem('project', design.project_id)
+      return
+    }
     this.database.prepare('DELETE FROM designs WHERE id = ?').run(id)
     this.removeDesignArtifacts(id)
   }
