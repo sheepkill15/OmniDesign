@@ -894,7 +894,9 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
-  const activeJob = [...design.generationJobs].reverse().find((job) => ['queued', 'running'].includes(job.state))
+  const runningJob = design.generationJobs.find((job) => job.state === 'running')
+  const queuedJobs = design.generationJobs.filter((job) => job.state === 'queued')
+  const activeJob = runningJob ?? queuedJobs[0]
   const retryableJob = [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
   const stoppedGeneration = retryableJob ? describeStoppedGeneration(retryableJob) : null
   const api = window.omnidesign?.workspace
@@ -1028,8 +1030,8 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     if (result && !result.canceled) setFeedback({ tone: 'success', message: 'Export ready.', ...(result.filePath ? { detail: result.filePath } : {}) })
   }
   const cancelGeneration = async () => {
-    if (!api || !activeJob) return
-    const cancelled = await runWorkspaceAction(() => api.cancelGeneration(activeJob.id), 'Generation could not be stopped.')
+    if (!api || !runningJob) return
+    const cancelled = await runWorkspaceAction(() => api.cancelGeneration(runningJob.id), 'Generation could not be stopped.')
     if (!cancelled) return
     const updated = await runWorkspaceAction(() => api.get(design.id), 'The stopped generation could not be refreshed.')
     if (updated) onChange(updated)
@@ -1041,9 +1043,9 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     const updated = await runWorkspaceAction(() => api.get(design.id), 'The retried generation could not be refreshed.')
     if (updated) onChange(updated)
   }
-  const removeGeneration = async () => {
-    if (!api || !activeJob || activeJob.state !== 'queued') return
-    const removed = await runWorkspaceAction(() => api.removeGeneration(activeJob.id), 'The queued prompt could not be removed.')
+  const removeGeneration = async (jobId: string) => {
+    if (!api || !queuedJobs.some((job) => job.id === jobId)) return
+    const removed = await runWorkspaceAction(() => api.removeGeneration(jobId), 'The queued prompt could not be removed.')
     if (!removed) return
     const updated = await runWorkspaceAction(() => api.get(design.id), 'The queue could not be refreshed.')
     if (updated) onChange(updated)
@@ -1126,9 +1128,10 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
           : item.kind === 'activity'
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
-        {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && (activeJob.state === 'queued' ? <Button className="secondary-action" onPress={() => void removeGeneration()}>Remove</Button> : <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>)}</div>}
+        {activity && (runningJob || (queuedJobs.length > 0 && !design.queuePaused)) && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{runningJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
+        {queuedJobs.length > 0 && <section className="workspace-queue" aria-label="Queued prompts"><header><strong>{queuedJobs.length} queued prompt{queuedJobs.length === 1 ? '' : 's'}</strong><small>{design.queuePaused ? 'Waiting for you to resume generation' : runningJob ? 'Runs after the current request' : 'Waiting to start'}</small></header>{queuedJobs.map((job) => <article key={job.id}><span><strong>{job.prompt}</strong><small>{job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`}</small></span><Button className="text-button" onPress={() => void removeGeneration(job.id)}>Remove</Button></article>)}</section>}
         {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
-        {!activeJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
+        {!runningJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
         {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
           <strong>Latest candidate was not activated</strong>
           <p>{latestInvalidCandidate.diagnostic}</p>

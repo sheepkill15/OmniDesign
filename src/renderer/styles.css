@@ -1588,6 +1588,22 @@ button:disabled,
   text-align: left;
 }
 
+.workspace-queue {
+  margin: 12px 0 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+}
+
+.workspace-queue > header,
+.workspace-queue article { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; }
+.workspace-queue > header { border-bottom: 1px solid var(--border); }
+.workspace-queue > header strong { color: var(--text); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+.workspace-queue > header small { color: var(--text-faint); font-size: 11px; }
+.workspace-queue article + article { border-top: 1px solid var(--border); }
+.workspace-queue article > span { min-width: 0; display: grid; gap: 3px; }
+.workspace-queue article strong { overflow: hidden; color: var(--text-subtle); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-queue article small { color: var(--text-faint); font-size: 11px; }
+
 .design-card:hover,
 .design-card:focus-within {
   border-color: var(--accent);

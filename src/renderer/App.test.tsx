@@ -314,6 +314,30 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('button', { name: 'Send change' })).toBeDisabled()
   })
 
+  it('keeps running work stoppable while exposing queued prompts separately', async () => {
+    const runningId = '11111111-1111-4111-8111-111111111111'
+    const queuedId = '22222222-2222-4222-8222-222222222222'
+    const queuedDesign: OmniDesignDocument = {
+      ...design,
+      generationJobs: [
+        { id: runningId, designId: design.id, prompt: 'Refine the hierarchy', providerId: 'codex', modelId: 'gpt-5.6', state: 'running', attachments: [], createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: null, error: null },
+        { id: queuedId, designId: design.id, prompt: 'Then warm the palette', providerId: 'claude', modelId: 'sonnet', state: 'queued', attachments: [], createdAt: '2026-07-20T10:02:00.000Z', startedAt: null, completedAt: null, error: null },
+      ],
+    }
+    const bridge = installBridge([queuedDesign], queuedDesign)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    await act(async () => bridge.emitWorkspaceActivity({ designId: design.id, stage: 'generating', detail: 'Editing the page' }))
+    const queue = await screen.findByRole('region', { name: 'Queued prompts' })
+    expect(queue).toHaveTextContent('Then warm the palette')
+    fireEvent.click(within(queue).getByRole('button', { name: 'Remove' }))
+    expect(bridge.workspace.removeGeneration).toHaveBeenCalledWith(queuedId)
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(bridge.workspace.cancelGeneration).toHaveBeenCalledWith(runningId)
+  })
+
   it('groups full generation activity into an open collapsible section', async () => {
     const activityDesign: OmniDesignDocument = {
       ...design,
@@ -863,9 +887,13 @@ describe('Phase 1 walking skeleton UI', () => {
   it('turns provider failures into actionable recovery while retaining diagnostics', async () => {
     const failedDesign: OmniDesignDocument = {
       ...design,
+      queuePaused: true,
       generationJobs: [{
         id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Try again', providerId: 'codex', modelId: 'gpt-5.6', state: 'failed',
         createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'fetch failed: ENOTFOUND api.openai.com', attachments: [],
+      }, {
+        id: 'f0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Queued after failure', providerId: 'codex', modelId: 'gpt-5.6', state: 'queued',
+        createdAt: '2026-07-20T10:02:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [],
       }],
     }
     installBridge([failedDesign], failedDesign)
@@ -875,6 +903,8 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
     expect(await screen.findByText('Provider connection unavailable')).toBeInTheDocument()
     expect(screen.getByText('Check your connection and provider service, then retry.')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Queued prompts' })).toHaveTextContent('Waiting for you to resume generation')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
     const details = screen.getByText('Technical details').closest('details')
     expect(details).not.toHaveAttribute('open')
     expect(details).toHaveTextContent('ENOTFOUND api.openai.com')

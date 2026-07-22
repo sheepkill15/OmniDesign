@@ -31,6 +31,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Real-provider creation now persists and opens the design immediately with an editable fallback title. The lightweight title request runs in the background, can inspect the explicitly supplied attachment paths through provider reference roots, refreshes the open workspace when ready, and cannot overwrite a title the user edited while it was running.
 - An application-level renderer error boundary replaces blank-screen failures with a keyboard-accessible reload action, local-data reassurance, and collapsed technical diagnostics.
 - Stopped work now distinguishes connection, sign-in, model, cancellation, interruption, and generic failure states with a concise next action. Raw provider diagnostics remain available in a collapsed technical section, and provider-related failures link back to availability.
+- The design workspace now treats running and queued jobs separately: Stop always targets the provider request, every queued prompt shows its provider/model and Remove action, and a paused dependent queue no longer hides Continue/Retry behind a queued item or displays a false running spinner.
 
 ## Remaining functional gaps
 
