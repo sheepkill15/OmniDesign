@@ -651,11 +651,11 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
   )
 }
 
-function DesignWorkspace({ design, providers, projects, associatedProjectName, activity, busy, detailLevel, onBack, onChange, onTrash, onAssociate, onDismissAssociation }: {
+function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onTrash, onAssociate, onDismissAssociation }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
   readonly projects: readonly ProjectSummary[]
-  readonly associatedProjectName: string | null
+  readonly associationNotice: { readonly projectId: string; readonly projectName: string; readonly mode: 'associated' | 'suggested' } | null
   readonly activity: GenerationActivity | null
   readonly busy: boolean
   readonly detailLevel: 'full' | 'concise'
@@ -813,8 +813,8 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
     if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
   }
   const adaptToAssociatedProject = async () => {
-    if (!api || !associatedProjectName || busy) return
-    onChange(await api.generate(design.id, `Adapt this design to the established design language of ${associatedProjectName}. Preserve its purpose while aligning visual language, interaction patterns, and relevant project conventions.`, selection.providerId, selection.modelId, selection.effort ?? undefined, attachments))
+    if (!api || !associationNotice || busy) return
+    onChange(await api.generate(design.id, `Adapt this design to the established design language of ${associationNotice.projectName}. Preserve its purpose while aligning visual language, interaction patterns, and relevant project conventions.`, selection.providerId, selection.modelId, selection.effort ?? undefined, attachments))
     onDismissAssociation()
   }
   const chooseAssociationTarget = async (key: string) => {
@@ -870,7 +870,8 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
           <p>{latestInvalidCandidate.diagnostic}</p>
           <details><summary>Technical details</summary><pre>{latestInvalidCandidate.html}</pre></details>
         </section>}
-        {associatedProjectName && <div className="generation-recovery" role="status"><span><strong>Design associated with {associatedProjectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
+        {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
+        {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void onAssociate(design, associationNotice.projectId)}>Associate project</Button><Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
       </div>
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
       <div className="workspace-composer">
@@ -1001,7 +1002,7 @@ export function App() {
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null)
   const [composerProject, setComposerProject] = useState<ProjectSummary | null>(null)
-  const [associationNotice, setAssociationNotice] = useState<{ readonly designId: string; readonly projectName: string } | null>(null)
+  const [associationNotice, setAssociationNotice] = useState<{ readonly designId: string; readonly projectId: string; readonly projectName: string; readonly mode: 'associated' | 'suggested' } | null>(null)
   const [activity, setActivity] = useState<GenerationActivity | null>(null)
   const [busy, setBusy] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -1071,6 +1072,11 @@ export function App() {
         ? await workspaceApi.create(prompt, providerId, modelId, effort ?? undefined, target, attachments)
         : await workspaceApi.create(prompt, providerId, modelId, effort ?? undefined, target)
       setActiveDesign(design)
+      if (!target) {
+        const availableProjects = projects.length ? projects : await workspaceApi.listProjects()
+        const matchingProject = availableProjects.find((project) => project.kind === 'linked' && prompt.toLocaleLowerCase().includes(project.name.toLocaleLowerCase()))
+        if (matchingProject) setAssociationNotice({ designId: design.id, projectId: matchingProject.id, projectName: matchingProject.name, mode: 'suggested' })
+      }
       await refresh()
       if (activeProject) {
         const detail = await workspaceApi.getProject(activeProject.id)
@@ -1144,7 +1150,7 @@ export function App() {
   const trashProject = async (project: ProjectSummary) => { await workspaceApi?.trash('project', project.id); home() }
   const associateDesign = async (design: OmniDesignDocument, projectId: string) => {
     const associated = await workspaceApi?.associateDesign(design.id, projectId)
-    if (associated) { updateDesign(associated); setAssociationNotice({ designId: associated.id, projectName: associated.projectName }) }
+    if (associated) { updateDesign(associated); setAssociationNotice({ designId: associated.id, projectId: associated.projectId, projectName: associated.projectName, mode: 'associated' }) }
     await refresh()
   }
   const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => ['queued', 'running'].includes(job.state)).length
@@ -1161,7 +1167,7 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associatedProjectName={associationNotice?.designId === activeDesign.id ? associationNotice.projectName : null} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} onDismissAssociation={() => setAssociationNotice(null)} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} onDismissAssociation={() => setAssociationNotice(null)} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
         : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}

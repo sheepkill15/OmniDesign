@@ -67,6 +67,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       registerLinkedProject: vi.fn(),
       reconnectProject: vi.fn(),
       convertProjectToStandalone: vi.fn(),
+      associateDesign: vi.fn().mockResolvedValue(createdDesign),
       trash: vi.fn().mockResolvedValue(undefined),
       restoreTrash: vi.fn().mockResolvedValue(undefined),
       purgeTrash: vi.fn().mockResolvedValue(undefined),
@@ -256,6 +257,27 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A companion settings screen', 'mock', 'mock-v1', undefined, { projectId: 'aurora' }))
+  })
+
+  it('suggests a linked project when a standalone prompt names it', async () => {
+    const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design' }
+    const associatedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora' }
+    const bridge = installBridge([], createdDesign)
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{
+      id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1,
+      createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page',
+    }])
+    vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(associatedDesign)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'Create a dashboard for Aurora' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    expect(await screen.findByText('Possible project match: Aurora.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Associate project' }))
+    await waitFor(() => expect(bridge.workspace.associateDesign).toHaveBeenCalledWith('new-design', 'aurora'))
+    expect(await screen.findByText('Design associated with Aurora.')).toBeInTheDocument()
   })
 
   it('pre-fills the composer target from a project row add button', async () => {
