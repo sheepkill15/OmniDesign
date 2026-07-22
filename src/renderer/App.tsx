@@ -25,7 +25,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
-import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { Button, Dialog, Header, Heading, Input, Menu, MenuItem, MenuSection, Modal, ModalOverlay, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { DropdownButton } from './components/DropdownButton'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
@@ -332,6 +332,11 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   const [selection, setSelection] = useState<GenerationSelection>({ providerId: 'mock', modelId: 'mock-v1', effort: null })
   const [sourceProjectPath, setSourceProjectPath] = useState<string | null>(null)
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(initialProject)
+  const [cloneTarget, setCloneTarget] = useState<{ remoteUrl: string; destinationDirectory: string } | null>(null)
+  const [cloneModalOpen, setCloneModalOpen] = useState(false)
+  const [cloneRemoteUrl, setCloneRemoteUrl] = useState('')
+  const [cloneDestinationDirectory, setCloneDestinationDirectory] = useState('')
+  const [error, setError] = useState<string | null>(null)
   // Only linked (folder-backed) projects are meaningful reuse targets; standalone projects stay the
   // private container of their single design.
   const linkedProjects = projects.filter((project) => project.kind === 'linked')
@@ -345,6 +350,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
     if (!initialProject) return
     setSelectedProject(initialProject)
     setSourceProjectPath(null)
+    setCloneTarget(null)
   }, [initialProject])
   const applySelection = (next: GenerationSelection) => {
     setSelection(next)
@@ -352,23 +358,43 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   }
   const target = (): CreateDesignTarget | null => {
     if (fixedProject) return { projectId: fixedProject.id }
+    if (cloneTarget) return { cloneRemoteUrl: cloneTarget.remoteUrl, cloneDestinationDirectory: cloneTarget.destinationDirectory }
     if (selectedProject) return { projectId: selectedProject.id }
     return sourceProjectPath ? { sourceProjectPath } : null
   }
-  const projectLabel = selectedProject ? selectedProject.name : sourceProjectPath ? sourceProjectPath.split(/[\\/]/).filter(Boolean).at(-1) : 'Standalone design'
+  const projectLabel = cloneTarget
+    ? `Clone into ${cloneTarget.destinationDirectory.split(/[\\/]/).filter(Boolean).at(-1)}`
+    : selectedProject ? selectedProject.name : sourceProjectPath ? sourceProjectPath.split(/[\\/]/).filter(Boolean).at(-1) : 'Standalone design'
   const chooseTarget = (key: string) => {
-    if (key === 'standalone') { setSelectedProject(null); setSourceProjectPath(null); return }
-    if (key === 'folder') { setSelectedProject(null); void window.omnidesign?.workspace.chooseProjectFolder().then((path) => { if (path) { setSourceProjectPath(path); setSelectedProject(null) } }); return }
+    if (key === 'standalone') { setSelectedProject(null); setSourceProjectPath(null); setCloneTarget(null); return }
+    if (key === 'folder') { setSelectedProject(null); setCloneTarget(null); void window.omnidesign?.workspace.chooseProjectFolder().then((path) => { if (path) { setSourceProjectPath(path); setSelectedProject(null) } }); return }
+    if (key === 'clone') { setCloneModalOpen(true); return }
     if (key.startsWith('project:')) {
       const project = projects.find((candidate) => candidate.id === key.slice('project:'.length))
-      if (project) { setSelectedProject(project); setSourceProjectPath(null) }
+      if (project) { setSelectedProject(project); setSourceProjectPath(null); setCloneTarget(null) }
     }
+  }
+  const chooseCloneDestination = async () => {
+    const directory = await window.omnidesign?.workspace.chooseProjectFolder()
+    if (directory) setCloneDestinationDirectory(directory)
+  }
+  const confirmCloneTarget = () => {
+    if (!cloneRemoteUrl.trim() || !cloneDestinationDirectory) return
+    setCloneTarget({ remoteUrl: cloneRemoteUrl.trim(), destinationDirectory: cloneDestinationDirectory })
+    setSelectedProject(null)
+    setSourceProjectPath(null)
+    setCloneModalOpen(false)
   }
   const submit = async () => {
     const value = prompt.trim()
     if (!value || busy) return
-    await onCreate(value, selection.providerId, selection.modelId, selection.effort, target())
-    setPrompt('')
+    setError(null)
+    try {
+      await onCreate(value, selection.providerId, selection.modelId, selection.effort, target())
+      setPrompt('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to create the design.')
+    }
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && prompt.trim()) {
@@ -391,6 +417,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
                 <Menu aria-label="Design project" onAction={(key) => chooseTarget(String(key))}>
                   <MenuItem id="standalone">Standalone design</MenuItem>
                   <MenuItem id="folder">Choose local project folder…</MenuItem>
+                  <MenuItem id="clone">Clone Git repository…</MenuItem>
                   {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
                     <Header className="project-popover-header">Add to a project</Header>
                     {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
@@ -403,6 +430,23 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
           {busy ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}
         </Button>
       </div>
+      {error && <p className="generation-recovery" role="alert">{error}</p>}
+      <ModalOverlay isOpen={cloneModalOpen} onOpenChange={setCloneModalOpen} className="modal-overlay">
+        <Modal className="clone-modal">
+          <Dialog>
+            {({ close }) => <>
+              <Heading slot="title">Clone Git repository</Heading>
+              <p>OmniDesign will create a new repository folder inside the destination you choose. Nothing is cloned until you submit this design prompt.</p>
+              <div className="clone-modal-fields">
+                <TextField aria-label="Git repository URL"><Input value={cloneRemoteUrl} onChange={(event) => setCloneRemoteUrl(event.target.value)} placeholder="git@github.com:team/project.git" /></TextField>
+                <div className="clone-destination"><TextField aria-label="Destination folder"><Input value={cloneDestinationDirectory} onChange={(event) => setCloneDestinationDirectory(event.target.value)} placeholder="Destination folder" /></TextField><Button className="secondary-action" onPress={() => void chooseCloneDestination()}>Choose folder</Button></div>
+              </div>
+              <p className="clone-modal-note">For example, <code>project.git</code> will be cloned to a new <code>project</code> folder inside the destination.</p>
+              <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="primary-action" isDisabled={!cloneRemoteUrl.trim() || !cloneDestinationDirectory} onPress={confirmCloneTarget}>Use repository</Button></div>
+            </>}
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
     </section>
   )
 }
@@ -419,35 +463,7 @@ function ProjectThumbnail({ title, thumbnailDataUrl }: { readonly title: string;
   return <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>
 }
 
-function CloneProjectForm({ onClone }: { readonly onClone: (remoteUrl: string, destinationPath: string) => Promise<void> }) {
-  const [remoteUrl, setRemoteUrl] = useState('')
-  const [destinationPath, setDestinationPath] = useState('')
-  const [progress, setProgress] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [running, setRunning] = useState(false)
-  useEffect(() => window.omnidesign?.workspace.onCloneActivity((detail) => setProgress(detail)), [])
-  const chooseDestination = async () => {
-    const directory = await window.omnidesign?.workspace.chooseProjectFolder()
-    if (directory) setDestinationPath(directory)
-  }
-  const submit = async () => {
-    if (!remoteUrl.trim() || !destinationPath || running) return
-    setRunning(true); setError(null); setProgress('Preparing clone…')
-    try { await onClone(remoteUrl.trim(), destinationPath) }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Git clone failed.') }
-    finally { setRunning(false) }
-  }
-  return <section className="settings-section" aria-labelledby="clone-project-heading">
-    <div className="section-heading"><h2 id="clone-project-heading">Clone a Git repository</h2><span>Uses your installed Git credentials</span></div>
-    <TextField aria-label="Remote Git URL"><Input value={remoteUrl} onChange={(event) => setRemoteUrl(event.target.value)} placeholder="git@github.com:team/project.git" /></TextField>
-    <div className="clone-destination"><TextField aria-label="Clone destination"><Input value={destinationPath} onChange={(event) => setDestinationPath(event.target.value)} placeholder="Choose an empty destination folder" /></TextField><Button className="secondary-action" onPress={() => void chooseDestination()}>Choose folder</Button></div>
-    <Button className="secondary-action" isDisabled={!remoteUrl.trim() || !destinationPath || running} onPress={() => void submit()}>{running ? 'Cloning…' : 'Clone and open project'}</Button>
-    {progress && <p className="settings-empty" role="status">{progress}</p>}
-    {error && <p className="generation-recovery" role="alert">{error}</p>}
-  </section>
-}
-
-function Home({ projects, providers, busy, activity, composerProject, onCreate, onOpen, onClone }: {
+function Home({ projects, providers, busy, activity, composerProject, onCreate, onOpen }: {
   readonly projects: readonly ProjectSummary[]
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
@@ -455,14 +471,12 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   readonly composerProject: ProjectSummary | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null) => Promise<void>
   readonly onOpen: (project: ProjectSummary) => void
-  readonly onClone: (remoteUrl: string, destinationPath: string) => Promise<void>
 }) {
   return (
     <main className="home-main">
       <div className="home-content">
         <header className="page-heading"><h1>Start with an idea.</h1><p>Turn it into something you can see, use, and refine—without leaving your local workspace.</p></header>
         <NewDesignComposer providers={providers} busy={busy} projects={projects} initialProject={composerProject} onCreate={onCreate} />
-        <CloneProjectForm onClone={onClone} />
         {busy
           ? <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>
           : activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
@@ -993,14 +1007,6 @@ export function App() {
     await workspaceApi?.cancelGeneration(jobId)
     await refresh()
   }
-  const cloneProject = async (remoteUrl: string, destinationPath: string) => {
-    if (!workspaceApi) return
-    const project = await workspaceApi.cloneProject(remoteUrl, destinationPath)
-    await refresh()
-    setActiveProject(project)
-    setActiveDesign(null)
-    setComposerProject(null)
-  }
   const reconnectProject = async (project: ProjectSummary) => {
     const folder = await workspaceApi?.chooseProjectFolder()
     if (!folder) return
@@ -1039,7 +1045,7 @@ export function App() {
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associatedProjectName={associationNotice?.designId === activeDesign.id ? associationNotice.projectName : null} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} onDismissAssociation={() => setAssociationNotice(null)} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
-        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} onClone={cloneProject} />}
+        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}
     </div>
   )
 }

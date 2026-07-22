@@ -169,6 +169,8 @@ export const createDesignRequestSchema = z.object({
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   sourceProjectPath: z.string().min(1).max(32_000).nullable().optional(),
   projectId: z.string().min(1).max(100).nullable().optional(),
+  cloneRemoteUrl: z.string().trim().min(1).max(32_000).nullable().optional(),
+  cloneDestinationDirectory: z.string().min(1).max(32_000).nullable().optional(),
   attachments: z.array(attachmentSchema).max(100).default([]),
 })
 

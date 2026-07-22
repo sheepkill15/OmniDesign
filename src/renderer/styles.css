@@ -947,6 +947,34 @@ button:disabled,
   align-items: center;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--canvas) 76%, transparent);
+}
+
+.clone-modal {
+  width: min(100%, 520px);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-overlay);
+}
+
+.clone-modal [role='dialog'] { display: grid; gap: 14px; padding: 22px; outline: none; }
+.clone-modal h2 { margin: 0; font-size: 18px; }
+.clone-modal p { margin: 0; color: var(--text-subtle); line-height: 1.5; }
+.clone-modal-fields { display: grid; gap: 10px; }
+.clone-modal input { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.clone-modal input:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.clone-modal-note { font-size: 12px; }
+.clone-modal-note code { color: var(--text); }
+.clone-modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+
 .attachment-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
 .attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 12px; }
 .attachment-chip[data-status="changed"], .attachment-chip[data-status="missing"] { color: var(--warning, #c58a2a); border-color: currentColor; }

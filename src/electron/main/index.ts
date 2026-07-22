@@ -170,7 +170,15 @@ function registerIpc(): void {
     authorize(event)
     const request = createDesignRequestSchema.parse(value)
     const selection = { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null }
-    const target = { projectId: request.projectId ?? null, sourceProjectPath: request.sourceProjectPath ?? null }
+    let target = { projectId: request.projectId ?? null, sourceProjectPath: request.sourceProjectPath ?? null }
+    const hasCloneTarget = Boolean(request.cloneRemoteUrl || request.cloneDestinationDirectory)
+    if (hasCloneTarget) {
+      if (!request.cloneRemoteUrl || !request.cloneDestinationDirectory) throw new Error('Both a Git repository URL and destination folder are required to clone a project.')
+      const project = await requireWorkspace().cloneProject(request.cloneRemoteUrl, request.cloneDestinationDirectory, (detail) => {
+        if (!event.sender.isDestroyed()) event.sender.send('workspace:clone-activity', detail)
+      })
+      target = { projectId: project.id, sourceProjectPath: null }
+    }
     if (request.providerId === 'mock') {
       const design = await requireWorkspace().createDesign(request.prompt, recordActivity, target)
       requireWorkspace().rememberSelection(design.id, selection)

@@ -167,6 +167,8 @@ interface DesignAttachment {
 interface CreateDesignTarget {
   readonly sourceProjectPath?: string | null
   readonly projectId?: string | null
+  readonly cloneRemoteUrl?: string | null
+  readonly cloneDestinationDirectory?: string | null
 }
 
 interface GenerationActivity {
