@@ -1024,6 +1024,25 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
   const split = useRef<HTMLDivElement>(null)
   const openDropdownCount = useRef(0)
+  // Keep the conversation pinned to the bottom while the user is already there (within a 30px
+  // deadzone); if they have scrolled up to read, leave their position alone.
+  const feed = useRef<HTMLDivElement>(null)
+  const stickToBottom = useRef(true)
+  const scrollFeedToBottom = () => { const element = feed.current; if (element) element.scrollTop = element.scrollHeight }
+  const onFeedScroll = () => {
+    const element = feed.current
+    if (element) stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 30
+  }
+  // Opening a design (or re-showing the feed after a layout change) starts pinned to the bottom.
+  useLayoutEffect(() => { stickToBottom.current = true; scrollFeedToBottom() }, [design.id, mode])
+  // While new content streams in, follow it to the bottom only when the user is already there.
+  useEffect(() => {
+    const element = feed.current
+    if (!element || typeof MutationObserver === 'undefined') return
+    const observer = new MutationObserver(() => { if (stickToBottom.current) element.scrollTop = element.scrollHeight })
+    observer.observe(element, { childList: true, subtree: true, characterData: true })
+    return () => observer.disconnect()
+  }, [mode])
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
@@ -1276,7 +1295,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
 
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
-      <div className="conversation-feed">
+      <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
         {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
           ? <ConversationMessage key={item.message.id} message={item.message} onOpenAttachment={(attachment) => void openAttachment(attachment)} />
           : item.kind === 'activity'
