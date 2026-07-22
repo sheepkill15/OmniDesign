@@ -182,6 +182,22 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('persists editable design and project names without changing linked source paths', () => {
+    const { directory, store } = createStore()
+    const standalone = store.createStandaloneDesign('First', 'Initial standalone')
+    const linked = store.createLinkedDesign('First', 'Initial linked design', 'C:\\projects\\existing-app')
+
+    expect(store.renameDesign(standalone.id, 'Renamed standalone')).toMatchObject({ title: 'Renamed standalone', projectName: 'Renamed standalone' })
+    expect(store.renameDesign(linked.id, 'Renamed linked design')).toMatchObject({ title: 'Renamed linked design', projectName: 'existing-app', sourceProjectPath: 'C:\\projects\\existing-app' })
+    expect(store.renameProject(linked.projectId, 'Product workspace')).toMatchObject({ name: 'Product workspace', sourceProjectPath: 'C:\\projects\\existing-app' })
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(standalone.id)).toMatchObject({ title: 'Renamed standalone', projectName: 'Renamed standalone' })
+    expect(reopened.getDesign(linked.id)).toMatchObject({ title: 'Renamed linked design', projectName: 'Product workspace', sourceProjectPath: 'C:\\projects\\existing-app' })
+    reopened.close()
+  })
+
   it('revives a trashed linked project without restoring its old designs when its source folder is selected again', () => {
     const { store } = createStore()
     const folder = mkdtempSync(path.join(tmpdir(), 'omnidesign-relinked-'))

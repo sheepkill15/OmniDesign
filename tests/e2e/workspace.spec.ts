@@ -33,6 +33,11 @@ test('creates and recovers a standalone design in the built Electron app', async
     await prompt.press('Enter')
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(firstRun.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await firstRun.window.getByRole('button', { name: 'Rename design' }).click()
+    const designTitle = firstRun.window.getByRole('textbox', { name: 'Rename design' })
+    await designTitle.fill('Calm signals')
+    await firstRun.window.getByRole('button', { name: 'Save' }).click()
+    await expect(firstRun.window.getByRole('heading', { name: 'Calm signals' })).toBeVisible()
     const exportPath = path.join(userDataDirectory, 'offline-design.zip')
     await firstRun.app.evaluate(({ dialog }, destination) => {
       dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: destination })
@@ -98,7 +103,7 @@ test('creates and recovers a standalone design in the built Electron app', async
     const recoveredDesign = secondRun.window
       .getByRole('region', { name: 'Continue designing' })
       .getByRole('button')
-      .filter({ hasText: 'A calm analytics dashboard' })
+      .filter({ hasText: 'Calm signals' })
     await expect(recoveredDesign).toBeVisible()
     await recoveredDesign.click()
     await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()

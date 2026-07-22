@@ -17,6 +17,9 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Cancelling the native active-generation removal warning now leaves the current project or design open; the renderer no longer reports a cancelled removal as completed navigation.
 - Preview diagnostics exclude Electron's internal security-warning console banner for the intentionally documented Alpine-compatible CSP, preventing every healthy revision from appearing broken while retaining generated-page warnings and errors.
 - Reopening or reloading a revision no longer stores the same preview diagnostic repeatedly; retained issue counts represent unique revision findings.
+- Concurrent background activity is retained per design, and every activity event refreshes that design's persisted job state; navigating between active designs no longer displays another design's stage or enables a busy composer.
+- Workspace actions now report actionable inline success or failure feedback; a rejected prompt submission restores its text and attachments instead of silently clearing the draft.
+- Design titles and project display names are editable and persisted; renaming a linked project never renames its source folder, while standalone navigation stays synchronized with its design title.
 
 ## Remaining functional gaps
 

@@ -208,6 +208,8 @@ interface Window {
       restoreTrash(kind: 'project' | 'design', id: string): Promise<ProjectSummary | OmniDesignDocument>
       purgeTrash(kind: 'project' | 'design', id: string): Promise<void>
       get(designId: string): Promise<OmniDesignDocument | null>
+      renameDesign(designId: string, title: string): Promise<OmniDesignDocument>
+      renameProject(projectId: string, name: string): Promise<ProjectSummary>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
       generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>

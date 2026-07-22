@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
@@ -74,6 +74,8 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       restoreTrash: vi.fn().mockResolvedValue(undefined),
       purgeTrash: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(createdDesign),
+      renameDesign: vi.fn(async (_designId: string, title: string) => ({ ...createdDesign, title, projectName: title })),
+      renameProject: vi.fn(async (projectId: string, name: string) => ({ ...(projects.find((project) => project.id === projectId) ?? projectFromDesign(createdDesign)), name })),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
       chooseProjectFolder: vi.fn().mockResolvedValue(null),
@@ -111,7 +113,11 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     },
   } as unknown as Window['omnidesign']
   Object.defineProperty(window, 'omnidesign', { value: bridge, configurable: true })
-  return bridge
+  return Object.assign(bridge, {
+    emitWorkspaceActivity(activity: GenerationActivity) {
+      for (const listener of listeners) listener(activity)
+    },
+  })
 }
 
 afterEach(cleanup)
@@ -212,6 +218,29 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.removeGeneration).toHaveBeenCalledWith('7e3670bd-2f6c-444d-afd0-a26e17839964'))
   })
 
+  it('keeps background activity associated with the correct design', async () => {
+    const runningJob = (id: string, designId: string): GenerationJob => ({
+      id, designId, prompt: 'Refine it', providerId: 'mock', modelId: 'mock-v1', state: 'running', attachments: [],
+      createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: null, error: null,
+    })
+    const alpha = { ...design, title: 'Alpha design', projectName: 'Alpha design', generationJobs: [runningJob('11111111-1111-4111-8111-111111111111', 'design-1')] }
+    const beta = { ...design, id: 'design-2', projectId: 'project-2', title: 'Beta design', projectName: 'Beta design', generationJobs: [runningJob('22222222-2222-4222-8222-222222222222', 'design-2')] }
+    const bridge = installBridge([alpha, beta], alpha)
+    vi.mocked(bridge.workspace.get).mockImplementation(async (designId) => designId === alpha.id ? alpha : beta)
+    render(<App />)
+
+    await screen.findByRole('button', { name: 'Alpha design' })
+    await act(async () => {
+      bridge.emitWorkspaceActivity({ designId: alpha.id, stage: 'generating', detail: 'Alpha is rendering.' })
+      bridge.emitWorkspaceActivity({ designId: beta.id, stage: 'validating', detail: 'Beta is validating.' })
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Alpha design' }))
+
+    expect(await screen.findByText('Alpha is rendering.')).toBeInTheDocument()
+    expect(screen.queryByText('Beta is validating.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send change' })).toBeDisabled()
+  })
+
   it('creates a design through the workspace bridge and opens the split workspace', async () => {
     const bridge = installBridge()
     render(<App />)
@@ -240,6 +269,53 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-1'))
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
     expect(bridge.preview.hide).not.toHaveBeenCalled()
+  })
+
+  it('restores a follow-up draft and explains when submission fails', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.generate).mockRejectedValueOnce(new Error('Provider connection unavailable.'))
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    const followUp = await screen.findByRole('textbox', { name: 'Request a design change' })
+    fireEvent.change(followUp, { target: { value: 'Make the hierarchy clearer' } })
+    fireEvent.keyDown(followUp, { key: 'Enter' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The prompt could not be submitted. Your draft has been restored.')
+    expect(screen.getByText('Provider connection unavailable.')).toBeInTheDocument()
+    expect(followUp).toHaveValue('Make the hierarchy clearer')
+  })
+
+  it('confirms a completed export in the workspace', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.exportRevision).mockResolvedValueOnce({ canceled: false, filePath: 'C:\\Exports\\calm-dashboard.zip' })
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Export' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Export ready.')
+    expect(screen.getByText('C:\\Exports\\calm-dashboard.zip')).toBeInTheDocument()
+  })
+
+  it('renames a design inline and updates its workspace title', async () => {
+    const bridge = installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename design' }))
+    const title = screen.getByRole('textbox', { name: 'Rename design' })
+    fireEvent.change(title, { target: { value: 'Clear signals' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(bridge.workspace.renameDesign).toHaveBeenCalledWith('design-1', 'Clear signals'))
+    expect(await screen.findByRole('heading', { name: 'Clear signals' })).toBeInTheDocument()
   })
 
   it('selects the provider, model, and effort from the composer settings menu', async () => {

@@ -75,6 +75,10 @@ export const projectIdRequestSchema = z.object({
   projectId: z.string().min(1).max(100),
 })
 
+export const renameProjectRequestSchema = projectIdRequestSchema.extend({
+  name: z.string().trim().min(1).max(200),
+})
+
 export const associateDesignRequestSchema = z.object({
   designId: z.string().min(1).max(100),
   projectId: z.string().min(1).max(100),
@@ -187,6 +191,10 @@ export const designIdRequestSchema = z.object({
   designId: z.string().min(1).max(100),
 })
 
+export const renameDesignRequestSchema = designIdRequestSchema.extend({
+  title: z.string().trim().min(1).max(200),
+})
+
 export const generationJobIdRequestSchema = z.object({
   jobId: z.string().uuid(),
 })
@@ -229,6 +237,7 @@ export const exportRequestSchema = selectRevisionRequestSchema
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>
 export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
+export type RenameProjectRequest = z.infer<typeof renameProjectRequestSchema>
 export type ReconnectProjectRequest = z.infer<typeof reconnectProjectRequestSchema>
 export type CloneProjectRequest = z.infer<typeof cloneProjectRequestSchema>
 export type RegisterLinkedProjectRequest = z.infer<typeof registerLinkedProjectRequestSchema>
@@ -243,6 +252,7 @@ export type InvalidCandidate = z.infer<typeof invalidCandidateSchema>
 export type CreateDesignRequest = z.infer<typeof createDesignRequestSchema>
 export type GenerateRequest = z.infer<typeof generateRequestSchema>
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
+export type RenameDesignRequest = z.infer<typeof renameDesignRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>
 export type LayoutMode = z.infer<typeof layoutModeSchema>

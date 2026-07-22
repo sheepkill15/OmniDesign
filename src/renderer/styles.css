@@ -924,6 +924,30 @@ button:disabled,
 .settings-section {
   margin-top: 42px;
 }
+
+.editable-title > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.editable-title h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editable-title .icon-button { width: 28px; height: 28px; opacity: 0; }
+.editable-title:hover .icon-button,
+.editable-title:focus-within .icon-button { opacity: 1; }
+.editable-title form { display: flex; align-items: center; gap: 7px; }
+.editable-title input { min-width: 0; height: 34px; padding: 0 9px; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--surface-2); color: var(--text); font: inherit; }
+.editable-title input:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.editable-title > small { display: block; margin-top: 6px; color: var(--danger); font-size: 11px; }
+.editable-title-page form { margin-bottom: 4px; }
+.editable-title-page input { width: min(520px, 60vw); font-size: 20px; }
+.editable-title-workspace { min-width: 0; }
+.editable-title-workspace h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; line-height: 1.2; }
+.editable-title-workspace form { max-width: 360px; }
+.editable-title-workspace input { width: min(220px, 24vw); font-size: 12px; }
+.editable-title-workspace .secondary-action { height: 28px; }
+.editable-title-workspace .text-button { height: 28px; padding: 0 6px; }
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; }
 .settings-row span { display: grid; gap: 4px; }
 .settings-row small { color: var(--text-subtle); }
@@ -1499,7 +1523,7 @@ button:disabled,
   gap: 1px;
 }
 
-.workspace-title strong {
+.workspace-title > strong {
   overflow: hidden;
   font-size: 13px;
   font-weight: 600;
@@ -1803,6 +1827,23 @@ button[aria-expanded="true"] .dropdown-caret {
   letter-spacing: .06em;
   text-transform: uppercase;
 }
+
+.workspace-feedback {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 11px 12px;
+  border-left: 2px solid var(--success);
+  background: var(--surface-2);
+  color: var(--text-subtle);
+}
+
+.workspace-feedback[data-tone='error'] { border-left-color: var(--danger); }
+.workspace-feedback > span { min-width: 0; display: grid; gap: 3px; }
+.workspace-feedback strong { color: var(--text); font-size: 12px; }
+.workspace-feedback small { overflow-wrap: anywhere; color: var(--text-subtle); font-size: 11px; line-height: 1.45; }
+.workspace-feedback .text-button { flex: 0 0 auto; margin-left: auto; }
 
 .historical-banner {
   display: grid;

@@ -38,6 +38,8 @@ export class WorkspaceService {
   public getDesign(designId: string): Design | null {
     return this.store.getDesign(designId)
   }
+  public renameProject(projectId: string, name: string): ProjectSummary { return this.store.renameProject(projectId, name) }
+  public renameDesign(designId: string, title: string): Design { return this.store.renameDesign(designId, title) }
   public associateDesignWithProject(designId: string, projectId: string): Design { return this.store.associateDesignWithProject(designId, projectId) }
 
   public listTrash(): TrashItem[] { return this.store.listTrash() }

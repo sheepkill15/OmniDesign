@@ -18,6 +18,8 @@ import {
   generationStageLabel,
   previewRequestSchema,
   projectIdRequestSchema,
+  renameDesignRequestSchema,
+  renameProjectRequestSchema,
   reconnectProjectRequestSchema,
   registerLinkedProjectRequestSchema,
   saveDesignSelectionRequestSchema,
@@ -200,6 +202,11 @@ function registerIpc(): void {
     authorize(event)
     return requireWorkspace().getDesign(designIdRequestSchema.parse(value).designId)
   })
+  ipcMain.handle('workspace:rename-design', (event, value: unknown) => {
+    authorize(event)
+    const request = renameDesignRequestSchema.parse(value)
+    return requireWorkspace().renameDesign(request.designId, request.title)
+  })
   ipcMain.handle('workspace:create', async (event, value: unknown) => {
     authorize(event)
     const request = createDesignRequestSchema.parse(value)
@@ -231,6 +238,11 @@ function registerIpc(): void {
   ipcMain.handle('workspace:get-project', (event, value: unknown) => {
     authorize(event)
     return requireWorkspace().getProject(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:rename-project', (event, value: unknown) => {
+    authorize(event)
+    const request = renameProjectRequestSchema.parse(value)
+    return requireWorkspace().renameProject(request.projectId, request.name)
   })
   ipcMain.handle('workspace:associate-design', (event, value: unknown) => {
     authorize(event)

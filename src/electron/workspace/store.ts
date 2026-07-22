@@ -427,6 +427,27 @@ export class WorkspaceStore {
     return row?.id ?? null
   }
 
+  public renameProject(projectId: string, name: string): ProjectSummary {
+    const now = new Date().toISOString()
+    const result = this.database.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ? AND trashed_at IS NULL').run(name, now, projectId)
+    if (result.changes !== 1) throw new Error('Project not found.')
+    return this.getProjectSummary(projectId)!
+  }
+
+  public renameDesign(designId: string, title: string): Design {
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      const row = this.database.prepare(`
+        SELECT d.project_id, p.kind FROM designs d JOIN projects p ON p.id = d.project_id
+        WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
+      `).get(designId) as { project_id: string; kind: 'linked' | 'standalone' } | undefined
+      if (!row) throw new Error('Design not found.')
+      this.database.prepare('UPDATE designs SET title = ?, updated_at = ? WHERE id = ?').run(title, now, designId)
+      if (row.kind === 'standalone') this.database.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(title, now, row.project_id)
+    })
+    return this.requireDesign(designId)
+  }
+
   private findTrashedProjectBySourcePath(sourcePath: string): string | null {
     const row = this.database.prepare("SELECT id FROM projects WHERE source_path = ? AND trashed_at IS NOT NULL AND kind = 'linked'").get(sourcePath) as { id: string } | undefined
     return row?.id ?? null

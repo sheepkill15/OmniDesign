@@ -15,6 +15,7 @@ import {
   FolderIcon,
   HomeIcon,
   PaperClipIcon,
+  PencilSquareIcon,
   PlusIcon,
   SparklesIcon,
   StopIcon,
@@ -260,6 +261,37 @@ function Settings({ theme, notificationsEnabled, generationDetail, onThemeChange
       </div>
     </main>
   )
+}
+
+function EditableTitle({ value, label, variant, onSave }: {
+  readonly value: string
+  readonly label: string
+  readonly variant: 'page' | 'workspace'
+  readonly onSave: (value: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => { if (!editing) setDraft(value) }, [editing, value])
+  const save = async () => {
+    const next = draft.trim()
+    if (!next || next === value || saving) { if (next === value) setEditing(false); return }
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(next)
+      setEditing(false)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : `${label} could not be renamed.`)
+    } finally {
+      setSaving(false)
+    }
+  }
+  if (editing) {
+    return <div className={`editable-title editable-title-${variant}`}><form onSubmit={(event) => { event.preventDefault(); void save() }}><Input aria-label={`Rename ${label}`} autoFocus maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setEditing(false); setError(null) } }} /><Button className="secondary-action" isDisabled={!draft.trim() || saving} type="submit">{saving ? 'Saving…' : 'Save'}</Button><Button className="text-button" isDisabled={saving} onPress={() => { setEditing(false); setError(null) }}>Cancel</Button></form>{error && <small role="alert">{error}</small>}</div>
+  }
+  return <div className={`editable-title editable-title-${variant}`}><span><h1>{value}</h1><IconButton label={`Rename ${label}`} icon={PencilSquareIcon} onPress={() => setEditing(true)} /></span>{error && <small role="alert">{error}</small>}</div>
 }
 
 interface DiagnosticListItem {
@@ -639,13 +671,14 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   )
 }
 
-function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onReconnect, onConvertToStandalone, onTrashProject }: {
+function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onReconnect, onConvertToStandalone, onTrashProject }: {
   readonly project: ProjectSummary
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly activity: GenerationActivity | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
   readonly onOpenDesign: (design: OmniDesignDocument) => void
+  readonly onRenameProject: (project: ProjectSummary, name: string) => Promise<void>
   readonly onReconnect: (project: ProjectSummary) => Promise<void>
   readonly onConvertToStandalone: (project: ProjectSummary) => Promise<void>
   readonly onTrashProject: (project: ProjectSummary) => Promise<void>
@@ -661,7 +694,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
     <main className="home-main">
       <div className="home-content">
         <header className="page-heading">
-          <h1>{project.name}</h1>
+          <EditableTitle value={project.name} label="project" variant="page" onSave={(name) => onRenameProject(project, name)} />
           <p>{project.kind === 'linked' ? (project.sourceAvailable ? project.sourceProjectPath ?? 'Linked project' : 'Linked source folder is unavailable') : 'Standalone project'}</p>
           {project.kind === 'linked' && !project.sourceAvailable && <div className="generation-recovery" role="status"><span><strong>Source folder unavailable.</strong> Your saved designs are safe; reconnect the folder or keep this project standalone.</span><Button className="secondary-action" onPress={() => void onReconnect(project)}>Reconnect folder</Button><Button className="secondary-action" onPress={() => void onConvertToStandalone(project)}>Convert to standalone</Button></div>}
           <Button className="secondary-action" onPress={() => void onTrashProject(project)}><TrashIcon aria-hidden="true" />Remove project</Button>
@@ -756,7 +789,7 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
   )
 }
 
-function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation }: {
+function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
   readonly projects: readonly ProjectSummary[]
@@ -766,6 +799,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   readonly detailLevel: 'full' | 'concise'
   readonly onBack: () => void
   readonly onChange: (design: OmniDesignDocument) => void
+  readonly onRename: (design: OmniDesignDocument, title: string) => Promise<OmniDesignDocument>
   readonly onTrash: (design: OmniDesignDocument) => Promise<void>
   readonly onAssociate: (design: OmniDesignDocument, projectId: string) => Promise<void>
   readonly onAssociateAndRestart: (design: OmniDesignDocument, projectId: string) => Promise<void>
@@ -778,6 +812,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const [associateCloneUrl, setAssociateCloneUrl] = useState('')
   const [associateCloneDestination, setAssociateCloneDestination] = useState('')
   const [associateCloneError, setAssociateCloneError] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<{ readonly tone: 'success' | 'error'; readonly message: string; readonly detail?: string } | null>(null)
   const [associatingClone, setAssociatingClone] = useState(false)
   const [freezeFrame, setFreezeFrame] = useState<string | null>(null)
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
@@ -792,6 +827,19 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const retryableJob = [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
   const api = window.omnidesign?.workspace
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
+  const runWorkspaceAction = async <T,>(action: () => Promise<T>, failureMessage: string): Promise<T | undefined> => {
+    setFeedback(null)
+    try {
+      return await action()
+    } catch (reason) {
+      setFeedback({
+        tone: 'error',
+        message: failureMessage,
+        ...(reason instanceof Error && reason.message ? { detail: reason.message } : {}),
+      })
+      return undefined
+    }
+  }
 
   // The isolated preview is a native layer painted above the DOM. While a header overlay sits over the
   // docked preview, capture its current frame, show that still image on the preview surface, then hide
@@ -832,16 +880,17 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   useEffect(() => setSelection(design.lastSelection), [design.id])
   const applySelection = (next: GenerationSelection) => {
     setSelection(next)
-    void window.omnidesign?.workspace.saveSelection?.(design.id, next)
+    const save = window.omnidesign?.workspace.saveSelection?.(design.id, next)
+    if (save) void save.catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Generation settings could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) }))
   }
   useEffect(() => {
     if (!api) return
-    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft, attachments) }, 300)
+    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft, attachments).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Your draft could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 300)
     return () => window.clearTimeout(timer)
   }, [api, design.id, draft, attachments])
   useEffect(() => {
     if (!api) return
-    const timer = window.setTimeout(() => { void api.saveLayout(design.id, { conversationWidth, mode }) }, 250)
+    const timer = window.setTimeout(() => { void api.saveLayout(design.id, { conversationWidth, mode }).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'The workspace layout could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 250)
     return () => window.clearTimeout(timer)
   }, [api, conversationWidth, mode, design.id])
   // Hide the docked preview whenever the conversation-only layout is active so a preview from a
@@ -883,59 +932,73 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     setDraft('')
     setAttachments([])
     void api.saveDraft(design.id, '', [])
-    onChange(await api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments))
+    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments), 'The prompt could not be submitted. Your draft has been restored.')
+    if (updated) onChange(updated)
+    else {
+      setDraft(prompt)
+      setAttachments(submittedAttachments)
+    }
   }
   const selectRevision = async (revisionId: string) => {
     if (!api || revisionId === design.selectedRevisionId) return
-    onChange(await api.selectRevision(design.id, revisionId))
+    const updated = await runWorkspaceAction(() => api.selectRevision(design.id, revisionId), 'That revision could not be opened.')
+    if (updated) onChange(updated)
   }
   const restore = async () => {
     if (!api || !design.selectedRevisionId) return
-    onChange(await api.restoreRevision(design.id, design.selectedRevisionId))
+    const updated = await runWorkspaceAction(() => api.restoreRevision(design.id, design.selectedRevisionId!), 'That revision could not be restored.')
+    if (updated) onChange(updated)
   }
   const exportRevision = async () => {
-    if (api && design.selectedRevisionId) await api.exportRevision(design.id, design.selectedRevisionId)
+    if (!api || !design.selectedRevisionId) return
+    const result = await runWorkspaceAction(() => api.exportRevision(design.id, design.selectedRevisionId!), 'The design could not be exported.')
+    if (result && !result.canceled) setFeedback({ tone: 'success', message: 'Export ready.', ...(result.filePath ? { detail: result.filePath } : {}) })
   }
   const cancelGeneration = async () => {
     if (!api || !activeJob) return
-    await api.cancelGeneration(activeJob.id)
-    const updated = await api.get(design.id)
+    const cancelled = await runWorkspaceAction(() => api.cancelGeneration(activeJob.id), 'Generation could not be stopped.')
+    if (!cancelled) return
+    const updated = await runWorkspaceAction(() => api.get(design.id), 'The stopped generation could not be refreshed.')
     if (updated) onChange(updated)
   }
   const retryGeneration = async () => {
     if (!api || !retryableJob) return
-    await api.retryGeneration(retryableJob.id)
-    const updated = await api.get(design.id)
+    const retry = await runWorkspaceAction(() => api.retryGeneration(retryableJob.id), 'Generation could not be retried.')
+    if (!retry) return
+    const updated = await runWorkspaceAction(() => api.get(design.id), 'The retried generation could not be refreshed.')
     if (updated) onChange(updated)
   }
   const removeGeneration = async () => {
     if (!api || !activeJob || activeJob.state !== 'queued') return
-    await api.removeGeneration(activeJob.id)
-    const updated = await api.get(design.id)
+    const removed = await runWorkspaceAction(() => api.removeGeneration(activeJob.id), 'The queued prompt could not be removed.')
+    if (!removed) return
+    const updated = await runWorkspaceAction(() => api.get(design.id), 'The queue could not be refreshed.')
     if (updated) onChange(updated)
   }
   const continueGeneration = async () => {
     if (!api || !retryableJob) return
-    await api.continueGeneration(retryableJob.id)
-    const updated = await api.get(design.id)
+    const continued = await runWorkspaceAction(() => api.continueGeneration(retryableJob.id), 'Generation could not continue.')
+    if (!continued) return
+    const updated = await runWorkspaceAction(() => api.get(design.id), 'The continued generation could not be refreshed.')
     if (updated) onChange(updated)
   }
   const chooseAttachments = async (kind: AttachmentPickerKind) => {
-    const selected = await api?.chooseAttachments(kind)
+    if (!api) return
+    const selected = await runWorkspaceAction(() => api.chooseAttachments(kind), 'References could not be attached.')
     if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
   }
   const adaptToAssociatedProject = async () => {
     if (!api || !associationNotice || busy) return
-    onChange(await api.generate(design.id, `Adapt this design to the established design language of ${associationNotice.projectName}. Preserve its purpose while aligning visual language, interaction patterns, and relevant project conventions.`, selection.providerId, selection.modelId, selection.effort ?? undefined, attachments))
-    onDismissAssociation()
+    const updated = await runWorkspaceAction(() => api.generate(design.id, `Adapt this design to the established design language of ${associationNotice.projectName}. Preserve its purpose while aligning visual language, interaction patterns, and relevant project conventions.`, selection.providerId, selection.modelId, selection.effort ?? undefined, attachments), 'The adaptation prompt could not be submitted.')
+    if (updated) { onChange(updated); onDismissAssociation() }
   }
   const chooseAssociationTarget = async (key: string) => {
     if (!api) return
     if (key === 'folder') {
       const folder = await api.chooseProjectFolder()
       if (!folder) return
-      const project = await api.registerLinkedProject(folder)
-      await onAssociate(design, project.id)
+      const project = await runWorkspaceAction(() => api.registerLinkedProject(folder), 'The selected folder could not be linked.')
+      if (project) await runWorkspaceAction(() => onAssociate(design, project.id), 'The design could not be associated with that project.')
       return
     }
     if (key === 'clone') {
@@ -944,7 +1007,19 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
       setAssociateCloneOpen(true)
       return
     }
-    if (key.startsWith('project:')) await onAssociate(design, key.slice('project:'.length))
+    if (key.startsWith('project:')) await runWorkspaceAction(() => onAssociate(design, key.slice('project:'.length)), 'The design could not be associated with that project.')
+  }
+  const removeDesign = async () => { await runWorkspaceAction(() => onTrash(design), 'The design could not be moved to Trash.') }
+  const renameDesign = async (title: string) => {
+    const updated = await runWorkspaceAction(() => onRename(design, title), 'The design could not be renamed.')
+    if (!updated) throw new Error('The design could not be renamed.')
+    onChange(updated)
+  }
+  const associateSuggested = async () => {
+    if (associationNotice) await runWorkspaceAction(() => onAssociate(design, associationNotice.projectId), 'The design could not be associated with that project.')
+  }
+  const restartSuggested = async () => {
+    if (associationNotice) await runWorkspaceAction(() => onAssociateAndRestart(design, associationNotice.projectId), 'The design could not be associated and restarted.')
   }
   const chooseAssociateCloneDestination = async () => {
     const folder = await api?.chooseProjectFolder()
@@ -976,6 +1051,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
           ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p>{item.message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{item.message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => void api?.openAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}</article>
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
         {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && (activeJob.state === 'queued' ? <Button className="secondary-action" onPress={() => void removeGeneration()}>Remove</Button> : <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>)}</div>}
+        {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
         {!activeJob && retryableJob && <div className="generation-recovery" role="status"><span><strong>{retryableJob.state}</strong>{retryableJob.error ?? 'Generation needs attention.'}</span><Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
         {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
           <strong>Latest candidate was not activated</strong>
@@ -983,7 +1059,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
           <details><summary>Technical details</summary><pre>{latestInvalidCandidate.html}</pre></details>
         </section>}
         {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
-        {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void onAssociate(design, associationNotice.projectId)}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void onAssociateAndRestart(design, associationNotice.projectId)}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
+        {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
       </div>
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
       <div className="workspace-composer">
@@ -1008,7 +1084,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     <main className="workspace-main">
       <header className="workspace-toolbar">
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
-        <span className="workspace-title"><strong>{design.title}</strong><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
+        <span className="workspace-title"><EditableTitle value={design.title} label="design" variant="workspace" onSave={renameDesign} /><small>{busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
             <LayoutMenu mode={mode} onChange={setMode} />
           <DropdownButton
@@ -1032,7 +1108,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
-          <Button className="toolbar-button" onPress={() => void onTrash(design)}><TrashIcon aria-hidden="true" />Remove</Button>
+          <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
       <AppModal isOpen={associateCloneOpen} onOpenChange={setAssociateCloneOpen} className="clone-modal" title="Clone and associate repository">
@@ -1115,8 +1191,7 @@ export function App() {
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null)
   const [composerProject, setComposerProject] = useState<ProjectSummary | null>(null)
   const [associationNotice, setAssociationNotice] = useState<{ readonly designId: string; readonly projectId: string; readonly projectName: string; readonly mode: 'associated' | 'suggested' } | null>(null)
-  const [activity, setActivity] = useState<GenerationActivity | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [activitiesByDesign, setActivitiesByDesign] = useState<Record<string, GenerationActivity>>({})
   const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [providersOpen, setProvidersOpen] = useState(false)
@@ -1156,15 +1231,10 @@ export function App() {
   useEffect(() => {
     if (!workspaceApi) return
     return workspaceApi.onActivity((next) => {
-      setActivity(next)
+      setActivitiesByDesign((current) => ({ ...current, [next.designId]: next }))
       const finished = ['complete', 'failed', 'cancelled', 'interrupted'].includes(next.stage)
-      setBusy(!finished)
-      if (finished) {
-        void workspaceApi.get(next.designId).then((design) => {
-          if (design) updateDesign(design)
-        })
-        void refresh()
-      }
+      void workspaceApi.get(next.designId).then((design) => { if (design) updateDesign(design) })
+      if (finished) void refresh()
     })
   }, [refresh, updateDesign, workspaceApi])
   useEffect(() => window.omnidesign?.preview.onDiagnostic((event) => {
@@ -1205,7 +1275,7 @@ export function App() {
     void window.omnidesign?.settings.saveTheme(nextTheme)
   }
   const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setDiagnosticsOpen(false); setTrashOpen(false) }
-  const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setActivity(null); void refresh() }
+  const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
   const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
@@ -1270,6 +1340,19 @@ export function App() {
     if (next) setActiveProject(next)
     await refresh()
   }
+  const renameProject = async (project: ProjectSummary, name: string) => {
+    const renamed = await workspaceApi?.renameProject(project.id, name)
+    if (!renamed) throw new Error('The project could not be renamed.')
+    setActiveProject(renamed)
+    await refresh()
+  }
+  const renameDesign = async (design: OmniDesignDocument, title: string) => {
+    const renamed = await workspaceApi?.renameDesign(design.id, title)
+    if (!renamed) throw new Error('The design could not be renamed.')
+    updateDesign(renamed)
+    await refresh()
+    return renamed
+  }
   const restoreTrash = async (item: TrashItem) => { await workspaceApi?.restoreTrash(item.kind, item.id); await refresh() }
   const purgeTrash = async (item: TrashItem) => { await workspaceApi?.purgeTrash(item.kind, item.id); await refresh() }
   const emptyTrash = async (items: readonly TrashItem[]) => {
@@ -1315,10 +1398,10 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => setAssociationNotice(null)} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => setAssociationNotice(null)} />
         : activeProject
-        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
-        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}
+        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
+        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpen={openProject} />}
     </div>
   )
 }
