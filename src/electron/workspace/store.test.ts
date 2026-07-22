@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -251,5 +251,21 @@ describe('WorkspaceStore', () => {
     const reopened = new WorkspaceStore(directory)
     expect(reopened.getTheme()).toBe('light')
     reopened.close()
+  })
+
+  it('persists attachment references without copying content and snapshots them on queued work', () => {
+    const { directory, store } = createStore()
+    const attachmentPath = path.join(directory, 'reference.txt')
+    writeFileSync(attachmentPath, 'reference content')
+    const attachment = { id: randomUUID(), path: attachmentPath, name: 'reference.txt', kind: 'file' as const, size: 17, modifiedAt: new Date().toISOString(), selectedAt: new Date().toISOString(), status: 'available' as const }
+    const created = store.createStandaloneDesign('First', 'Design')
+
+    store.saveDraft(created.id, 'Use the attached reference', [attachment])
+    const queued = store.enqueueGenerationJob(created.id, 'Use the attached reference', 'mock', 'mock-v1', null, [attachment])
+
+    expect(store.getDesign(created.id)?.draftAttachments).toHaveLength(1)
+    expect(store.getGenerationJob(queued.id)?.attachments).toMatchObject([{ path: attachmentPath, name: 'reference.txt' }])
+    expect(existsSync(attachmentPath)).toBe(true)
+    store.close()
   })
 })

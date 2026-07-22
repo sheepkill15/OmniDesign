@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
-import type { Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme, TrashItem } from './contracts.js'
+import { attachmentSchema, designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
+import type { Attachment, Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme, TrashItem } from './contracts.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -30,6 +30,7 @@ interface DesignRow {
   active_revision_id: string | null
   selected_revision_id: string | null
   draft: string
+  draft_attachments_json: string
   layout_json: string
   thumbnail_path: string | null
   queue_paused: number
@@ -109,6 +110,7 @@ interface GenerationJobRow {
   provider_id: 'mock' | 'codex' | 'claude'
   model_id: string
   effort: string | null
+  attachments_json: string
   state: GenerationJobState
   created_at: string
   started_at: string | null
@@ -314,6 +316,14 @@ CREATE INDEX projects_by_trash ON projects(trashed_at);
 CREATE INDEX designs_by_trash ON designs(trashed_at);
 `
 
+const migrationNineteen = `
+ALTER TABLE designs ADD COLUMN draft_attachments_json TEXT NOT NULL DEFAULT '[]';
+`
+
+const migrationTwenty = `
+ALTER TABLE generation_jobs ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]';
+`
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
@@ -339,7 +349,7 @@ export class WorkspaceStore {
   public listDesigns(): Design[] {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
@@ -351,7 +361,7 @@ export class WorkspaceStore {
   public getDesign(designId: string): Design | null {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
@@ -388,7 +398,7 @@ export class WorkspaceStore {
   public listDesignsByProject(projectId: string): Design[] {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
@@ -596,8 +606,9 @@ export class WorkspaceStore {
     return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.providerId, revision.modelId, gitCommit)
   }
 
-  public saveDraft(designId: string, draft: string): void {
-    const result = this.database.prepare('UPDATE designs SET draft = ? WHERE id = ?').run(draft, designId)
+  public saveDraft(designId: string, draft: string, attachments: readonly Attachment[] = []): void {
+    const parsed = attachments.map((attachment) => attachmentSchema.parse(attachment))
+    const result = this.database.prepare('UPDATE designs SET draft = ?, draft_attachments_json = ? WHERE id = ?').run(draft, JSON.stringify(parsed), designId)
     if (result.changes !== 1) throw new Error('Design not found.')
   }
 
@@ -645,15 +656,15 @@ export class WorkspaceStore {
     `).run(randomUUID(), designId, jobId, stage, label, detail, new Date().toISOString())
   }
 
-  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null): GenerationJob {
+  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = []): GenerationJob {
     this.requireDesign(designId)
     const id = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, state, created_at, started_at, completed_at, error)
-        VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-      `).run(id, designId, prompt, providerId, modelId, effort ?? null, now)
+        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), now)
       this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
         .run(randomUUID(), designId, 'user', prompt, now)
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
@@ -665,7 +676,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -673,7 +684,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -701,9 +712,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -775,7 +786,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -818,6 +829,7 @@ export class WorkspaceStore {
       activeRevisionId: row.active_revision_id,
       selectedRevisionId: row.selected_revision_id,
       draft: row.draft,
+      draftAttachments: this.hydrateAttachments(row.draft_attachments_json),
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
       queuePaused: row.queue_paused === 1,
       lastSelection: {
@@ -909,7 +921,7 @@ export class WorkspaceStore {
 
   private listGenerationJobsForDesign(designId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
     `).all(designId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -923,12 +935,32 @@ export class WorkspaceStore {
       providerId: row.provider_id,
       modelId: row.model_id,
       effort: row.effort,
+      attachments: this.hydrateAttachments(row.attachments_json),
       state: row.state,
       createdAt: row.created_at,
       startedAt: row.started_at,
       completedAt: row.completed_at,
       error: row.error,
     })
+  }
+
+  private hydrateAttachments(value: string): Attachment[] {
+    const parsed = safeParseJson(value)
+    if (!Array.isArray(parsed)) return []
+    const attachments: Attachment[] = []
+    for (const candidate of parsed) {
+      const result = attachmentSchema.safeParse(candidate)
+      if (!result.success) continue
+      const attachment = result.data
+      if (!existsSync(attachment.path)) { attachments.push({ ...attachment, status: 'missing' }); continue }
+      try {
+        const stats = statSync(attachment.path)
+        const modifiedAt = stats.mtime.toISOString()
+        const size = attachment.kind === 'file' ? stats.size : null
+        attachments.push({ ...attachment, status: attachment.modifiedAt === modifiedAt && attachment.size === size ? 'available' : 'changed' })
+      } catch { attachments.push({ ...attachment, status: 'missing' }) }
+    }
+    return attachments
   }
 
   private purgeExpiredTrash(): void {

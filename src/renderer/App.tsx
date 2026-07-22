@@ -611,6 +611,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
   readonly onTrash: (design: OmniDesignDocument) => Promise<void>
 }) {
   const [draft, setDraft] = useState(design.draft)
+  const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
   const [freezeFrame, setFreezeFrame] = useState<string | null>(null)
@@ -647,6 +648,7 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
     return () => { cancelled = true }
   }, [overlayCoversPreview])
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
+  useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
   useEffect(() => setSelection(design.lastSelection), [design.id])
@@ -656,9 +658,9 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
   }
   useEffect(() => {
     if (!api) return
-    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft) }, 300)
+    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft, attachments) }, 300)
     return () => window.clearTimeout(timer)
-  }, [api, design.id, draft])
+  }, [api, design.id, draft, attachments])
   useEffect(() => {
     if (!api) return
     const timer = window.setTimeout(() => { void api.saveLayout(design.id, { conversationWidth, mode }) }, 250)
@@ -698,8 +700,9 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
 
   const submit = async () => {
     if (!api || !draft.trim() || busy || !selectedIsHead) return
-    onChange(await api.generate(design.id, draft.trim(), selection.providerId, selection.modelId, selection.effort ?? undefined))
+    onChange(await api.generate(design.id, draft.trim(), selection.providerId, selection.modelId, selection.effort ?? undefined, attachments))
     setDraft('')
+    setAttachments([])
   }
   const selectRevision = async (revisionId: string) => {
     if (!api || revisionId === design.selectedRevisionId) return
@@ -723,6 +726,10 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
     await api.retryGeneration(retryableJob.id)
     const updated = await api.get(design.id)
     if (updated) onChange(updated)
+  }
+  const chooseAttachments = async () => {
+    const selected = await api?.chooseAttachments()
+    if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
   }
 
   const previewStatus = selectedRevision
@@ -748,7 +755,8 @@ function DesignWorkspace({ design, providers, activity, busy, onBack, onChange, 
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
-        <div className="workspace-composer-footer"><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
+        <div className="workspace-composer-footer"><Button className="toolbar-button" aria-label="Attach files or folders" onPress={() => void chooseAttachments()}><PaperClipIcon aria-hidden="true" /></Button><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
       </div>
     </section>
   )

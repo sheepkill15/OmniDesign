@@ -13,6 +13,7 @@ const design: OmniDesignDocument = {
   activeRevisionId: 'revision-1',
   selectedRevisionId: 'revision-1',
   draft: '',
+  draftAttachments: [],
   thumbnailDataUrl: null,
   queuePaused: false,
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
@@ -151,7 +152,7 @@ describe('Phase 1 walking skeleton UI', () => {
       queuePaused: true,
       generationJobs: [{
         id: '7e3670bd-2f6c-444d-afd0-a26e17839964', designId: 'design-1', prompt: 'Try a warmer direction', providerId: 'mock', modelId: 'mock-v1', state: 'queued',
-        createdAt: '2026-07-20T10:01:00.000Z', startedAt: null, completedAt: null, error: null,
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [],
       }],
     }
     const bridge = installBridge([queuedDesign])
@@ -447,7 +448,7 @@ describe('Phase 1 walking skeleton UI', () => {
       ...design,
       generationJobs: [{
         id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Try again', providerId: 'mock', modelId: 'mock-v1', state: 'interrupted',
-        createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'OmniDesign closed before this generation completed.',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'OmniDesign closed before this generation completed.', attachments: [],
       }],
     }
     const bridge = installBridge([], interruptedDesign)

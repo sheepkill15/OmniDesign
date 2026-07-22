@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { z } from 'zod'
+import type { Attachment } from '../workspace/contracts.js'
 
 const MAX_RESPONSE_LENGTH = 100_000
 
@@ -22,7 +23,7 @@ export const agentCompletionOutputSchema = {
   additionalProperties: false,
 } as const
 
-export function createDesignAgentInstructions(workspacePath: string): string {
+export function createDesignAgentInstructions(workspacePath: string, attachments: readonly Attachment[] = [], sourceProjectPath: string | null = null): string {
   if (!path.isAbsolute(workspacePath)) throw new Error('The design workspace path must be absolute.')
   return [
     'You are OmniDesign’s design agent.',
@@ -37,6 +38,8 @@ export function createDesignAgentInstructions(workspacePath: string): string {
     '- Use Alpine.js v3 directives (x-data, x-show, x-on/@click, x-text, etc.) directly; the runtime is already provided via .build/alpine.js.',
     '- index.html must remain a complete HTML document with <html> and <body> elements.',
     'Do not claim which files changed or whether a revision was created; OmniDesign determines that from Git and validation.',
+    ...(sourceProjectPath ? [`A linked source project is available for READ-ONLY reference at ${sourceProjectPath}. Never edit, delete, rename, or create files there.`] : []),
+    ...(attachments.length ? ['User-provided references are READ-ONLY. Use them only when relevant; never modify, delete, rename, or copy them into the design repository:', ...attachments.map((attachment) => `- ${attachment.path}${attachment.status === 'available' ? '' : ` (${attachment.status}; ask the user before relying on it)`}`)] : []),
     'When you finish, respond only with a JSON object matching the required schema. Its response value is your concise conversational reply to the user.',
   ].join('\n')
 }

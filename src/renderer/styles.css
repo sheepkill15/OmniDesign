@@ -947,6 +947,11 @@ button:disabled,
   align-items: center;
 }
 
+.attachment-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
+.attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 12px; }
+.attachment-chip[data-status="changed"], .attachment-chip[data-status="missing"] { color: var(--warning, #c58a2a); border-color: currentColor; }
+.attachment-chip button { color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; }
+
 .theme-options {
   display: grid;
   gap: 10px;

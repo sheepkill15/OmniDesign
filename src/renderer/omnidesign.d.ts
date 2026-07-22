@@ -92,6 +92,7 @@ interface GenerationJob {
   readonly providerId: 'mock' | 'codex' | 'claude'
   readonly modelId: string
   readonly effort?: string | null
+  readonly attachments: readonly DesignAttachment[]
   readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   readonly createdAt: string
   readonly startedAt: string | null
@@ -109,6 +110,7 @@ interface OmniDesignDocument {
   readonly activeRevisionId: string | null
   readonly selectedRevisionId: string | null
   readonly draft: string
+  readonly draftAttachments: readonly DesignAttachment[]
   readonly thumbnailDataUrl: string | null
   readonly queuePaused: boolean
   readonly lastSelection: GenerationSelection
@@ -150,6 +152,17 @@ interface TrashItem {
   readonly purgeAt: string
 }
 
+interface DesignAttachment {
+  readonly id: string
+  readonly path: string
+  readonly name: string
+  readonly kind: 'file' | 'folder'
+  readonly size: number | null
+  readonly modifiedAt: string | null
+  readonly selectedAt: string
+  readonly status: 'available' | 'changed' | 'missing'
+}
+
 interface CreateDesignTarget {
   readonly sourceProjectPath?: string | null
   readonly projectId?: string | null
@@ -187,14 +200,15 @@ interface Window {
       restoreTrash(kind: 'project' | 'design', id: string): Promise<ProjectSummary | OmniDesignDocument>
       purgeTrash(kind: 'project' | 'design', id: string): Promise<void>
       get(designId: string): Promise<OmniDesignDocument | null>
-      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null): Promise<OmniDesignDocument>
-      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string): Promise<OmniDesignDocument>
+      create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
+      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>
+      chooseAttachments(): Promise<DesignAttachment[]>
       cancelGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
-      saveDraft(designId: string, draft: string): Promise<void>
+      saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
       saveLayout(designId: string, layout: { readonly conversationWidth: number; readonly mode: LayoutMode }): Promise<void>
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>

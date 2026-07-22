@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
 import type { ProviderPrompt } from '../provider/types.js'
@@ -174,7 +176,7 @@ function registerIpc(): void {
     }
     const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target)
     requireWorkspace().rememberSelection(design.id, selection)
-    requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort)
+    requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
     return requireWorkspace().getDesign(design.id) ?? design
   })
   ipcMain.handle('workspace:list-projects', (event) => {
@@ -221,7 +223,7 @@ function registerIpc(): void {
     authorize(event)
     const request = generateRequestSchema.parse(value)
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
-    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
     return requireWorkspace().getDesign(request.designId)
   })
   ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
@@ -237,6 +239,17 @@ function registerIpc(): void {
     const selection = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
     return selection.canceled ? null : selection.filePaths[0] ?? null
   })
+  ipcMain.handle('workspace:choose-attachments', async (event) => {
+    authorize(event)
+    const selection = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile', 'openDirectory', 'multiSelections'] })
+    if (selection.canceled) return []
+    return selection.filePaths.flatMap((attachmentPath) => {
+      try {
+        const stats = statSync(attachmentPath)
+        return [{ id: randomUUID(), path: attachmentPath, name: path.basename(attachmentPath), kind: stats.isDirectory() ? 'folder' as const : 'file' as const, size: stats.isDirectory() ? null : stats.size, modifiedAt: stats.mtime.toISOString(), selectedAt: new Date().toISOString(), status: 'available' as const }]
+      } catch { return [] }
+    })
+  })
   ipcMain.handle('workspace:select-revision', (event, value: unknown) => {
     authorize(event)
     const request = selectRevisionRequestSchema.parse(value)
@@ -250,7 +263,7 @@ function registerIpc(): void {
   ipcMain.handle('workspace:save-draft', (event, value: unknown) => {
     authorize(event)
     const request = saveDraftRequestSchema.parse(value)
-    requireWorkspace().saveDraft(request.designId, request.draft)
+    requireWorkspace().saveDraft(request.designId, request.draft, request.attachments)
   })
   ipcMain.handle('workspace:save-layout', (event, value: unknown) => {
     authorize(event)
@@ -345,10 +358,12 @@ void app.whenReady().then(() => {
         requestId: job.id,
         providerId: job.providerId,
         modelId: job.modelId,
-        ...(job.effort ? { effort: job.effort } : {}),
-        prompt: job.prompt,
-        signal,
-        workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
+      ...(job.effort ? { effort: job.effort } : {}),
+      prompt: job.prompt,
+      signal,
+      workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
+      attachments: job.attachments,
+      sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
       }, (activity) => {
         onActivity({ designId: job.designId, stage: 'generating', detail: activity.detail ?? activity.label })
       })

@@ -185,8 +185,8 @@ export class WorkspaceService {
     }
   }
 
-  public saveDraft(designId: string, draft: string): void {
-    this.store.saveDraft(designId, draft)
+  public saveDraft(designId: string, draft: string, attachments: readonly import('./contracts.js').Attachment[] = []): void {
+    this.store.saveDraft(designId, draft, attachments)
   }
 
   public recordAgentResponse(designId: string, response: string): Design {

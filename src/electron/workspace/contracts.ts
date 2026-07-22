@@ -45,6 +45,17 @@ export const layoutSchema = z.object({
 
 export const projectKindSchema = z.enum(['standalone', 'linked'])
 
+export const attachmentSchema = z.object({
+  id: z.string().uuid(),
+  path: z.string().min(1).max(32_000),
+  name: z.string().min(1).max(1_000),
+  kind: z.enum(['file', 'folder']),
+  size: z.number().int().nonnegative().nullable(),
+  modifiedAt: z.string().datetime().nullable(),
+  selectedAt: z.string().datetime(),
+  status: z.enum(['available', 'changed', 'missing']),
+})
+
 export const projectSummarySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -113,6 +124,7 @@ export const generationJobSchema = z.object({
   providerId: z.enum(['mock', 'codex', 'claude']),
   modelId: z.string().min(1),
   effort: z.string().min(1).nullable().optional(),
+  attachments: z.array(attachmentSchema).default([]),
   state: generationJobStateSchema,
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),
@@ -131,6 +143,7 @@ export const designSchema = z.object({
   activeRevisionId: z.string().nullable(),
   selectedRevisionId: z.string().nullable(),
   draft: z.string(),
+  draftAttachments: z.array(attachmentSchema),
   thumbnailDataUrl: z.string().nullable(),
   queuePaused: z.boolean(),
   lastSelection: generationSelectionSchema,
@@ -149,6 +162,7 @@ export const createDesignRequestSchema = z.object({
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   sourceProjectPath: z.string().min(1).max(32_000).nullable().optional(),
   projectId: z.string().min(1).max(100).nullable().optional(),
+  attachments: z.array(attachmentSchema).max(100).default([]),
 })
 
 export const designIdRequestSchema = z.object({
@@ -164,6 +178,7 @@ export const generateRequestSchema = designIdRequestSchema.extend({
   providerId: z.enum(['mock', 'codex', 'claude']).default('mock'),
   modelId: z.string().trim().min(1).max(200).default('mock-v1'),
   effort: z.string().trim().min(1).max(100).nullable().optional(),
+  attachments: z.array(attachmentSchema).max(100).default([]),
 })
 
 export const selectRevisionRequestSchema = designIdRequestSchema.extend({
@@ -172,6 +187,7 @@ export const selectRevisionRequestSchema = designIdRequestSchema.extend({
 
 export const saveDraftRequestSchema = designIdRequestSchema.extend({
   draft: z.string().max(100_000),
+  attachments: z.array(attachmentSchema).max(100).default([]),
 })
 
 export const saveLayoutRequestSchema = designIdRequestSchema.extend({
@@ -200,6 +216,7 @@ export type CloneProjectRequest = z.infer<typeof cloneProjectRequestSchema>
 export type TrashItem = z.infer<typeof trashItemSchema>
 export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>
+export type Attachment = z.infer<typeof attachmentSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
 export type Message = z.infer<typeof messageSchema>
 export type PreviewDiagnostic = z.infer<typeof previewDiagnosticSchema>
