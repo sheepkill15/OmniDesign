@@ -24,6 +24,14 @@ describe('agent completion payload', () => {
     const instructions = createDesignAgentInstructions('C:\\workspace\\design')
     expect(instructions).toContain('C:\\workspace\\design')
     expect(instructions).toContain('Do not claim which files changed')
+    expect(instructions).toContain('exactly one <main> landmark and one <h1>')
     expect(() => createDesignAgentInstructions('relative/design')).toThrow('must be absolute')
+  })
+
+  it('directs the agent to inspect a linked project before implementing the design', () => {
+    const instructions = createDesignAgentInstructions('C:\\workspace\\design', [], 'C:\\projects\\aurora')
+
+    expect(instructions).toContain('C:\\projects\\aurora')
+    expect(instructions).toContain('Inspect its relevant source, styles, assets, and configuration')
   })
 })

@@ -65,7 +65,7 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
-  it('marks queued and running jobs interrupted when the application closes or restarts', () => {
+  it('interrupts running work while preserving and pausing queued follow-ups across restart', () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')
     const queued = store.enqueueGenerationJob(design.id, 'Queued prompt')
@@ -73,10 +73,24 @@ describe('GenerationQueue', () => {
     store.setGenerationJobState(running.id, 'running')
     const queue = new GenerationQueue(store, vi.fn(), () => undefined)
 
-    expect(queue.recoverAfterRestart()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: queued.id, state: 'interrupted' }),
-      expect.objectContaining({ id: running.id, state: 'interrupted' }),
-    ]))
+    expect(queue.recoverAfterRestart()).toEqual([expect.objectContaining({ id: running.id, state: 'interrupted' })])
+    expect(store.getGenerationJob(queued.id)).toMatchObject({ state: 'queued' })
+    expect(store.getDesign(design.id)?.queuePaused).toBe(true)
+    store.close()
+  })
+
+  it('resumes a persisted queue that had no running predecessor', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const queued = store.enqueueGenerationJob(design.id, 'Queued prompt')
+    const queue = new GenerationQueue(store, async () => undefined, () => undefined)
+
+    queue.recoverAfterRestart()
+    expect(store.getDesign(design.id)?.queuePaused).toBe(true)
+    queue.resume(design.id)
+
+    await waitFor(() => store.getGenerationJob(queued.id)?.state === 'completed')
+    expect(store.getDesign(design.id)?.queuePaused).toBe(false)
     store.close()
   })
 
@@ -93,6 +107,35 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
+  it('automatically retries transient provider failures up to three attempts', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    let attempts = 0
+    const activity: string[] = []
+    const queue = new GenerationQueue(store, async () => {
+      attempts += 1
+      if (attempts < 3) throw new Error('Network connection timed out.')
+    }, (event) => activity.push(event.detail))
+    const job = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6')
+
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'completed')
+    expect(attempts).toBe(3)
+    expect(activity).toEqual(expect.arrayContaining(['Provider connection failed. Retrying (2 of 3)…', 'Provider connection failed. Retrying (3 of 3)…']))
+    store.close()
+  })
+
+  it('does not retry non-transient provider failures', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const runner = vi.fn(async () => { throw new Error('Model is not available.') })
+    const queue = new GenerationQueue(store, runner, () => undefined)
+    const job = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6')
+
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'failed')
+    expect(runner).toHaveBeenCalledTimes(1)
+    store.close()
+  })
+
   it('cancels queued work and retries interrupted work as a new queued job', async () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')
@@ -104,6 +147,36 @@ describe('GenerationQueue', () => {
     expect(retried).toMatchObject({ designId: design.id, prompt: 'Queued prompt', state: 'queued' })
     expect(retried.id).not.toBe(queued.id)
     await waitFor(() => store.getGenerationJob(retried.id)?.state === 'completed')
+    store.close()
+  })
+
+  it('removes queued work without pausing the remaining design queue', () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const queue = new GenerationQueue(store, vi.fn(), () => undefined)
+    const queued = store.enqueueGenerationJob(design.id, 'Remove this prompt')
+
+    expect(queue.remove(queued.id)).toMatchObject({ id: queued.id, state: 'queued' })
+    expect(store.getGenerationJob(queued.id)).toBeNull()
+    expect(store.getDesign(design.id)?.queuePaused).toBe(false)
+    store.close()
+  })
+
+  it('continues stopped work with the retained partial-workspace mode', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const modes: string[] = []
+    const queue = new GenerationQueue(store, async (job) => {
+      modes.push(job.mode)
+      if (job.mode === 'fresh') throw new Error('Provider unavailable.')
+    }, () => undefined)
+    const first = queue.enqueue(design.id, 'First prompt')
+
+    await waitFor(() => store.getGenerationJob(first.id)?.state === 'failed')
+    const continued = queue.continue(first.id)
+    await waitFor(() => store.getGenerationJob(continued.id)?.state === 'completed')
+    expect(continued).toMatchObject({ mode: 'continue', prompt: 'First prompt' })
+    expect(modes).toEqual(['fresh', 'continue'])
     store.close()
   })
 
@@ -123,6 +196,25 @@ describe('GenerationQueue', () => {
     expect(signal?.aborted).toBe(true)
     pending.resolve()
     await waitFor(() => store.getGenerationJob(job.id)?.state === 'cancelled')
+    store.close()
+  })
+
+  it('waits for active provider work to settle before completing cancellation', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const pending = deferred()
+    const queue = new GenerationQueue(store, async (_job, signal) => {
+      await pending.promise
+      if (signal.aborted) throw new Error('Generation was cancelled.')
+    }, () => undefined)
+    const job = queue.enqueue(design.id, 'Active prompt')
+
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'running')
+    const cancellation = queue.cancelAndWait(job.id)
+    expect(store.getGenerationJob(job.id)?.state).toBe('running')
+    pending.resolve()
+    await cancellation
+    expect(store.getGenerationJob(job.id)?.state).toBe('cancelled')
     store.close()
   })
 

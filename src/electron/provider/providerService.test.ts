@@ -61,11 +61,12 @@ describe('ProviderService', () => {
       modelId: 'model-1',
       effort: 'high',
       prompt: 'Build it',
+      referencePaths: ['C:\\references'],
     }, activity)).resolves.toEqual({ providerId: 'claude', modelId: 'model-1', text: 'Done' })
 
     expect(codex.prompt).not.toHaveBeenCalled()
     expect(claude.prompt).toHaveBeenCalledWith(
-      { modelId: 'model-1', effort: 'high', prompt: 'Build it' },
+      { modelId: 'model-1', effort: 'high', prompt: 'Build it', referencePaths: ['C:\\references'] },
       expect.any(Function),
     )
     expect(activity).toHaveBeenCalledWith({
@@ -107,6 +108,26 @@ describe('ProviderService', () => {
       outputSchema: expect.objectContaining({ required: ['response'] }),
       instructions: expect.stringContaining('C:\\workspace\\design'),
     }), expect.any(Function))
+  })
+
+  it('passes a linked project through as a provider reference root', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"Done"}' })
+
+    await service.runDesignAgent({ requestId: 'request-3', providerId: 'codex', modelId: 'model-1', prompt: 'Match Aurora', workspacePath: 'C:\\workspace\\design', sourceProjectPath: 'C:\\projects\\aurora' })
+
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ referencePaths: ['C:\\projects\\aurora'], instructions: expect.stringContaining('Inspect its relevant source') }), expect.any(Function))
+  })
+
+  it('passes provider session identity through design-agent continuation', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"Done"}', sessionId: 'thread-1' })
+
+    await expect(service.runDesignAgent({ requestId: 'request-continue', providerId: 'codex', modelId: 'model-1', prompt: 'Continue', workspacePath: 'C:\\workspace\\design', resumeSessionId: 'thread-1' })).resolves.toMatchObject({ sessionId: 'thread-1' })
+
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: 'thread-1' }), expect.any(Function))
   })
 
   it('rejects duplicate adapter identities', () => {

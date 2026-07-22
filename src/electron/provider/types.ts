@@ -27,6 +27,8 @@ export interface ProviderPrompt {
   readonly modelId: string
   readonly effort?: string
   readonly prompt: string
+  readonly referencePaths?: readonly string[]
+  readonly resumeSessionId?: string
   readonly signal?: AbortSignal
 }
 
@@ -34,6 +36,7 @@ export interface ProviderReply {
   readonly providerId: ProviderId
   readonly modelId: string
   readonly text: string
+  readonly sessionId?: string
 }
 
 export type ProviderActivityKind = 'status' | 'text' | 'tool' | 'result' | 'diagnostic'
@@ -44,4 +47,5 @@ export interface ProviderActivity {
   readonly kind: ProviderActivityKind
   readonly label: string
   readonly detail?: string
+  readonly sessionId?: string
 }

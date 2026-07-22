@@ -3,6 +3,7 @@ import { CodexAdapter } from './codexAdapter.js'
 import { agentCompletionOutputSchema, createDesignAgentInstructions, parseAgentCompletionPayload } from './agentHarness.js'
 import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
 import type { ProviderActivity, ProviderId, ProviderPrompt, ProviderReply, ProviderStatus } from './types.js'
+import type { Attachment } from '../workspace/contracts.js'
 
 const SAFE_CAPABILITY_ID = /^[a-zA-Z0-9._:-]+$/
 const BUILT_IN_PROVIDER_IDS: readonly ProviderId[] = ['codex', 'claude']
@@ -10,6 +11,8 @@ type ActivityListener = (activity: ProviderActivity) => void
 
 export interface DesignAgentRequest extends ProviderPrompt {
   readonly workspacePath: string
+  readonly attachments?: readonly Attachment[]
+  readonly sourceProjectPath?: string | null
 }
 
 export interface DesignAgentReply extends Omit<ProviderReply, 'text'> {
@@ -38,6 +41,8 @@ export class ProviderService {
       prompt: request.prompt,
       ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
+      ...(request.referencePaths?.length ? { referencePaths: request.referencePaths } : {}),
+      ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
     }
     const reply = await adapter.prompt(adapterRequest, (activity) => {
       onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity })
@@ -58,11 +63,13 @@ export class ProviderService {
       ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
       workspacePath: request.workspacePath,
-      instructions: createDesignAgentInstructions(request.workspacePath),
+      ...(request.sourceProjectPath ? { referencePaths: [request.sourceProjectPath] } : {}),
+      ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
+      instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath),
       outputSchema: agentCompletionOutputSchema,
     }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
     const completion = parseAgentCompletionPayload(reply.text)
-    return { providerId: adapter.id, modelId: reply.modelId, response: completion.response }
+    return { providerId: adapter.id, modelId: reply.modelId, response: completion.response, ...(reply.sessionId ? { sessionId: reply.sessionId } : {}) }
   }
 
   private validatePrompt(request: ProviderPrompt): void {

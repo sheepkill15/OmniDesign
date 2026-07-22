@@ -55,3 +55,14 @@ export function validateCompiledDesign(html: string): void {
     throw new Error('Generated design references the local filesystem; file: URLs are not allowed.')
   }
 }
+
+export function findDesignQualityWarnings(html: string): string[] {
+  const warnings: string[] = []
+  if (!/<html\b[^>]*\blang\s*=\s*["'][^"']+["']/i.test(html)) warnings.push('Set a language on the html element.')
+  if (!/<meta\b[^>]*\bname\s*=\s*["']viewport["'][^>]*>/i.test(html)) warnings.push('Add a responsive viewport meta tag.')
+  const mainCount = html.match(/<main\b/gi)?.length ?? 0
+  const headingCount = html.match(/<h1\b/gi)?.length ?? 0
+  if (mainCount !== 1) warnings.push(`Use exactly one main landmark (found ${mainCount}).`)
+  if (headingCount !== 1) warnings.push(`Use exactly one h1 heading (found ${headingCount}).`)
+  return warnings
+}

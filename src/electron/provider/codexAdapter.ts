@@ -9,7 +9,11 @@ import type {
   ProviderAdapterStatus,
 } from './providerAdapter.js'
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
-import { isObject, titleCase } from './providerUtils.js'
+import { formatTokenCount, isObject, readFiniteNumber, titleCase } from './providerUtils.js'
+
+function runtimeRoots(request: ProviderAdapterPrompt): string[] {
+  return [...new Set([...(request.workspacePath ? [request.workspacePath] : []), ...(request.referencePaths ?? [])])]
+}
 
 export class CodexAdapter implements ProviderAdapter {
   public readonly id = 'codex' as const
@@ -53,22 +57,24 @@ export class CodexAdapter implements ProviderAdapter {
     // (never OmniDesign's own source tree) even if it falls back to its process cwd.
     const rpc = startJsonRpcProcess(command, ['app-server'], request.workspacePath ? { cwd: request.workspacePath } : {})
     const cancel = () => rpc.close(new Error('Codex generation was cancelled.'))
+    const runtimeWorkspaceRoots = runtimeRoots(request)
     request.signal?.addEventListener('abort', cancel, { once: true })
     try {
       await this.initialize(rpc)
-      const thread = await rpc.request('thread/start', {
+      const thread = await rpc.request(request.resumeSessionId ? 'thread/resume' : 'thread/start', {
+        ...(request.resumeSessionId ? { threadId: request.resumeSessionId, excludeTurns: true } : {}),
         cwd: request.workspacePath ?? process.cwd(),
         model: request.modelId,
         sandbox: request.workspacePath ? 'workspace-write' : 'read-only',
         approvalPolicy: 'never',
-        ...(request.workspacePath ? { runtimeWorkspaceRoots: [request.workspacePath] } : {}),
+        ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
         ...(request.instructions ? { developerInstructions: request.instructions } : {}),
       })
       if (!isObject(thread) || !isObject(thread.thread) || typeof thread.thread.id !== 'string') {
         throw new Error('Codex did not create a conversation.')
       }
-      this.emit(onActivity, 'status', 'Codex thread started', thread.thread.id)
-      return { modelId: request.modelId, text: await this.collectReply(rpc, thread.thread.id, request, onActivity) }
+      this.emit(onActivity, 'status', request.resumeSessionId ? 'Codex thread resumed' : 'Codex thread started', thread.thread.id, thread.thread.id)
+      return { modelId: request.modelId, text: await this.collectReply(rpc, thread.thread.id, request, onActivity), sessionId: thread.thread.id }
     } finally {
       request.signal?.removeEventListener('abort', cancel)
       rpc.close()
@@ -121,8 +127,10 @@ export class CodexAdapter implements ProviderAdapter {
     request: ProviderAdapterPrompt,
     onActivity: ProviderAdapterActivityListener,
   ): Promise<string> {
+    const runtimeWorkspaceRoots = runtimeRoots(request)
     return new Promise<string>((resolve, reject) => {
       let output = ''
+      let usageDetail: string | undefined
       // No completion timeout: agents run until the turn completes, the process exits, or the user
       // cancels via the abort signal. A hung run is ended by Stop, not by an arbitrary clock.
       const unsubscribe = rpc.onNotification((method, params) => {
@@ -131,10 +139,11 @@ export class CodexAdapter implements ProviderAdapter {
           : undefined
         const toolDetail = method.startsWith('item/') ? describeCodexTool(params) : undefined
         if (textDelta) output += textDelta
+        if (method === 'thread/tokenUsage/updated') usageDetail = describeCodexUsage(params) ?? usageDetail
         if (textDelta) this.emit(onActivity, 'text', 'Response update', textDelta)
         else if (method.includes('error')) this.emit(onActivity, 'diagnostic', 'Provider diagnostic', method)
         else if (toolDetail) this.emit(onActivity, 'tool', 'Agent action', toolDetail)
-        else if (method === 'turn/completed') this.emit(onActivity, 'result', 'Completed')
+        else if (method === 'turn/completed') this.emit(onActivity, 'result', 'Completed', usageDetail)
         if (method === 'turn/completed') done()
       })
       const done = (error?: Error) => {
@@ -150,7 +159,8 @@ export class CodexAdapter implements ProviderAdapter {
         sandboxPolicy: request.workspacePath
           ? { type: 'workspaceWrite', networkAccess: true, writableRoots: [] }
           : { type: 'readOnly', networkAccess: true },
-        ...(request.workspacePath ? { cwd: request.workspacePath, runtimeWorkspaceRoots: [request.workspacePath] } : {}),
+        ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
+        ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
         ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
         input: [{ type: 'text', text: request.prompt }],
       }).catch((error: unknown) => done(error instanceof Error ? error : new Error('Codex failed to start the turn.')))
@@ -162,13 +172,32 @@ export class CodexAdapter implements ProviderAdapter {
     kind: ProviderAdapterActivity['kind'],
     label: string,
     detail?: string,
+    sessionId?: string,
   ): void {
     listener({
       kind,
       label,
       ...(detail ? { detail } : {}),
+      ...(sessionId ? { sessionId } : {}),
     })
   }
+}
+
+export function describeCodexUsage(params: unknown): string | undefined {
+  if (!isObject(params) || !isObject(params.tokenUsage)) return undefined
+  const usage = params.tokenUsage
+  const last = isObject(usage.last) ? usage.last : undefined
+  if (!last) return undefined
+  const input = readFiniteNumber(last.inputTokens)
+  const output = readFiniteNumber(last.outputTokens)
+  const total = readFiniteNumber(last.totalTokens)
+  const contextWindow = readFiniteNumber(usage.modelContextWindow)
+  const parts: string[] = []
+  if (input !== undefined) parts.push(`${formatTokenCount(input)} input`)
+  if (output !== undefined) parts.push(`${formatTokenCount(output)} output`)
+  if (total !== undefined && input === undefined && output === undefined) parts.push(`${formatTokenCount(total)} used`)
+  if (contextWindow !== undefined) parts.push(`${formatTokenCount(contextWindow)} context`)
+  return parts.length ? parts.join(' · ') : undefined
 }
 
 export function describeCodexTool(params: unknown): string | undefined {

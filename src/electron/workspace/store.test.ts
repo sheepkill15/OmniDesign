@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -84,12 +85,16 @@ describe('WorkspaceStore', () => {
     store.addPreviewDiagnostic(created.id, revisionId, {
       kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', source: 'omnidesign-preview://revision/token', line: 12,
     })
+    store.addPreviewDiagnostic(created.id, revisionId, {
+      kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', source: 'omnidesign-preview://revision/token', line: 12,
+    })
     store.close()
 
     const reopened = new WorkspaceStore(directory)
     expect(reopened.getDesign(created.id)?.revisions[0].diagnostics).toMatchObject([
       { kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', line: 12 },
     ])
+    expect(reopened.getDesign(created.id)?.revisions[0].diagnostics).toHaveLength(1)
     reopened.close()
   })
 
@@ -177,6 +182,129 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('continues stopped work before dependent prompts without duplicating its message', () => {
+    const { store } = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const stopped = store.enqueueGenerationJob(design.id, 'Build the first direction', 'codex', 'model-1')
+    const dependent = store.enqueueGenerationJob(design.id, 'Then warm the palette', 'claude', 'model-2')
+    store.setGenerationJobState(stopped.id, 'running')
+    store.saveGenerationJobSession(stopped.id, 'thread-existing')
+    store.setGenerationJobState(stopped.id, 'failed', 'Connection lost')
+
+    const continued = store.continueGenerationJob(stopped.id)
+    const queued = store.listGenerationJobs(['queued'])
+    const recovered = store.getDesign(design.id)
+
+    expect(continued).toMatchObject({ mode: 'continue', prompt: stopped.prompt, createdAt: stopped.createdAt, providerSessionId: 'thread-existing' })
+    expect(queued.map((job) => job.id)).toEqual([continued.id, dependent.id])
+    expect(recovered?.messages.filter((message) => message.role === 'user').map((message) => message.text)).toEqual(['First', 'Build the first direction', 'Then warm the palette'])
+    store.close()
+  })
+
+  it('persists editable design and project names without changing linked source paths', () => {
+    const { directory, store } = createStore()
+    const standalone = store.createStandaloneDesign('First', 'Initial standalone')
+    const linked = store.createLinkedDesign('First', 'Initial linked design', 'C:\\projects\\existing-app')
+
+    expect(store.renameDesign(standalone.id, 'Renamed standalone')).toMatchObject({ title: 'Renamed standalone', projectName: 'Renamed standalone' })
+    expect(store.renameDesign(linked.id, 'Renamed linked design')).toMatchObject({ title: 'Renamed linked design', projectName: 'existing-app', sourceProjectPath: 'C:\\projects\\existing-app' })
+    expect(store.renameProject(linked.projectId, 'Product workspace')).toMatchObject({ name: 'Product workspace', sourceProjectPath: 'C:\\projects\\existing-app' })
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(standalone.id)).toMatchObject({ title: 'Renamed standalone', projectName: 'Renamed standalone' })
+    expect(reopened.getDesign(linked.id)).toMatchObject({ title: 'Renamed linked design', projectName: 'Product workspace', sourceProjectPath: 'C:\\projects\\existing-app' })
+    reopened.close()
+  })
+
+  it('revives a trashed linked project without restoring its old designs when its source folder is selected again', () => {
+    const { store } = createStore()
+    const folder = mkdtempSync(path.join(tmpdir(), 'omnidesign-relinked-'))
+    directories.push(folder)
+    const first = store.createLinkedDesign('First', 'Existing app', folder)
+    store.moveProjectToTrash(first.projectId)
+
+    const second = store.createLinkedDesign('Second', 'Another screen', folder)
+
+    expect(second.projectId).toBe(first.projectId)
+    expect(store.getProjectSummary(first.projectId)?.designCount).toBe(1)
+    expect(store.getDesign(first.id)).toBeNull()
+    expect(store.listTrash()).toMatchObject([{ id: first.id, kind: 'design' }])
+    store.close()
+  })
+
+  it('keeps linked-design history available while a source folder is unavailable and can reconnect it', () => {
+    const { store } = createStore()
+    const missingFolder = path.join(tmpdir(), `omnidesign-missing-${randomUUID()}`)
+    const linked = store.createLinkedDesign('First', 'Existing app', missingFolder)
+
+    expect(store.getProjectSummary(linked.projectId)).toMatchObject({ sourceAvailable: false, sourceProjectPath: missingFolder })
+    expect(store.getDesign(linked.id)?.title).toBe('Existing app')
+
+    const replacement = mkdtempSync(path.join(tmpdir(), 'omnidesign-reconnected-'))
+    directories.push(replacement)
+    expect(store.reconnectProject(linked.projectId, replacement)).toMatchObject({ sourceAvailable: true, sourceProjectPath: replacement })
+    store.close()
+  })
+
+  it('moves a standalone design and its associated project to recoverable trash without touching managed artifacts until purge', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const saved = store.addRevision(created.id, 'First')
+    store.saveThumbnail(created.id, saved.activeRevisionId!, Uint8Array.from([1]))
+    const artifactPath = path.join(directory, 'designs', created.id)
+    expect(existsSync(artifactPath)).toBe(true)
+
+    store.moveDesignToTrash(created.id)
+    expect(store.getDesign(created.id)).toBeNull()
+    expect(store.listProjects()).toHaveLength(0)
+    expect(store.listTrash()).toMatchObject([{ id: created.id, kind: 'design', name: 'Design', projectId: created.projectId }])
+    expect(existsSync(artifactPath)).toBe(true)
+
+    store.close()
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.listTrash()).toMatchObject([{ id: created.id, kind: 'design', name: 'Design', projectId: created.projectId }])
+
+    reopened.restoreDesign(created.id)
+    expect(reopened.getDesign(created.id)?.revisions).toHaveLength(1)
+    reopened.moveDesignToTrash(created.id)
+    reopened.purgeTrashItem('design', created.id)
+    expect(existsSync(artifactPath)).toBe(false)
+    expect(reopened.listTrash()).toHaveLength(0)
+    reopened.close()
+  })
+
+  it('moves only the selected design when it belongs to a linked project', () => {
+    const { store } = createStore()
+    const folder = mkdtempSync(path.join(tmpdir(), 'omnidesign-linked-'))
+    directories.push(folder)
+    const created = store.createLinkedDesign('First', 'Design', folder)
+
+    store.moveDesignToTrash(created.id)
+
+    expect(store.getProjectSummary(created.projectId)).not.toBeNull()
+    expect(store.listTrash()).toMatchObject([{ id: created.id, kind: 'design', name: 'Design', projectId: created.projectId }])
+    store.close()
+  })
+
+  it('restores a trashed project with all of its designs and preserves its linked source association', () => {
+    const { store } = createStore()
+    const folder = mkdtempSync(path.join(tmpdir(), 'omnidesign-linked-'))
+    directories.push(folder)
+    const first = store.createLinkedDesign('First', 'One', folder)
+    const second = store.createDesignInProject(first.projectId, 'Second', 'Two')
+
+    store.moveProjectToTrash(first.projectId)
+    expect(store.listProjects()).toHaveLength(0)
+    expect(store.listTrash()).toMatchObject([{ id: first.projectId, kind: 'project', sourceProjectPath: folder }])
+
+    const restored = store.restoreProject(first.projectId)
+    expect(restored).toMatchObject({ sourceProjectPath: folder, sourceAvailable: true, designCount: 2 })
+    expect(store.getDesign(first.id)).not.toBeNull()
+    expect(store.getDesign(second.id)).not.toBeNull()
+    store.close()
+  })
+
   it('reports the summary for a single project with its most recent design', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('A calm dashboard', 'Calm dashboard')
@@ -196,5 +324,71 @@ describe('WorkspaceStore', () => {
     const reopened = new WorkspaceStore(directory)
     expect(reopened.getTheme()).toBe('light')
     reopened.close()
+  })
+
+  it('persists the system notification preference across reopen', () => {
+    const { directory, store } = createStore()
+    expect(store.getNotificationsEnabled()).toBe(true)
+    store.saveNotificationsEnabled(false)
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getNotificationsEnabled()).toBe(false)
+    reopened.close()
+  })
+
+  it('persists the generation detail preference across reopen', () => {
+    const { directory, store } = createStore()
+    expect(store.getGenerationDetail()).toBe('full')
+    store.saveGenerationDetail('concise')
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getGenerationDetail()).toBe('concise')
+    reopened.close()
+  })
+
+  it('persists attachment references without copying content and snapshots them on queued work', () => {
+    const { directory, store } = createStore()
+    const attachmentPath = path.join(directory, 'reference.txt')
+    writeFileSync(attachmentPath, 'reference content')
+    const attachment = { id: randomUUID(), path: attachmentPath, name: 'reference.txt', kind: 'file' as const, size: 17, modifiedAt: new Date().toISOString(), selectedAt: new Date().toISOString(), status: 'available' as const }
+    const created = store.createStandaloneDesign('First', 'Design')
+
+    store.saveDraft(created.id, 'Use the attached reference', [attachment])
+    const queued = store.enqueueGenerationJob(created.id, 'Use the attached reference', 'mock', 'mock-v1', null, [attachment])
+
+    expect(store.getDesign(created.id)?.draftAttachments).toHaveLength(1)
+    expect(store.getGenerationJob(queued.id)?.attachments).toMatchObject([{ path: attachmentPath, name: 'reference.txt' }])
+    expect(store.getDesign(created.id)?.messages.at(-1)).toMatchObject({ text: 'Use the attached reference', attachments: [{ path: attachmentPath, name: 'reference.txt' }] })
+    expect(existsSync(attachmentPath)).toBe(true)
+    store.close()
+  })
+
+  it('removes the persisted prompt message when queued work is removed', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const queued = store.enqueueGenerationJob(created.id, 'Remove this queued prompt')
+
+    store.removeQueuedGenerationJob(queued.id)
+
+    expect(store.getGenerationJob(queued.id)).toBeNull()
+    expect(store.getDesign(created.id)?.messages.map((message) => message.text)).not.toContain('Remove this queued prompt')
+    store.close()
+  })
+
+  it('associates a standalone design with a linked project without changing its history', () => {
+    const { store } = createStore()
+    const standalone = store.createStandaloneDesign('First', 'Standalone')
+    const revision = store.addRevision(standalone.id, 'First')
+    const linked = store.createLinkedDesign('Linked', 'Linked design', 'C:\\projects\\linked-app')
+
+    const associated = store.associateDesignWithProject(standalone.id, linked.projectId)
+
+    expect(associated).toMatchObject({ projectId: linked.projectId, projectName: 'linked-app' })
+    expect(associated.revisions).toHaveLength(1)
+    expect(associated.activeRevisionId).toBe(revision.activeRevisionId)
+    expect(store.getProjectSummary(standalone.projectId)).toBeNull()
+    store.close()
   })
 })

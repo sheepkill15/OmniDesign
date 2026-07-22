@@ -4,6 +4,7 @@ import type { GenerationActivity, GenerationSelection, Layout, PreviewRequest } 
 
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
+    developmentProviderEnabled: Boolean(process.env.VITE_DEV_SERVER_URL || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1'),
     discover: () => ipcRenderer.invoke('providers:discover'),
     prompt: (request: ProviderPrompt) => ipcRenderer.invoke('providers:prompt', request),
     onActivity: (listener: (activity: ProviderActivity) => void) => {
@@ -16,15 +17,32 @@ contextBridge.exposeInMainWorld('omnidesign', {
     list: () => ipcRenderer.invoke('workspace:list'),
     listProjects: () => ipcRenderer.invoke('workspace:list-projects'),
     getProject: (projectId: string) => ipcRenderer.invoke('workspace:get-project', { projectId }),
+    associateDesign: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-design', { designId, projectId }),
+    associateAndRestart: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-and-restart', { designId, projectId }),
+    listTrash: () => ipcRenderer.invoke('workspace:list-trash'),
+    cloneProject: (remoteUrl: string, destinationPath: string) => ipcRenderer.invoke('workspace:clone-project', { remoteUrl, destinationPath }),
+    registerLinkedProject: (sourceProjectPath: string) => ipcRenderer.invoke('workspace:register-linked-project', { sourceProjectPath }),
+    reconnectProject: (projectId: string, sourceProjectPath: string) => ipcRenderer.invoke('workspace:reconnect-project', { projectId, sourceProjectPath }),
+    convertProjectToStandalone: (projectId: string) => ipcRenderer.invoke('workspace:convert-project-to-standalone', { projectId }),
+    trash: (kind: 'project' | 'design', id: string) => ipcRenderer.invoke('workspace:trash', { kind, id }),
+    restoreTrash: (kind: 'project' | 'design', id: string) => ipcRenderer.invoke('workspace:restore-trash', { kind, id }),
+    purgeTrash: (kind: 'project' | 'design', id: string) => ipcRenderer.invoke('workspace:purge-trash', { kind, id }),
     get: (designId: string) => ipcRenderer.invoke('workspace:get', { designId }),
-    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, target?: { sourceProjectPath?: string | null; projectId?: string | null } | null) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: target?.sourceProjectPath ?? null, projectId: target?.projectId ?? null }),
-    generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null }),
+    renameDesign: (designId: string, title: string) => ipcRenderer.invoke('workspace:rename-design', { designId, title }),
+    renameProject: (projectId: string, name: string) => ipcRenderer.invoke('workspace:rename-project', { projectId, name }),
+    create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, target?: { sourceProjectPath?: string | null; projectId?: string | null; cloneRemoteUrl?: string | null; cloneDestinationDirectory?: string | null } | null, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: target?.sourceProjectPath ?? null, projectId: target?.projectId ?? null, cloneRemoteUrl: target?.cloneRemoteUrl ?? null, cloneDestinationDirectory: target?.cloneDestinationDirectory ?? null, attachments }),
+    generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null, attachments }),
     chooseProjectFolder: () => ipcRenderer.invoke('workspace:choose-project-folder'),
+    chooseAttachments: (kind: 'files' | 'folder') => ipcRenderer.invoke('workspace:choose-attachments', { kind }),
+    openAttachment: (attachment: import('../workspace/contracts.js').Attachment) => ipcRenderer.invoke('workspace:open-attachment', attachment),
     cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),
+    removeGeneration: (jobId: string) => ipcRenderer.invoke('workspace:remove-generation', { jobId }),
     retryGeneration: (jobId: string) => ipcRenderer.invoke('workspace:retry-generation', { jobId }),
+    continueGeneration: (jobId: string) => ipcRenderer.invoke('workspace:continue-generation', { jobId }),
+    resumeGenerationQueue: (designId: string) => ipcRenderer.invoke('workspace:resume-generation-queue', { designId }),
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),
     restoreRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:restore-revision', { designId, revisionId }),
-    saveDraft: (designId: string, draft: string) => ipcRenderer.invoke('workspace:save-draft', { designId, draft }),
+    saveDraft: (designId: string, draft: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:save-draft', { designId, draft, attachments }),
     saveLayout: (designId: string, layout: Layout) => ipcRenderer.invoke('workspace:save-layout', { designId, layout }),
     saveSelection: (designId: string, selection: GenerationSelection) => ipcRenderer.invoke('workspace:save-design-selection', { designId, selection }),
     exportRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:export', { designId, revisionId }),
@@ -33,10 +51,24 @@ contextBridge.exposeInMainWorld('omnidesign', {
       ipcRenderer.on('workspace:activity', handler)
       return () => ipcRenderer.removeListener('workspace:activity', handler)
     },
+    onChanged: (listener: (event: { readonly designId: string }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, value: { readonly designId: string }) => listener(value)
+      ipcRenderer.on('workspace:changed', handler)
+      return () => ipcRenderer.removeListener('workspace:changed', handler)
+    },
+    onCloneActivity: (listener: (detail: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, detail: string) => listener(detail)
+      ipcRenderer.on('workspace:clone-activity', handler)
+      return () => ipcRenderer.removeListener('workspace:clone-activity', handler)
+    },
   },
   settings: {
     getTheme: () => ipcRenderer.invoke('settings:get-theme'),
     saveTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('settings:save-theme', theme),
+    getNotificationsEnabled: () => ipcRenderer.invoke('settings:get-notifications-enabled'),
+    saveNotificationsEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:save-notifications-enabled', enabled),
+    getGenerationDetail: () => ipcRenderer.invoke('settings:get-generation-detail'),
+    saveGenerationDetail: (detail: 'full' | 'concise') => ipcRenderer.invoke('settings:save-generation-detail', detail),
     getGenerationDefaults: () => ipcRenderer.invoke('settings:get-generation-defaults'),
     saveGenerationDefaults: (selection: GenerationSelection) => ipcRenderer.invoke('settings:save-generation-defaults', selection),
   },

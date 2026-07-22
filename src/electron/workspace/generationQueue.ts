@@ -1,4 +1,4 @@
-import type { GenerationActivity, GenerationJob } from './contracts.js'
+import type { Attachment, GenerationActivity, GenerationJob } from './contracts.js'
 import { WorkspaceStore } from './store.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
@@ -7,6 +7,7 @@ type JobRunner = (job: GenerationJob, signal: AbortSignal, onActivity: ActivityL
 export class GenerationQueue {
   private readonly runningDesignIds = new Set<string>()
   private readonly abortControllers = new Map<string, AbortController>()
+  private readonly executionPromises = new Map<string, Promise<void>>()
   private readonly pausedDesignIds = new Set<string>()
   private runningCount = 0
   private draining = false
@@ -20,16 +21,17 @@ export class GenerationQueue {
     if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Generation queue concurrency must be at least one.')
   }
 
-  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null): GenerationJob {
-    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort)
+  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = []): GenerationJob {
+    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments)
     this.onActivity({ designId, stage: 'queued', detail: 'Generation is queued.' })
     void this.drain()
     return job
   }
 
   public recoverAfterRestart(): GenerationJob[] {
+    const interrupted = this.store.markGenerationJobsInterrupted()
     for (const designId of this.store.listPausedGenerationDesignIds()) this.pausedDesignIds.add(designId)
-    return this.store.markGenerationJobsInterrupted()
+    return interrupted
   }
 
   public cancel(jobId: string): GenerationJob {
@@ -57,6 +59,35 @@ export class GenerationQueue {
     return job
   }
 
+  public remove(jobId: string): GenerationJob {
+    const removed = this.store.removeQueuedGenerationJob(jobId)
+    this.onActivity({ designId: removed.designId, stage: 'queued', detail: 'Queued generation was removed.' })
+    void this.drain()
+    return removed
+  }
+
+  public async cancelAndWait(jobId: string): Promise<GenerationJob> {
+    const job = this.cancel(jobId)
+    await this.executionPromises.get(jobId)
+    return this.store.getGenerationJob(jobId) ?? job
+  }
+
+  public continue(jobId: string): GenerationJob {
+    const job = this.store.continueGenerationJob(jobId)
+    this.pausedDesignIds.delete(job.designId)
+    this.store.resumeGenerationQueue(job.designId)
+    this.onActivity({ designId: job.designId, stage: 'queued', detail: 'Continuing from the retained partial workspace.' })
+    void this.drain()
+    return job
+  }
+
+  public resume(designId: string): void {
+    this.store.resumeGenerationQueue(designId)
+    this.pausedDesignIds.delete(designId)
+    this.onActivity({ designId, stage: 'queued', detail: 'Generation queue resumed.' })
+    void this.drain()
+  }
+
   private async drain(): Promise<void> {
     if (this.draining) return
     this.draining = true
@@ -76,7 +107,8 @@ export class GenerationQueue {
     this.runningDesignIds.add(job.designId)
     const abortController = new AbortController()
     this.abortControllers.set(job.id, abortController)
-    void this.execute(job, abortController.signal)
+    const execution = this.execute(job, abortController.signal).finally(() => this.executionPromises.delete(job.id))
+    this.executionPromises.set(job.id, execution)
   }
 
   private async execute(job: GenerationJob, signal: AbortSignal): Promise<void> {
@@ -84,10 +116,18 @@ export class GenerationQueue {
     try {
       this.store.setGenerationJobState(job.id, 'running')
       let failed = false
-      await this.runJob(job, signal, (activity) => {
-        failed ||= activity.stage === 'failed'
-        this.onActivity(activity)
-      })
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await this.runJob(job, signal, (activity) => {
+            failed ||= activity.stage === 'failed'
+            this.onActivity(activity)
+          })
+          break
+        } catch (error) {
+          if (signal.aborted || !isTransientProviderError(error) || attempt === 2) throw error
+          this.onActivity({ designId: job.designId, stage: 'generating', detail: `Provider connection failed. Retrying (${attempt + 2} of 3)…` })
+        }
+      }
       pauseQueue = signal.aborted || failed
       this.store.setGenerationJobState(job.id, signal.aborted ? 'cancelled' : failed ? 'failed' : 'completed', signal.aborted ? 'Cancelled by the user.' : failed ? 'Generation did not produce a valid revision.' : null)
     } catch (error) {
@@ -109,4 +149,9 @@ export class GenerationQueue {
     this.pausedDesignIds.add(designId)
     this.store.pauseGenerationQueue(designId)
   }
+}
+
+export function isTransientProviderError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /\b(timeout|timed out|network|transport|connection|econn|socket|rate limit|429|502|503|504|temporar)/i.test(message)
 }

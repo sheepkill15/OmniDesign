@@ -6,6 +6,8 @@ describe('preview diagnostics', () => {
     expect(captureConsoleDiagnostic(1, 'Informational message', 0, '')).toBeNull()
     expect(captureConsoleDiagnostic(2, 'Deprecated feature', 4, 'omnidesign-preview://revision/token')).toMatchObject({ kind: 'console', level: 'warning', line: 4 })
     expect(captureConsoleDiagnostic(3, 'Uncaught TypeError: broken', 9, 'omnidesign-preview://revision/token')).toMatchObject({ kind: 'runtime', level: 'error', line: 9 })
+    expect(captureConsoleDiagnostic('warning', 'Deprecated feature', 4, 'omnidesign-preview://revision/token')).toMatchObject({ kind: 'console', level: 'warning', line: 4 })
+    expect(captureConsoleDiagnostic(2, '%cElectron Security Warning (Insecure Content-Security-Policy)', 2, 'node:electron/js2c/renderer_init')).toBeNull()
   })
 
   it('normalizes main-frame load failures for persistence', () => {

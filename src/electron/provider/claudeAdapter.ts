@@ -8,7 +8,7 @@ import type {
   ProviderAdapterStatus,
 } from './providerAdapter.js'
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
-import { isObject, providerFailure, titleCase } from './providerUtils.js'
+import { formatTokenCount, isObject, providerFailure, readFiniteNumber, titleCase } from './providerUtils.js'
 
 const COMMAND_TIMEOUT_MS = 12_000
 
@@ -67,6 +67,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     this.emit(onActivity, 'status', 'Starting Claude Code')
     const command = await resolveProviderCommand('claude')
     let finalText = ''
+    let sessionId = request.resumeSessionId
     const args = [
       '-p',
       '--output-format', 'stream-json',
@@ -75,7 +76,9 @@ export class ClaudeAdapter implements ProviderAdapter {
       '--model', request.modelId,
       ...(request.effort ? ['--effort', request.effort] : []),
       '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
-      '--no-session-persistence',
+      ...(request.referencePaths ?? []).flatMap((referencePath) => ['--add-dir', referencePath]),
+      ...(request.resumeSessionId ? ['--resume', request.resumeSessionId] : []),
+      ...(!request.workspacePath ? ['--no-session-persistence'] : []),
       ...(request.instructions ? ['--append-system-prompt', request.instructions] : []),
       ...(request.outputSchema ? ['--json-schema', JSON.stringify(request.outputSchema)] : []),
     ]
@@ -93,13 +96,14 @@ export class ClaudeAdapter implements ProviderAdapter {
         const view = this.describeEvent(parsed)
         if (!view) return
         if (view.finalText) finalText = view.finalText
-        this.emit(onActivity, view.kind, view.label, view.detail)
+        if (view.sessionId) sessionId = view.sessionId
+        this.emit(onActivity, view.kind, view.label, view.detail, view.sessionId)
       },
       onStderrLine: (line) => this.emit(onActivity, 'diagnostic', 'Claude stderr', line),
     })
     if (result.code !== 0) throw providerFailure('Claude', result.stdout, result.stderr)
     if (!finalText) throw new Error('Claude completed without a final text response.')
-    return { modelId: request.modelId, text: finalText }
+    return { modelId: request.modelId, text: finalText, ...(sessionId ? { sessionId } : {}) }
   }
 
   private readEvent(line: string): Record<string, unknown> | undefined {
@@ -116,14 +120,17 @@ export class ClaudeAdapter implements ProviderAdapter {
     readonly label: string
     readonly detail?: string
     readonly finalText?: string
+    readonly sessionId?: string
   } | undefined {
     const type = typeof event.type === 'string' ? event.type : 'event'
     if (type === 'result') {
       const finalText = typeof event.result === 'string' ? event.result : undefined
-      return { kind: 'result', label: 'Completed', ...(finalText ? { detail: finalText, finalText } : {}) }
+      const detail = describeClaudeResult(event)
+      return { kind: 'result', label: 'Completed', ...(detail ? { detail } : {}), ...(finalText ? { finalText } : {}) }
     }
     if (type === 'system') {
-      return { kind: 'status', label: 'Provider status', detail: typeof event.subtype === 'string' ? event.subtype : 'system' }
+      const sessionId = typeof event.session_id === 'string' ? event.session_id : undefined
+      return { kind: 'status', label: 'Provider status', detail: typeof event.subtype === 'string' ? event.subtype : 'system', ...(sessionId ? { sessionId } : {}) }
     }
     if (type === 'stream_event' && isObject(event.event)) {
       const streamEvent = event.event
@@ -150,11 +157,35 @@ export class ClaudeAdapter implements ProviderAdapter {
     kind: ProviderAdapterActivity['kind'],
     label: string,
     detail?: string,
+    sessionId?: string,
   ): void {
     listener({
       kind,
       label,
       ...(detail ? { detail } : {}),
+      ...(sessionId ? { sessionId } : {}),
     })
   }
+}
+
+export function describeClaudeResult(event: Record<string, unknown>): string | undefined {
+  const turns = readFiniteNumber(event.num_turns)
+  const cost = readFiniteNumber(event.total_cost_usd)
+  const usage = isObject(event.usage) ? event.usage : undefined
+  const input = usage ? readFiniteNumber(usage.input_tokens) : undefined
+  const output = usage ? readFiniteNumber(usage.output_tokens) : undefined
+  const parts: string[] = []
+  if (turns !== undefined) parts.push(`${Math.round(turns).toLocaleString('en-US')} turn${Math.round(turns) === 1 ? '' : 's'}`)
+  if (input !== undefined) parts.push(`${formatTokenCount(input)} input`)
+  if (output !== undefined) parts.push(`${formatTokenCount(output)} output`)
+  if (cost !== undefined) {
+    const fractionDigits = cost === 0 || cost >= 0.01 ? 2 : cost >= 0.0001 ? 4 : 6
+    parts.push(cost.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    }))
+  }
+  return parts.length ? parts.join(' · ') : undefined
 }

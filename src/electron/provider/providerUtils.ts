@@ -20,3 +20,11 @@ export function providerFailure(provider: string, stdout: string, stderr: string
   }
   return new Error(detail)
 }
+
+export function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+export function formatTokenCount(value: number): string {
+  return `${Math.round(value).toLocaleString('en-US')} token${Math.round(value) === 1 ? '' : 's'}`
+}

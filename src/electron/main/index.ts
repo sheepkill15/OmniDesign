@@ -1,9 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, protocol, shell } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
+  attachmentSchema,
+  attachmentPickerRequestSchema,
+  associateDesignRequestSchema,
+  cloneProjectRequestSchema,
   designIdRequestSchema,
   exportRequestSchema,
   generateRequestSchema,
@@ -12,11 +18,16 @@ import {
   generationStageLabel,
   previewRequestSchema,
   projectIdRequestSchema,
+  renameDesignRequestSchema,
+  renameProjectRequestSchema,
+  reconnectProjectRequestSchema,
+  registerLinkedProjectRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
   themeSchema,
+  trashItemRequestSchema,
 } from '../workspace/contracts.js'
 import type { GenerationActivity } from '../workspace/contracts.js'
 import { writeOfflineZip } from '../workspace/exportService.js'
@@ -24,15 +35,18 @@ import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewController } from '../workspace/previewController.js'
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
+import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
+const developmentProviderEnabled = Boolean(developmentServerUrl || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1')
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let preview: PreviewController | null = null
 let workspace: WorkspaceService | null = null
 let workspaceStore: WorkspaceStore | null = null
 let generationQueue: GenerationQueue | null = null
+let closingAfterGenerationConfirmation = false
 const lastPersistedStageByDesign = new Map<string, string>()
 
 // Designs, their Git repositories, and the SQLite database live under the app's userData directory
@@ -55,7 +69,26 @@ function isProviderPrompt(value: unknown): value is ProviderPrompt {
     && typeof request.requestId === 'string' && request.requestId.length > 0 && request.requestId.length <= 100
     && typeof request.modelId === 'string' && request.modelId.length > 0
     && (request.effort === undefined || typeof request.effort === 'string')
+    && (request.resumeSessionId === undefined || (typeof request.resumeSessionId === 'string' && request.resumeSessionId.length > 0 && request.resumeSessionId.length <= 1_000))
     && typeof request.prompt === 'string' && request.prompt.length <= 100_000
+}
+
+async function generateDesignTitle(prompt: string, providerId: 'codex' | 'claude', modelId: string, effort: string | null, attachments: readonly import('../workspace/contracts.js').Attachment[]): Promise<string> {
+  const fallback = fallbackDesignTitle(prompt)
+  try {
+    const selection = selectLightweightMetadataSelection(await providers.discover(), providerId, { modelId, effort })
+    const reply = await providers.prompt({
+      requestId: randomUUID(),
+      providerId,
+      modelId: selection.modelId,
+      ...(selection.effort ? { effort: selection.effort } : {}),
+      prompt: createDesignTitlePrompt(prompt, attachments),
+      referencePaths: designTitleReferencePaths(attachments),
+    })
+    return normalizeDesignTitle(reply.text, fallback)
+  } catch {
+    return fallback
+  }
 }
 
 function createMainWindow(): BrowserWindow {
@@ -106,18 +139,27 @@ function sendGenerationActivity(activity: GenerationActivity): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:activity', activity)
 }
 
+function sendWorkspaceChanged(designId: string): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { designId })
+}
+
 // Persist a permanent, chronological record of the major generation milestones for the design's
 // conversation history, then forward the live activity to the renderer. Consecutive activities that
 // share a stage (for example the many streaming "generating" updates from an agent) collapse into a
 // single milestone so the history stays readable.
 function recordActivity(activity: GenerationActivity): void {
-  if (workspaceStore && lastPersistedStageByDesign.get(activity.designId) !== activity.stage) {
-    lastPersistedStageByDesign.set(activity.designId, activity.stage)
+  const activityKey = `${activity.stage}\u0000${activity.detail}`
+  if (workspaceStore && lastPersistedStageByDesign.get(activity.designId) !== activityKey) {
+    lastPersistedStageByDesign.set(activity.designId, activityKey)
     try {
       workspaceStore.addGenerationStep(activity.designId, activity.stage, generationStageLabel(activity.stage), activity.detail || null)
     } catch {
       // The design may have been removed while a late activity arrived; the live event below is enough.
     }
+  }
+  if (workspaceStore?.getNotificationsEnabled() && ['complete', 'failed', 'cancelled', 'interrupted'].includes(activity.stage)) {
+    const title = workspaceStore.getDesign(activity.designId)?.title ?? 'Design generation'
+    new Notification({ title: 'OmniDesign', body: `${title}: ${activity.detail}` }).show()
   }
   sendGenerationActivity(activity)
 }
@@ -126,12 +168,20 @@ function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewCon
   return new PreviewController(
     window,
     (designId, revisionId, diagnostic) => {
-      store.addPreviewDiagnostic(designId, revisionId, diagnostic)
-      window.webContents.send('preview:diagnostic', { designId, revisionId })
+      try {
+        store.addPreviewDiagnostic(designId, revisionId, diagnostic)
+      } catch {
+        return
+      }
+      if (!window.isDestroyed()) window.webContents.send('preview:diagnostic', { designId, revisionId })
     },
     (designId, revisionId, png) => {
-      store.saveThumbnail(designId, revisionId, png)
-      window.webContents.send('preview:thumbnail', { designId, revisionId })
+      try {
+        store.saveThumbnail(designId, revisionId, png)
+      } catch {
+        return
+      }
+      if (!window.isDestroyed()) window.webContents.send('preview:thumbnail', { designId, revisionId })
     },
     (designId) => {
       if (!window.isDestroyed()) window.webContents.send('preview:popped-in', { designId })
@@ -140,9 +190,12 @@ function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewCon
 }
 
 function registerIpc(): void {
-  ipcMain.handle('providers:discover', (event) => {
+  ipcMain.handle('providers:discover', async (event) => {
     authorize(event)
-    return providers.discover()
+    const discovered = await providers.discover()
+    return developmentProviderEnabled
+      ? [{ id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Available for local development and automated testing.', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] }, ...discovered]
+      : discovered
   })
   ipcMain.handle('providers:prompt', (event, request: unknown) => {
     authorize(event)
@@ -159,19 +212,40 @@ function registerIpc(): void {
     authorize(event)
     return requireWorkspace().getDesign(designIdRequestSchema.parse(value).designId)
   })
+  ipcMain.handle('workspace:rename-design', (event, value: unknown) => {
+    authorize(event)
+    const request = renameDesignRequestSchema.parse(value)
+    return requireWorkspace().renameDesign(request.designId, request.title)
+  })
   ipcMain.handle('workspace:create', async (event, value: unknown) => {
     authorize(event)
     const request = createDesignRequestSchema.parse(value)
     const selection = { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null }
-    const target = { projectId: request.projectId ?? null, sourceProjectPath: request.sourceProjectPath ?? null }
+    let target = { projectId: request.projectId ?? null, sourceProjectPath: request.sourceProjectPath ?? null }
+    const hasCloneTarget = Boolean(request.cloneRemoteUrl || request.cloneDestinationDirectory)
+    if (hasCloneTarget) {
+      if (!request.cloneRemoteUrl || !request.cloneDestinationDirectory) throw new Error('Both a Git repository URL and destination folder are required to clone a project.')
+      const project = await requireWorkspace().cloneProject(request.cloneRemoteUrl, request.cloneDestinationDirectory, (detail) => {
+        if (!event.sender.isDestroyed()) event.sender.send('workspace:clone-activity', detail)
+      })
+      target = { projectId: project.id, sourceProjectPath: null }
+    }
     if (request.providerId === 'mock') {
-      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, target)
+      const design = await requireWorkspace().createDesign(request.prompt, recordActivity, target, request.attachments)
       requireWorkspace().rememberSelection(design.id, selection)
       return requireWorkspace().getDesign(design.id) ?? design
     }
-    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target)
+    const fallbackTitle = fallbackDesignTitle(request.prompt)
+    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target, fallbackTitle)
     requireWorkspace().rememberSelection(design.id, selection)
-    requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort)
+    requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
+    void generateDesignTitle(request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments).then((title) => {
+      const current = workspace?.getDesign(design.id)
+      if (!current || !shouldReplaceFallbackTitle(current.title, fallbackTitle, title)) return
+      if (!current.sourceProjectPath && current.projectName !== fallbackTitle) return
+      workspace?.renameDesign(design.id, title)
+      sendWorkspaceChanged(design.id)
+    }).catch(() => undefined)
     return requireWorkspace().getDesign(design.id) ?? design
   })
   ipcMain.handle('workspace:list-projects', (event) => {
@@ -182,16 +256,95 @@ function registerIpc(): void {
     authorize(event)
     return requireWorkspace().getProject(projectIdRequestSchema.parse(value).projectId)
   })
+  ipcMain.handle('workspace:rename-project', (event, value: unknown) => {
+    authorize(event)
+    const request = renameProjectRequestSchema.parse(value)
+    return requireWorkspace().renameProject(request.projectId, request.name)
+  })
+  ipcMain.handle('workspace:associate-design', (event, value: unknown) => {
+    authorize(event)
+    const request = associateDesignRequestSchema.parse(value)
+    return requireWorkspace().associateDesignWithProject(request.designId, request.projectId)
+  })
+  ipcMain.handle('workspace:associate-and-restart', async (event, value: unknown) => {
+    authorize(event)
+    const request = associateDesignRequestSchema.parse(value)
+    requireWorkspace().associateDesignWithProject(request.designId, request.projectId)
+    const job = requireWorkspace().getDesign(request.designId)?.generationJobs.find((candidate) => ['queued', 'running'].includes(candidate.state))
+    if (!job) return requireWorkspace().getDesign(request.designId)
+    await requireGenerationQueue().cancelAndWait(job.id)
+    requireGenerationQueue().retry(job.id)
+    return requireWorkspace().getDesign(request.designId)
+  })
+  ipcMain.handle('workspace:list-trash', (event) => { authorize(event); return requireWorkspace().listTrash() })
+  ipcMain.handle('workspace:clone-project', async (event, value: unknown) => {
+    authorize(event)
+    const request = cloneProjectRequestSchema.parse(value)
+    return requireWorkspace().cloneProject(request.remoteUrl, request.destinationPath, (detail) => {
+      if (!event.sender.isDestroyed()) event.sender.send('workspace:clone-activity', detail)
+    })
+  })
+  ipcMain.handle('workspace:register-linked-project', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().registerLinkedProject(registerLinkedProjectRequestSchema.parse(value).sourceProjectPath)
+  })
+  ipcMain.handle('workspace:reconnect-project', (event, value: unknown) => {
+    authorize(event)
+    const request = reconnectProjectRequestSchema.parse(value)
+    return requireWorkspace().reconnectProject(request.projectId, request.sourceProjectPath)
+  })
+  ipcMain.handle('workspace:convert-project-to-standalone', (event, value: unknown) => {
+    authorize(event); return requireWorkspace().convertProjectToStandalone(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:trash', async (event, value: unknown) => {
+    authorize(event)
+    const request = trashItemRequestSchema.parse(value)
+    const designs = request.kind === 'project'
+      ? requireWorkspace().getProject(request.id)?.designs ?? []
+      : [requireWorkspace().getDesign(request.id)].filter((design): design is NonNullable<typeof design> => design !== null)
+    const activeJobs = designs.flatMap((design) => design.generationJobs).filter((job) => job.state === 'queued' || job.state === 'running')
+    if (activeJobs.length) {
+      const choice = dialog.showMessageBoxSync(mainWindow!, {
+        type: 'warning',
+        title: 'Remove active work?',
+        message: `${activeJobs.length} generation${activeJobs.length === 1 ? '' : 's'} will be cancelled before this item moves to Trash.`,
+        detail: 'The source folder is not affected. Partial output and diagnostics remain available in the retained design workspace.',
+        buttons: ['Keep working', 'Cancel generations and remove'],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      if (choice !== 1) return { cancelled: true }
+      await Promise.all(activeJobs.map((job) => requireGenerationQueue().cancelAndWait(job.id)))
+    }
+    if (request.kind === 'project') requireWorkspace().moveProjectToTrash(request.id)
+    else requireWorkspace().moveDesignToTrash(request.id)
+    return { cancelled: false }
+  })
+  ipcMain.handle('workspace:restore-trash', (event, value: unknown) => {
+    authorize(event)
+    const request = trashItemRequestSchema.parse(value)
+    return requireWorkspace().restoreTrashItem(request.kind, request.id)
+  })
+  ipcMain.handle('workspace:purge-trash', (event, value: unknown) => {
+    authorize(event)
+    const request = trashItemRequestSchema.parse(value)
+    preview?.discard()
+    requireWorkspace().purgeTrashItem(request.kind, request.id)
+  })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
-    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
     return requireWorkspace().getDesign(request.designId)
   })
   ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
     authorize(event)
     return requireGenerationQueue().cancel(generationJobIdRequestSchema.parse(value).jobId)
+  })
+  ipcMain.handle('workspace:remove-generation', (event, value: unknown) => {
+    authorize(event)
+    return requireGenerationQueue().remove(generationJobIdRequestSchema.parse(value).jobId)
   })
   ipcMain.handle('workspace:retry-generation', (event, value: unknown) => {
     authorize(event)
@@ -201,6 +354,35 @@ function registerIpc(): void {
     authorize(event)
     const selection = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
     return selection.canceled ? null : selection.filePaths[0] ?? null
+  })
+  ipcMain.handle('workspace:continue-generation', (event, value: unknown) => {
+    authorize(event)
+    return requireGenerationQueue().continue(generationJobIdRequestSchema.parse(value).jobId)
+  })
+  ipcMain.handle('workspace:resume-generation-queue', (event, value: unknown) => {
+    authorize(event)
+    const designId = designIdRequestSchema.parse(value).designId
+    requireGenerationQueue().resume(designId)
+    return requireWorkspace().getDesign(designId)
+  })
+  ipcMain.handle('workspace:choose-attachments', async (event, value: unknown) => {
+    authorize(event)
+    const { kind } = attachmentPickerRequestSchema.parse(value)
+    const selection = await dialog.showOpenDialog(mainWindow!, { properties: kind === 'files' ? ['openFile', 'multiSelections'] : ['openDirectory'] })
+    if (selection.canceled) return []
+    return selection.filePaths.flatMap((attachmentPath) => {
+      try {
+        const stats = statSync(attachmentPath)
+        return [{ id: randomUUID(), path: attachmentPath, name: path.basename(attachmentPath), kind: stats.isDirectory() ? 'folder' as const : 'file' as const, size: stats.isDirectory() ? null : stats.size, modifiedAt: stats.mtime.toISOString(), selectedAt: new Date().toISOString(), status: 'available' as const }]
+      } catch { return [] }
+    })
+  })
+  ipcMain.handle('workspace:open-attachment', async (event, value: unknown) => {
+    authorize(event)
+    const attachment = attachmentSchema.parse(value)
+    if (!statSync(attachment.path).isFile() && !statSync(attachment.path).isDirectory()) throw new Error('Attachment is no longer available.')
+    const error = await shell.openPath(attachment.path)
+    if (error) throw new Error(error)
   })
   ipcMain.handle('workspace:select-revision', (event, value: unknown) => {
     authorize(event)
@@ -215,7 +397,7 @@ function registerIpc(): void {
   ipcMain.handle('workspace:save-draft', (event, value: unknown) => {
     authorize(event)
     const request = saveDraftRequestSchema.parse(value)
-    requireWorkspace().saveDraft(request.designId, request.draft)
+    requireWorkspace().saveDraft(request.designId, request.draft, request.attachments)
   })
   ipcMain.handle('workspace:save-layout', (event, value: unknown) => {
     authorize(event)
@@ -246,6 +428,7 @@ function registerIpc(): void {
   ipcMain.handle('preview:show', (event, value: unknown) => {
     authorize(event)
     const request = previewRequestSchema.parse(value)
+    if (!requireWorkspace().getDesign(request.designId)) return
     const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
     preview?.show(request.designId, request.revisionId, files, request.bounds)
   })
@@ -256,6 +439,7 @@ function registerIpc(): void {
   ipcMain.handle('preview:pop-out', (event, value: unknown) => {
     authorize(event)
     const request = selectRevisionRequestSchema.parse(value)
+    if (!requireWorkspace().getDesign(request.designId)) return
     const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
     preview?.popOut(request.designId, request.revisionId, files)
   })
@@ -299,26 +483,45 @@ void app.whenReady().then(() => {
     async (job, signal, onActivity) => {
       // Make sure the repository is at the head of the main timeline before generating, in case the
       // user was viewing (and had checked out) an earlier revision.
-      requireWorkspace().prepareGenerationWorkspace(job.designId)
+      if (job.mode === 'fresh') requireWorkspace().prepareGenerationWorkspace(job.designId)
       if (job.providerId === 'mock') {
         await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3)
         return
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
-      onActivity({ designId: job.designId, stage: 'generating', detail: `Starting ${job.providerId} in the design's Git repository.` })
-      const reply = await providers.runDesignAgent({
-        requestId: job.id,
-        providerId: job.providerId,
-        modelId: job.modelId,
-        ...(job.effort ? { effort: job.effort } : {}),
-        prompt: job.prompt,
-        signal,
-        workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
-      }, (activity) => {
-        onActivity({ designId: job.designId, stage: 'generating', detail: activity.detail ?? activity.label })
-      })
-      if (signal.aborted) throw new Error('Generation was cancelled.')
-      await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity)
+      let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
+      let providerSessionId = job.providerSessionId ?? undefined
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? `Starting ${job.providerId} in the design's Git repository.` : `Starting repair ${attempt} of 3.` })
+        const reply = await providers.runDesignAgent({
+          requestId: `${job.id}-${attempt}`,
+          providerId: job.providerId,
+          modelId: job.modelId,
+          ...(job.effort ? { effort: job.effort } : {}),
+          prompt: agentPrompt,
+          signal,
+          workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
+          attachments: job.attachments,
+          sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
+          ...(providerSessionId ? { resumeSessionId: providerSessionId } : {}),
+        }, (activity) => {
+          if (activity.sessionId && activity.sessionId !== providerSessionId) {
+            providerSessionId = activity.sessionId
+            store.saveGenerationJobSession(job.id, activity.sessionId)
+          }
+          onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: activity.detail ?? activity.label })
+        })
+        if (reply.sessionId && reply.sessionId !== providerSessionId) {
+          providerSessionId = reply.sessionId
+          store.saveGenerationJobSession(job.id, reply.sessionId)
+        }
+        if (signal.aborted) throw new Error('Generation was cancelled.')
+        const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
+        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3)
+        if (saved.invalidCandidates.length === invalidCount) return
+        const diagnostic = saved.invalidCandidates.at(-1)?.diagnostic ?? 'The candidate did not pass validation.'
+        agentPrompt = `Repair the current index.html in place and finish the original request. Validation feedback: ${diagnostic}`
+      }
     },
     recordActivity,
   )
@@ -331,6 +534,38 @@ void app.whenReady().then(() => {
     preview?.destroy()
     preview = null
     mainWindow = null
+  })
+  ipcMain.handle('settings:get-notifications-enabled', (event) => {
+    authorize(event)
+    return requireWorkspace().getNotificationsEnabled()
+  })
+  ipcMain.handle('settings:save-notifications-enabled', (event, value: unknown) => {
+    authorize(event)
+    requireWorkspace().saveNotificationsEnabled(Boolean(value))
+  })
+  ipcMain.handle('settings:get-generation-detail', (event) => { authorize(event); return requireWorkspace().getGenerationDetail() })
+  ipcMain.handle('settings:save-generation-detail', (event, value: unknown) => {
+    authorize(event)
+    if (value !== 'full' && value !== 'concise') throw new Error('Generation detail must be full or concise.')
+    requireWorkspace().saveGenerationDetail(value)
+  })
+  mainWindow.on('close', (event) => {
+    const activeJobs = store.listGenerationJobs(['queued', 'running'])
+    if (closingAfterGenerationConfirmation || activeJobs.length === 0) return
+    event.preventDefault()
+    const choice = dialog.showMessageBoxSync(mainWindow!, {
+      type: 'warning',
+      title: 'Interrupt active generations?',
+      message: `${activeJobs.length} generation${activeJobs.length === 1 ? '' : 's'} will be interrupted.`,
+      detail: 'Partial work and diagnostics will be retained so you can Continue or Retry after reopening OmniDesign.',
+      buttons: ['Keep working', 'Interrupt and close'],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    if (choice !== 1) return
+    closingAfterGenerationConfirmation = true
+    store.markGenerationJobsInterrupted()
+    mainWindow?.close()
   })
 
   app.on('activate', () => {
