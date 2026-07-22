@@ -50,6 +50,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
       ipcRenderer.on('workspace:activity', handler)
       return () => ipcRenderer.removeListener('workspace:activity', handler)
     },
+    onChanged: (listener: (event: { readonly designId: string }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, value: { readonly designId: string }) => listener(value)
+      ipcRenderer.on('workspace:changed', handler)
+      return () => ipcRenderer.removeListener('workspace:changed', handler)
+    },
     onCloneActivity: (listener: (detail: string) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, detail: string) => listener(detail)
       ipcRenderer.on('workspace:clone-activity', handler)

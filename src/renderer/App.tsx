@@ -1312,6 +1312,10 @@ export function App() {
       if (finished) void refresh()
     })
   }, [refresh, updateDesign, workspaceApi])
+  useEffect(() => workspaceApi?.onChanged(({ designId }) => {
+    void workspaceApi.get(designId).then((design) => { if (design) updateDesign(design) })
+    void refresh()
+  }), [refresh, updateDesign, workspaceApi])
   useEffect(() => window.omnidesign?.preview.onDiagnostic((event) => {
     if (event.designId !== activeDesign?.id || !workspaceApi) return
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) })

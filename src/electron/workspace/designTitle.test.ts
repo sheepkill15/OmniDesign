@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDesignTitlePrompt, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection } from './designTitle.js'
+import { createDesignTitlePrompt, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from './designTitle.js'
 
 describe('design titles', () => {
   it('asks the provider for only a compact title using prompt and attachment names', () => {
@@ -17,6 +17,12 @@ describe('design titles', () => {
     expect(normalizeDesignTitle('"Recipe Atlas"\n', 'Fallback')).toBe('Recipe Atlas')
     expect(normalizeDesignTitle('  ', 'Fallback')).toBe('Fallback')
     expect(fallbackDesignTitle('Build a calm analytics dashboard!')).toBe('Build a calm analytics dashboard')
+  })
+
+  it('applies a generated title only while the editable fallback remains unchanged', () => {
+    expect(shouldReplaceFallbackTitle('Create an editorial recipe browser', 'Create an editorial recipe browser', 'Editorial recipes')).toBe(true)
+    expect(shouldReplaceFallbackTitle('My custom name', 'Create an editorial recipe browser', 'Editorial recipes')).toBe(false)
+    expect(shouldReplaceFallbackTitle('Create an editorial recipe browser', 'Create an editorial recipe browser', 'Create an editorial recipe browser')).toBe(false)
   })
 
   it('uses the lightest advertised model and effort for metadata', () => {

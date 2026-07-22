@@ -35,7 +35,7 @@ import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewController } from '../workspace/previewController.js'
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
-import { createDesignTitlePrompt, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection } from '../workspace/designTitle.js'
+import { createDesignTitlePrompt, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
@@ -137,6 +137,10 @@ function sendGenerationActivity(activity: GenerationActivity): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:activity', activity)
 }
 
+function sendWorkspaceChanged(designId: string): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { designId })
+}
+
 // Persist a permanent, chronological record of the major generation milestones for the design's
 // conversation history, then forward the live activity to the renderer. Consecutive activities that
 // share a stage (for example the many streaming "generating" updates from an agent) collapse into a
@@ -229,10 +233,17 @@ function registerIpc(): void {
       requireWorkspace().rememberSelection(design.id, selection)
       return requireWorkspace().getDesign(design.id) ?? design
     }
-    const title = await generateDesignTitle(request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments)
-    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target, title)
+    const fallbackTitle = fallbackDesignTitle(request.prompt)
+    const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target, fallbackTitle)
     requireWorkspace().rememberSelection(design.id, selection)
     requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
+    void generateDesignTitle(request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments).then((title) => {
+      const current = workspace?.getDesign(design.id)
+      if (!current || !shouldReplaceFallbackTitle(current.title, fallbackTitle, title)) return
+      if (!current.sourceProjectPath && current.projectName !== fallbackTitle) return
+      workspace?.renameDesign(design.id, title)
+      sendWorkspaceChanged(design.id)
+    }).catch(() => undefined)
     return requireWorkspace().getDesign(design.id) ?? design
   })
   ipcMain.handle('workspace:list-projects', (event) => {

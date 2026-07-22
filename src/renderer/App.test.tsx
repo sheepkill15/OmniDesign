@@ -44,6 +44,7 @@ function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
 
 function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign: OmniDesignDocument = design) {
   const listeners: Array<(activity: GenerationActivity) => void> = []
+  const changeListeners: Array<(event: { readonly designId: string }) => void> = []
   const projectMap = new Map<string, ProjectSummary>()
   for (const candidate of initialDesigns) {
     const existing = projectMap.get(candidate.projectId)
@@ -96,6 +97,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       saveLayout: vi.fn().mockResolvedValue(undefined),
       exportRevision: vi.fn().mockResolvedValue({ canceled: true }),
       onActivity: vi.fn((listener: (activity: GenerationActivity) => void) => { listeners.push(listener); return () => undefined }),
+      onChanged: vi.fn((listener: (event: { readonly designId: string }) => void) => { changeListeners.push(listener); return () => undefined }),
       onCloneActivity: vi.fn().mockReturnValue(() => undefined),
     },
     preview: {
@@ -122,6 +124,9 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
   return Object.assign(bridge, {
     emitWorkspaceActivity(activity: GenerationActivity) {
       for (const listener of listeners) listener(activity)
+    },
+    emitWorkspaceChanged(designId: string) {
+      for (const listener of changeListeners) listener({ designId })
     },
   })
 }
@@ -431,6 +436,19 @@ describe('Phase 1 walking skeleton UI', () => {
 
     await waitFor(() => expect(bridge.workspace.renameDesign).toHaveBeenCalledWith('design-1', 'Clear signals'))
     expect(await screen.findByRole('heading', { name: 'Clear signals' })).toBeInTheDocument()
+  })
+
+  it('refreshes an open workspace when its background-generated title arrives', async () => {
+    const bridge = installBridge([design], design)
+    const generatedTitle = { ...design, title: 'Quiet metrics' }
+    vi.mocked(bridge.workspace.get).mockResolvedValue(generatedTitle)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    await act(async () => bridge.emitWorkspaceChanged(design.id))
+
+    expect(await screen.findByRole('heading', { name: 'Quiet metrics' })).toBeInTheDocument()
   })
 
   it('selects the provider, model, and effort from the composer settings menu', async () => {

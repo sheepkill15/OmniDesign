@@ -227,6 +227,7 @@ interface Window {
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
+      onChanged(listener: (event: { readonly designId: string }) => void): () => void
       onCloneActivity(listener: (detail: string) => void): () => void
     }
     readonly settings: {

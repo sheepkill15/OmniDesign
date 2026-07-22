@@ -30,3 +30,7 @@ export function normalizeDesignTitle(reply: string, fallback: string): string {
   const title = reply.replace(/[\r\n]+/g, ' ').replace(/^\s*(?:title\s*:\s*)?["'`]+|["'`]+\s*$/gi, '').replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_LENGTH)
   return title || fallback
 }
+
+export function shouldReplaceFallbackTitle(currentTitle: string, fallbackTitle: string, generatedTitle: string): boolean {
+  return currentTitle === fallbackTitle && generatedTitle !== fallbackTitle
+}
