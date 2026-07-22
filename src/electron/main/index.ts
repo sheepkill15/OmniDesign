@@ -38,6 +38,7 @@ let preview: PreviewController | null = null
 let workspace: WorkspaceService | null = null
 let workspaceStore: WorkspaceStore | null = null
 let generationQueue: GenerationQueue | null = null
+let closingAfterGenerationConfirmation = false
 const lastPersistedStageByDesign = new Map<string, string>()
 
 // Designs, their Git repositories, and the SQLite database live under the app's userData directory
@@ -385,6 +386,24 @@ void app.whenReady().then(() => {
     preview?.destroy()
     preview = null
     mainWindow = null
+  })
+  mainWindow.on('close', (event) => {
+    const activeJobs = store.listGenerationJobs(['queued', 'running'])
+    if (closingAfterGenerationConfirmation || activeJobs.length === 0) return
+    event.preventDefault()
+    const choice = dialog.showMessageBoxSync(mainWindow!, {
+      type: 'warning',
+      title: 'Interrupt active generations?',
+      message: `${activeJobs.length} generation${activeJobs.length === 1 ? '' : 's'} will be interrupted.`,
+      detail: 'Partial work and diagnostics will be retained so you can Continue or Retry after reopening OmniDesign.',
+      buttons: ['Keep working', 'Interrupt and close'],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    if (choice !== 1) return
+    closingAfterGenerationConfirmation = true
+    store.markGenerationJobsInterrupted()
+    mainWindow?.close()
   })
 
   app.on('activate', () => {
