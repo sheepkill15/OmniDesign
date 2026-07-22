@@ -485,7 +485,7 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
   )
 }
 
-function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onReconnect, onConvertToStandalone }: {
+function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onReconnect, onConvertToStandalone, onTrashProject }: {
   readonly project: ProjectSummary
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
@@ -494,6 +494,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   readonly onOpenDesign: (design: OmniDesignDocument) => void
   readonly onReconnect: (project: ProjectSummary) => Promise<void>
   readonly onConvertToStandalone: (project: ProjectSummary) => Promise<void>
+  readonly onTrashProject: (project: ProjectSummary) => Promise<void>
 }) {
   const [designs, setDesigns] = useState<readonly OmniDesignDocument[]>([])
   const load = useCallback(async () => {
@@ -509,6 +510,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
           <h1>{project.name}</h1>
           <p>{project.kind === 'linked' ? (project.sourceAvailable ? project.sourceProjectPath ?? 'Linked project' : 'Linked source folder is unavailable') : 'Standalone project'}</p>
           {project.kind === 'linked' && !project.sourceAvailable && <div className="generation-recovery" role="status"><span><strong>Source folder unavailable.</strong> Your saved designs are safe; reconnect the folder or keep this project standalone.</span><Button className="secondary-action" onPress={() => void onReconnect(project)}>Reconnect folder</Button><Button className="secondary-action" onPress={() => void onConvertToStandalone(project)}>Convert to standalone</Button></div>}
+          <Button className="secondary-action" onPress={() => void onTrashProject(project)}><TrashIcon aria-hidden="true" />Remove project</Button>
         </header>
         <NewDesignComposer providers={providers} busy={busy} fixedProject={project} onCreate={onCreate} />
         {busy && <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>}
@@ -998,6 +1000,7 @@ export function App() {
   const restoreTrash = async (item: TrashItem) => { await workspaceApi?.restoreTrash(item.kind, item.id); await refresh() }
   const purgeTrash = async (item: TrashItem) => { await workspaceApi?.purgeTrash(item.kind, item.id); await refresh() }
   const trashDesign = async (design: OmniDesignDocument) => { await workspaceApi?.trash('design', design.id); home() }
+  const trashProject = async (project: ProjectSummary) => { await workspaceApi?.trash('project', project.id); home() }
   const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => ['queued', 'running'].includes(job.state)).length
 
   return (
@@ -1014,7 +1017,7 @@ export function App() {
         : activeDesign
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} />
         : activeProject
-        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} />
+        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
         : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} onClone={cloneProject} />}
     </div>
   )
