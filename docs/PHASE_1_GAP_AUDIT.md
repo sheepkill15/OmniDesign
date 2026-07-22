@@ -27,7 +27,7 @@ Required proof:
 
 ### 2. Project/design association workflow
 
-Manual reassociation of an existing standalone design to a linked project now preserves its history and managed repository. Phase 1 still lacks the non-blocking matching suggestion and the optional adaptation generation after association.
+Manual reassociation of an existing standalone design to a linked project now preserves its history and managed repository, then offers an optional normal generation to adapt the design language. Phase 1 still lacks the non-blocking matching suggestion.
 
 ### 3. Provider and generation-detail acceptance
 

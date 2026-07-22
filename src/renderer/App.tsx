@@ -603,16 +603,18 @@ function LayoutMenu({ mode, onOpenChange, onChange }: { readonly mode: LayoutMod
   )
 }
 
-function DesignWorkspace({ design, providers, projects, activity, busy, onBack, onChange, onTrash, onAssociate }: {
+function DesignWorkspace({ design, providers, projects, associatedProjectName, activity, busy, onBack, onChange, onTrash, onAssociate, onDismissAssociation }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
   readonly projects: readonly ProjectSummary[]
+  readonly associatedProjectName: string | null
   readonly activity: GenerationActivity | null
   readonly busy: boolean
   readonly onBack: () => void
   readonly onChange: (design: OmniDesignDocument) => void
   readonly onTrash: (design: OmniDesignDocument) => Promise<void>
   readonly onAssociate: (design: OmniDesignDocument, projectId: string) => Promise<void>
+  readonly onDismissAssociation: () => void
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
@@ -741,6 +743,11 @@ function DesignWorkspace({ design, providers, projects, activity, busy, onBack, 
     const selected = await api?.chooseAttachments()
     if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
   }
+  const adaptToAssociatedProject = async () => {
+    if (!api || !associatedProjectName || busy) return
+    onChange(await api.generate(design.id, `Adapt this design to the established design language of ${associatedProjectName}. Preserve its purpose while aligning visual language, interaction patterns, and relevant project conventions.`, selection.providerId, selection.modelId, selection.effort ?? undefined, attachments))
+    onDismissAssociation()
+  }
 
   const previewStatus = selectedRevision
     ? selectedRevision.diagnostics.length ? `${selectedRevision.diagnostics.length} diagnostic${selectedRevision.diagnostics.length === 1 ? '' : 's'} captured` : 'Offline · validated'
@@ -759,6 +766,7 @@ function DesignWorkspace({ design, providers, projects, activity, busy, onBack, 
           <p>{latestInvalidCandidate.diagnostic}</p>
           <details><summary>Technical details</summary><pre>{latestInvalidCandidate.html}</pre></details>
         </section>}
+        {associatedProjectName && <div className="generation-recovery" role="status"><span><strong>Design associated with {associatedProjectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
       </div>
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
       <div className="workspace-composer">
@@ -878,6 +886,7 @@ export function App() {
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null)
   const [composerProject, setComposerProject] = useState<ProjectSummary | null>(null)
+  const [associationNotice, setAssociationNotice] = useState<{ readonly designId: string; readonly projectName: string } | null>(null)
   const [activity, setActivity] = useState<GenerationActivity | null>(null)
   const [busy, setBusy] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -1010,7 +1019,7 @@ export function App() {
   const trashProject = async (project: ProjectSummary) => { await workspaceApi?.trash('project', project.id); home() }
   const associateDesign = async (design: OmniDesignDocument, projectId: string) => {
     const associated = await workspaceApi?.associateDesign(design.id, projectId)
-    if (associated) updateDesign(associated)
+    if (associated) { updateDesign(associated); setAssociationNotice({ designId: associated.id, projectName: associated.projectName }) }
     await refresh()
   }
   const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => ['queued', 'running'].includes(job.state)).length
@@ -1027,7 +1036,7 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} onThemeChange={changeTheme} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associatedProjectName={associationNotice?.designId === activeDesign.id ? associationNotice.projectName : null} activity={activity?.designId === activeDesign.id ? activity : null} busy={busy && activity?.designId === activeDesign.id} onBack={backFromDesign} onChange={updateDesign} onTrash={trashDesign} onAssociate={associateDesign} onDismissAssociation={() => setAssociationNotice(null)} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={creating ? activity : null} onCreate={create} onOpenDesign={openDesign} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} />
         : <Home projects={projects} providers={providerState.providers} busy={creating} activity={creating ? activity : null} composerProject={composerProject} onCreate={create} onOpen={openProject} onClone={cloneProject} />}
