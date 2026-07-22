@@ -41,6 +41,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Settings no longer claim persistence before writes finish: controls expose a saving state, failed writes roll back the optimistic value, and both load and save failures remain visible with their local diagnostic.
 - Initial and background workspace refresh failures now preserve the last loaded shell state and expose a persistent sidebar diagnostic with Retry instead of failing silently or leaving unexplained empty navigation.
 - Initial composer operations now retain the draft and report actionable local diagnostics when project-folder selection, clone-destination selection, attachment selection, saved generation defaults, or design creation fails.
+- Project reads now fail in place instead of clearing the current screen, and project-page loading, reconnect, conversion, and removal failures expose scoped diagnostics with retry or dismissal controls.
 
 ## Remaining functional gaps
 

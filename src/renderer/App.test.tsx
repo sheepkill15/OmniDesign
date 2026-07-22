@@ -187,6 +187,34 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.workspace.create).not.toHaveBeenCalled()
   })
 
+  it('keeps the current screen intact when a project cannot be opened', async () => {
+    const secondDesign = { ...design, id: 'design-2', title: 'Calm settings' }
+    const bridge = installBridge([design, secondDesign])
+    vi.mocked(bridge.workspace.getProject).mockRejectedValueOnce(new Error('Project record is unavailable.'))
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+
+    const alert = await within(sidebar).findByRole('alert')
+    expect(alert).toHaveTextContent('Project record is unavailable.')
+    expect(screen.getByRole('heading', { name: 'Start with an idea.' })).toBeInTheDocument()
+  })
+
+  it('reports project-page action failures without leaving the project', async () => {
+    const secondDesign = { ...design, id: 'design-2', title: 'Calm settings' }
+    const bridge = installBridge([design, secondDesign])
+    vi.mocked(bridge.workspace.trash).mockRejectedValueOnce(new Error('Trash is temporarily locked.'))
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove project' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The project could not be moved to Trash. Trash is temporarily locked.')
+    expect(screen.getByRole('heading', { level: 1, name: 'Calm dashboard' })).toBeInTheDocument()
+  })
+
   it('preserves a follow-up draft when its previous provider is unavailable', async () => {
     const bridge = installBridge([design])
     vi.mocked(bridge.providers.discover).mockResolvedValue([])

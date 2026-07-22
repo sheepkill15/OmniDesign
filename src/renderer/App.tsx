@@ -794,11 +794,30 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   readonly onOpenProviders: () => void
 }) {
   const [designs, setDesigns] = useState<readonly OmniDesignDocument[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [pendingAction, setPendingAction] = useState<'reconnect' | 'convert' | 'remove' | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const load = useCallback(async () => {
-    const detail = await window.omnidesign?.workspace.getProject(project.id)
-    if (detail) setDesigns(detail.designs)
+    setLoadError(null)
+    try {
+      const detail = await window.omnidesign?.workspace.getProject(project.id)
+      if (detail) setDesigns(detail.designs)
+    } catch (reason) {
+      setLoadError(reason instanceof Error && reason.message ? reason.message : 'The project designs could not be loaded.')
+    }
   }, [project.id])
   useEffect(() => { void load() }, [load])
+  const runProjectAction = async (action: 'reconnect' | 'convert' | 'remove', operation: () => Promise<void>, failure: string) => {
+    setPendingAction(action)
+    setActionError(null)
+    try {
+      await operation()
+    } catch (reason) {
+      setActionError(`${failure}${reason instanceof Error && reason.message ? ` ${reason.message}` : ''}`)
+    } finally {
+      setPendingAction(null)
+    }
+  }
   const renameDesign = async (design: OmniDesignDocument, title: string) => {
     setDesigns((current) => current.map((candidate) => candidate.id === design.id ? { ...candidate, title } : candidate))
     try {
@@ -818,13 +837,15 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
         <header className="page-heading">
           <EditableTitle value={project.name} label="project" variant="page" onSave={(name) => onRenameProject(project, name)} />
           <p>{project.kind === 'linked' ? (project.sourceAvailable ? project.sourceProjectPath ?? 'Linked project' : 'Linked source folder is unavailable') : 'Standalone project'}</p>
-          {project.kind === 'linked' && !project.sourceAvailable && <div className="generation-recovery" role="status"><span><strong>Source folder unavailable.</strong> Your saved designs are safe; reconnect the folder or keep this project standalone.</span><Button className="secondary-action" onPress={() => void onReconnect(project)}>Reconnect folder</Button><Button className="secondary-action" onPress={() => void onConvertToStandalone(project)}>Convert to standalone</Button></div>}
-          <Button className="secondary-action" onPress={() => void onTrashProject(project)}><TrashIcon aria-hidden="true" />Remove project</Button>
+          {project.kind === 'linked' && !project.sourceAvailable && <div className="generation-recovery" role="status"><span><strong>Source folder unavailable.</strong> Your saved designs are safe; reconnect the folder or keep this project standalone.</span><Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runProjectAction('reconnect', () => onReconnect(project), 'The project folder could not be reconnected.')}>{pendingAction === 'reconnect' ? 'Reconnecting…' : 'Reconnect folder'}</Button><Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runProjectAction('convert', () => onConvertToStandalone(project), 'The project could not be converted.')}>{pendingAction === 'convert' ? 'Converting…' : 'Convert to standalone'}</Button></div>}
+          <Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runProjectAction('remove', () => onTrashProject(project), 'The project could not be moved to Trash.')}><TrashIcon aria-hidden="true" />{pendingAction === 'remove' ? 'Removing…' : 'Remove project'}</Button>
         </header>
+        {actionError && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Project action failed.</strong><small>{actionError}</small></span><Button className="text-button" onPress={() => setActionError(null)}>Dismiss</Button></div>}
         <NewDesignComposer providers={providers} busy={busy} fixedProject={project} onCreate={onCreate} onOpenProviders={onOpenProviders} />
         {busy && <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>}
         <section className="recent-section" aria-labelledby="project-designs">
           <div className="section-heading"><h2 id="project-designs">Designs</h2><span>{designs.length ? `${designs.length} design${designs.length === 1 ? '' : 's'}` : 'No designs yet'}</span></div>
+          {loadError && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Project designs could not be loaded.</strong><small>{loadError}</small></span><Button className="text-button" onPress={() => void load()}>Retry</Button></div>}
           {designs.length
             ? <div className="design-grid" role="group" aria-label="Designs in this project">
                 {designs.map((design) => {
@@ -1464,22 +1485,32 @@ export function App() {
     setActiveDesign(design)
   }
   const openDiagnostic = async (design: OmniDesignDocument, revisionId: string | null) => {
-    const current = await workspaceApi?.get(design.id) ?? design
-    const selected = revisionId && current.selectedRevisionId !== revisionId
-      ? await workspaceApi?.selectRevision(current.id, revisionId) ?? current
-      : current
-    openDesign(selected)
+    try {
+      const current = await workspaceApi?.get(design.id) ?? design
+      const selected = revisionId && current.selectedRevisionId !== revisionId
+        ? await workspaceApi?.selectRevision(current.id, revisionId) ?? current
+        : current
+      setWorkspaceError(null)
+      openDesign(selected)
+    } catch (reason) {
+      setWorkspaceError(reason instanceof Error && reason.message ? reason.message : 'The diagnostic design could not be opened.')
+    }
   }
   const openProjectDesign = (project: ProjectSummary, design: OmniDesignDocument) => { closePanels(); setActiveProject(project); setActiveDesign(design) }
   // A project with exactly one design opens straight into its workspace; empty or multi-design projects
   // open the project page (composer plus design grid).
   const openProject = async (project: ProjectSummary) => {
     if (project.designCount === 1 && activeDesign?.projectId === project.id) return
-    void window.omnidesign?.preview.hide()
-    closePanels()
-    const detail = await workspaceApi?.getProject(project.id)
-    setActiveProject(detail?.project ?? project)
-    setActiveDesign(detail && detail.designs.length === 1 ? detail.designs[0] : null)
+    try {
+      const detail = await workspaceApi?.getProject(project.id)
+      setWorkspaceError(null)
+      void window.omnidesign?.preview.hide()
+      closePanels()
+      setActiveProject(detail?.project ?? project)
+      setActiveDesign(detail && detail.designs.length === 1 ? detail.designs[0] : null)
+    } catch (reason) {
+      setWorkspaceError(reason instanceof Error && reason.message ? reason.message : 'The project could not be opened.')
+    }
   }
   const backFromDesign = () => {
     void window.omnidesign?.preview.hide()
