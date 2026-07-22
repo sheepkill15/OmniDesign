@@ -167,15 +167,32 @@ function Generations({ designs, onOpen, onCancel, onRemove, onResume }: {
   readonly onRemove: (jobId: string) => Promise<void>
   readonly onResume: (designId: string) => Promise<void>
 }) {
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const jobs = designs.flatMap((design) => design.generationJobs
     .filter((job) => ['queued', 'running'].includes(job.state))
     .map((job) => ({ design, job })))
+  const runningCount = jobs.filter(({ job }) => job.state === 'running').length
+  const queuedCount = jobs.length - runningCount
+  const summary = [runningCount ? `${runningCount} running` : '', queuedCount ? `${queuedCount} queued` : ''].filter(Boolean).join(' · ')
+  const runAction = async (id: string, action: () => Promise<void>, failure: string) => {
+    setPendingAction(id)
+    setError(null)
+    try {
+      await action()
+    } catch (reason) {
+      setError(`${failure}${reason instanceof Error && reason.message ? ` ${reason.message}` : ''}`)
+    } finally {
+      setPendingAction(null)
+    }
+  }
   return (
     <main className="settings-main">
       <div className="settings-content">
         <header className="page-heading"><h1>Generations</h1><p>Work continues while you move between designs. Each design runs one prompt at a time.</p></header>
         <section className="settings-section" aria-labelledby="active-generations-heading">
-          <div className="section-heading"><h2 id="active-generations-heading">Active work</h2><span>{jobs.length ? `${jobs.length} active` : 'All caught up'}</span></div>
+          <div className="section-heading"><h2 id="active-generations-heading">Active work</h2><span>{jobs.length ? summary : 'All caught up'}</span></div>
+          {error && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Generation action failed.</strong><small>{error}</small></span><Button className="text-button" onPress={() => setError(null)}>Dismiss</Button></div>}
           <div className="generation-list">
             {jobs.map(({ design, job }) => {
               const progress = job.startedAt
@@ -187,9 +204,9 @@ function Generations({ designs, onOpen, onCancel, onRemove, onResume }: {
                 <GenerationElapsed startedAt={job.startedAt ?? job.createdAt} />
                 {job.state === 'queued'
                   ? design.queuePaused && design.generationJobs.find((candidate) => candidate.state === 'queued')?.id === job.id
-                    ? <span className="generation-actions"><Button className="secondary-action" onPress={() => void onResume(design.id)}>Resume</Button><Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button></span>
-                    : <Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button>
-                  : <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>}
+                    ? <span className="generation-actions"><Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runAction(`resume:${design.id}`, () => onResume(design.id), 'The paused queue could not be resumed.')}>{pendingAction === `resume:${design.id}` ? 'Resuming…' : 'Resume'}</Button><Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runAction(`remove:${job.id}`, () => onRemove(job.id), 'The queued prompt could not be removed.')}>{pendingAction === `remove:${job.id}` ? 'Removing…' : 'Remove'}</Button></span>
+                    : <Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runAction(`remove:${job.id}`, () => onRemove(job.id), 'The queued prompt could not be removed.')}>{pendingAction === `remove:${job.id}` ? 'Removing…' : 'Remove'}</Button>
+                  : <Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runAction(`stop:${job.id}`, () => onCancel(job.id), 'The running generation could not be stopped.')}><StopIcon aria-hidden="true" />{pendingAction === `stop:${job.id}` ? 'Stopping…' : 'Stop'}</Button>}
                 {progress.length ? <GenerationActivitySection className="active-generation-activity" id={`${job.id}-progress`} steps={progress} title="Progress details" /> : null}
               </article>
             })}
@@ -238,9 +255,10 @@ function GenerationActivitySection({ className = 'conversation-activity', id, st
   )
 }
 
-function Providers({ providers, loading, onRefresh }: {
+function Providers({ providers, loading, error, onRefresh }: {
   readonly providers: readonly ProviderStatus[]
   readonly loading: boolean
+  readonly error: string | null
   readonly onRefresh: () => void
 }) {
   return (
@@ -249,6 +267,7 @@ function Providers({ providers, loading, onRefresh }: {
         <header className="page-heading"><h1>Providers</h1><p>OmniDesign uses the existing sign-in state of locally installed provider tools. No credentials are stored here.</p></header>
         <section className="settings-section" aria-labelledby="provider-availability-heading">
           <div className="section-heading"><h2 id="provider-availability-heading">Availability</h2><Button className="secondary-action" onPress={onRefresh} isDisabled={loading}><ArrowPathIcon className={loading ? 'spin' : undefined} aria-hidden="true" />Refresh</Button></div>
+          {error && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Provider availability could not be refreshed.</strong><small>{error}</small></span></div>}
           <div className="provider-list">
             {providers.map((provider) => <article className="provider-row" key={provider.id}>
               <span className="provider-status" data-ready={provider.installed && provider.authenticated || undefined} aria-hidden="true" />
@@ -1255,27 +1274,31 @@ const developmentProvider: ProviderStatus = {
   models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }],
 }
 
-function useProviders(): { readonly label: string; readonly providers: readonly ProviderStatus[]; readonly loading: boolean; readonly refresh: () => void } {
+function useProviders(): { readonly label: string; readonly providers: readonly ProviderStatus[]; readonly loading: boolean; readonly error: string | null; readonly refresh: () => void } {
+  const developmentEnabled = import.meta.env.DEV || window.omnidesign?.providers.developmentProviderEnabled
   const [label, setLabel] = useState('Development provider')
-  const [providers, setProviders] = useState<ProviderStatus[]>(import.meta.env.DEV || window.omnidesign?.providers.developmentProviderEnabled ? [developmentProvider] : [])
+  const [providers, setProviders] = useState<ProviderStatus[]>(developmentEnabled ? [developmentProvider] : [])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const refresh = useCallback(() => {
     const api = window.omnidesign?.providers
     if (!api) return
     setLoading(true)
+    setError(null)
     void api.discover().then((available) => {
       setProviders(available)
       const provider = available.find((candidate) => candidate.installed && candidate.authenticated)
       setLabel(provider ? `${provider.name} available · Development provider active` : 'Development provider')
-    }).catch(() => {
-      setProviders([])
+    }).catch((reason: unknown) => {
+      setProviders(developmentEnabled ? [developmentProvider] : [])
       setLabel('Development provider')
+      setError(reason instanceof Error && reason.message ? reason.message : 'Provider discovery failed unexpectedly.')
     }).finally(() => setLoading(false))
-  }, [])
+  }, [developmentEnabled])
   useEffect(() => {
     refresh()
   }, [refresh])
-  return { label, providers, loading, refresh }
+  return { label, providers, loading, error, refresh }
 }
 
 export function App() {
@@ -1497,7 +1520,7 @@ export function App() {
         : trashOpen
         ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} onEmpty={emptyTrash} />
         : providersOpen
-        ? <Providers providers={providerState.providers} loading={providerState.loading} onRefresh={providerState.refresh} />
+        ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} onRefresh={providerState.refresh} />
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : activeDesign

@@ -37,6 +37,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Active-work elapsed time now advances live instead of remaining frozen at the instant the Generations view opened.
 - A successfully completed later attempt now retires older failure recovery controls instead of resurrecting stale Continue and Retry actions.
 - Restart recovery now interrupts only work that was actually running, preserves queued follow-ups in submission order, persists the queue as paused, and exposes an explicit Resume action when no failed predecessor needs Continue or Retry.
+- Global generation controls now expose scoped busy labels and actionable inline failures, while provider discovery failures retain available development tooling and show the underlying diagnostic instead of collapsing silently to an unexplained empty state.
 
 ## Remaining functional gaps
 

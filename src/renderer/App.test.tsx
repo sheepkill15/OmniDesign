@@ -201,6 +201,18 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.providers.discover).toHaveBeenCalledTimes(3))
   })
 
+  it('explains provider discovery failures without hiding the development provider', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.providers.discover).mockRejectedValue(new Error('Provider tools could not be queried.'))
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Provider availability could not be refreshed.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Provider tools could not be queried.')
+    expect(screen.getByText('Development provider')).toBeInTheDocument()
+  })
+
   it('opens the recoverable trash view', async () => {
     installBridge()
     render(<App />)
@@ -285,6 +297,26 @@ describe('Phase 1 walking skeleton UI', () => {
 
     expect(bridge.workspace.resumeGenerationQueue).toHaveBeenCalledWith('design-1')
     expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument()
+  })
+
+  it('keeps failed global generation actions visible and retryable', async () => {
+    const queuedDesign: OmniDesignDocument = {
+      ...design,
+      generationJobs: [{
+        id: '7e3670bd-2f6c-444d-afd0-a26e17839964', designId: 'design-1', prompt: 'Remove me', providerId: 'mock', modelId: 'mock-v1', state: 'queued',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [],
+      }],
+    }
+    const bridge = installBridge([queuedDesign], queuedDesign)
+    vi.mocked(bridge.workspace.removeGeneration).mockRejectedValueOnce(new Error('Database is busy.'))
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Generations/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Generation action failed.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Database is busy.')
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled()
   })
 
   it('shows recent detailed progress for a running generation', async () => {
