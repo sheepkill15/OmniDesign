@@ -910,6 +910,28 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(details).toHaveTextContent('ENOTFOUND api.openai.com')
   })
 
+  it('retires an old failure after later work completes successfully', async () => {
+    const recoveredDesign: OmniDesignDocument = {
+      ...design,
+      generationJobs: [{
+        id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'First attempt', providerId: 'codex', modelId: 'gpt-5.6', state: 'failed',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'Connection lost', attachments: [],
+      }, {
+        id: 'f0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'First attempt', providerId: 'codex', modelId: 'gpt-5.6', state: 'completed',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:02:01.000Z', completedAt: '2026-07-20T10:02:02.000Z', error: null, attachments: [],
+      }],
+    }
+    installBridge([recoveredDesign], recoveredDesign)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Generation failed')).not.toBeInTheDocument()
+  })
+
   it('opens a single-design project straight into its workspace', async () => {
     const bridge = installBridge([design])
     render(<App />)

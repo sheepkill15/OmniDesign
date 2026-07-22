@@ -892,7 +892,10 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const runningJob = design.generationJobs.find((job) => job.state === 'running')
   const queuedJobs = design.generationJobs.filter((job) => job.state === 'queued')
   const activeJob = runningJob ?? queuedJobs[0]
-  const retryableJob = [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
+  const latestJob = design.generationJobs.at(-1)
+  const retryableJob = design.queuePaused
+    ? [...design.generationJobs].reverse().find((job) => ['failed', 'cancelled', 'interrupted'].includes(job.state))
+    : latestJob && ['failed', 'cancelled', 'interrupted'].includes(latestJob.state) ? latestJob : undefined
   const stoppedGeneration = retryableJob ? describeStoppedGeneration(retryableJob) : null
   const api = window.omnidesign?.workspace
   const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
