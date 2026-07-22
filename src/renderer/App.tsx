@@ -30,6 +30,7 @@ import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
 import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, Switch, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { AppModal } from './components/AppModal'
 import { DropdownButton } from './components/DropdownButton'
+import { GenerationElapsed } from './components/GenerationElapsed'
 import { PreviewOverlayContext } from './components/PreviewOverlayContext'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
@@ -182,7 +183,7 @@ function Generations({ designs, onOpen, onCancel, onRemove }: {
               const stage = design.queuePaused ? 'Queue paused' : job.state === 'queued' ? 'Queued' : progress.at(-1)?.label ?? 'Starting'
               return <article className="generation-row" key={job.id}>
                 <Button aria-label={`${design.projectName}, ${design.title}: ${stage}`} className="generation-copy" onPress={() => onOpen(design)}><span className="generation-heading"><strong>{design.title}</strong><em>{design.projectName}</em></span><small>{stage} · {job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`} · {job.prompt}</small></Button>
-                <time className="generation-elapsed" dateTime={job.startedAt ?? job.createdAt}>{formatGenerationElapsed(job.startedAt ?? job.createdAt)}</time>
+                <GenerationElapsed startedAt={job.startedAt ?? job.createdAt} />
                 {job.state === 'queued'
                   ? <Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button>
                   : <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>}
@@ -232,12 +233,6 @@ function GenerationActivitySection({ className = 'conversation-activity', id, st
       <div className="conversation-activity-steps">{steps.map((step) => <div className={`conversation-step step-${step.stage}`} key={step.id}><span className="conversation-step-label">{step.label}</span>{step.detail && <span className="conversation-step-detail">{step.detail}</span>}</div>)}</div>
     </details>
   )
-}
-
-function formatGenerationElapsed(startedAt: string): string {
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1_000))
-  if (elapsedSeconds < 60) return `${elapsedSeconds}s`
-  return `${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s`
 }
 
 function Providers({ providers, loading, onRefresh }: {
