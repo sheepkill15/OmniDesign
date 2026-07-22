@@ -51,15 +51,41 @@ test('creates and recovers a standalone design in the built Electron app', async
       await writeFile(destination, content)
     }
     const exportedDocument = await firstRun.app.evaluate(async ({ BrowserWindow }, fileUrl) => {
-      const exportedWindow = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
+      const exportedWindow = new BrowserWindow({ show: false, width: 1440, height: 900, webPreferences: { sandbox: true } })
       try {
         await exportedWindow.loadURL(fileUrl)
-        return await exportedWindow.webContents.executeJavaScript(`({ heading: document.querySelector('h1')?.textContent, stylesheet: document.querySelector('link[href=".build/tailwind.css"]') !== null })`)
+        const inspect = async (width: number) => {
+          exportedWindow.setContentSize(width, 800)
+          return await exportedWindow.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+            const interactive = [...document.querySelectorAll('a[href], button, input, select, textarea, summary')]
+            const unnamed = interactive.filter((element) => !element.getAttribute('aria-label') && !element.getAttribute('aria-labelledby') && !element.getAttribute('title') && !element.textContent?.trim())
+            resolve({
+              width: window.innerWidth,
+              horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+              lang: document.documentElement.lang,
+              viewport: document.querySelector('meta[name="viewport"]')?.getAttribute('content'),
+              mainCount: document.querySelectorAll('main').length,
+              headingCount: document.querySelectorAll('h1').length,
+              unnamedInteractiveCount: unnamed.length,
+            })
+          })))`)
+        }
+        return {
+          heading: await exportedWindow.webContents.executeJavaScript(`document.querySelector('h1')?.textContent`),
+          stylesheet: await exportedWindow.webContents.executeJavaScript(`document.querySelector('link[href=".build/tailwind.css"]') !== null`),
+          compact: await inspect(390),
+          wide: await inspect(1440),
+        }
       } finally {
         exportedWindow.destroy()
       }
     }, pathToFileURL(path.join(exportedDirectory, 'index.html')).href)
-    expect(exportedDocument).toEqual({ heading: 'A calm analytics dashboard', stylesheet: true })
+    expect(exportedDocument).toMatchObject({
+      heading: 'A calm analytics dashboard',
+      stylesheet: true,
+      compact: { horizontalOverflow: false, lang: 'en', viewport: 'width=device-width, initial-scale=1', mainCount: 1, headingCount: 1, unnamedInteractiveCount: 0 },
+      wide: { horizontalOverflow: false, lang: 'en', viewport: 'width=device-width, initial-scale=1', mainCount: 1, headingCount: 1, unnamedInteractiveCount: 0 },
+    })
     await firstRun.app.close()
     activeApp = null
 

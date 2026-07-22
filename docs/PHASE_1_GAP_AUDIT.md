@@ -45,7 +45,7 @@ The in-app generation badge updates, and cross-platform system notifications for
 
 The current automated suite does not yet prove all Phase 1 quality gates:
 
-- representative generated designs need automated responsive and accessibility checks;
+- the development-provider representative export now receives compact/wide overflow checks and basic semantic-accessibility checks; representative real-provider outputs still need equivalent sampling;
 - provider adapter contracts need capability coverage for both real adapters;
 - exported ZIPs are now unzipped and loaded in a fresh sandboxed Electron browser window; broader representative-design coverage remains useful;
 - all primary screens and reusable controls need explicit dark and light theme verification;
