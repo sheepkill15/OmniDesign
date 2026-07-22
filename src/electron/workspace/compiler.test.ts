@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collectTailwindCandidates, compileTailwindCss, findDesignQualityWarnings, validateCompiledDesign } from './compiler.js'
+import { collectTailwindCandidates, compileTailwindCss, validateCompiledDesign } from './compiler.js'
 
 describe('design compiler', () => {
   it('collects complete Tailwind candidates and compiles a standalone stylesheet', async () => {
@@ -44,29 +44,5 @@ describe('design compiler', () => {
     expect(() => validateCompiledDesign('<html><head><link rel="stylesheet" href=".build/tailwind.css"><script defer src=".build/alpine.js"></script></head><body></body></html>')).not.toThrow()
     // Local filesystem access stays blocked.
     expect(() => validateCompiledDesign('<html><body><img src="file:///C:/secret.png"></body></html>')).toThrow(/file:/)
-  })
-
-  it('reports the baseline semantic document quality required for generated designs', () => {
-    expect(findDesignQualityWarnings('<html><head></head><body><h2>Dashboard</h2></body></html>')).toEqual([
-      'Set a language on the html element.',
-      'Add a responsive viewport meta tag.',
-      'Use exactly one main landmark (found 0).',
-      'Use exactly one h1 heading (found 0).',
-    ])
-    expect(findDesignQualityWarnings('<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main><h1>Dashboard</h1></main></body></html>')).toEqual([])
-  })
-
-  const wrap = (body: string) => `<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main><h1>D</h1>${body}</main></body></html>`
-
-  it('warns when an interactive control has no accessible name', () => {
-    expect(findDesignQualityWarnings(wrap('<button><svg></svg></button>'))).toContain('Give every interactive control an accessible name (1 without one).')
-    // A visible label, an aria-label, a titled icon, or an anchor without href are all acceptable.
-    expect(findDesignQualityWarnings(wrap('<button>Save</button><button aria-label="Close"><svg></svg></button><button><svg><title>Menu</title></svg></button><a>text</a>'))).toEqual([])
-  })
-
-  it('warns when an image is missing an alt attribute', () => {
-    expect(findDesignQualityWarnings(wrap('<img src="https://x/a.png">'))).toContain('Add alt text to images (1 missing an alt attribute).')
-    // Empty alt is a valid decorative marker and must not be flagged.
-    expect(findDesignQualityWarnings(wrap('<img src="https://x/a.png" alt="">'))).toEqual([])
   })
 })

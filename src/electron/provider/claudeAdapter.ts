@@ -72,7 +72,6 @@ export class ClaudeAdapter implements ProviderAdapter {
       '-p',
       '--output-format', 'stream-json',
       '--verbose',
-      '--include-partial-messages',
       '--model', request.modelId,
       ...(request.effort ? ['--effort', request.effort] : []),
       '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
@@ -132,18 +131,10 @@ export class ClaudeAdapter implements ProviderAdapter {
       const sessionId = typeof event.session_id === 'string' ? event.session_id : undefined
       return { kind: 'status', label: 'Provider status', detail: typeof event.subtype === 'string' ? event.subtype : 'system', ...(sessionId ? { sessionId } : {}) }
     }
-    if (type === 'stream_event' && isObject(event.event)) {
-      const streamEvent = event.event
-      const delta = isObject(streamEvent.delta) && typeof streamEvent.delta.text === 'string'
-        ? streamEvent.delta.text
-        : undefined
-      return delta ? { kind: 'text', label: 'Response update', detail: delta } : undefined
-    }
-    if ((type === 'assistant' || type === 'user') && isObject(event.message) && Array.isArray(event.message.content)) {
+    // Only assistant events are the agent's own conversation. `user` events are tool results and
+    // CLI-injected reminders (e.g. structured-output enforcement) that must never bleed into the reply.
+    if (type === 'assistant' && isObject(event.message) && Array.isArray(event.message.content)) {
       const blocks = event.message.content.filter(isObject)
-      // A tool_result is the outcome of the preceding tool_use; showing it separately (with its full
-      // file/command output) is noise for a non-technical user, so it is merged away by dropping it.
-      if (blocks.some((block) => block.type === 'tool_result')) return undefined
       const tool = blocks.find((block) => block.type === 'tool_use')
       if (tool) {
         const toolName = typeof tool.name === 'string' ? tool.name : 'tool'

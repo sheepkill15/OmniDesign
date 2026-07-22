@@ -31,6 +31,8 @@ import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
 import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, Switch, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { AppModal } from './components/AppModal'
 import { DropdownButton } from './components/DropdownButton'
+import { Markdown } from './components/Markdown'
+import { promptMentionsProject } from './promptMatch'
 import { GenerationElapsed } from './components/GenerationElapsed'
 import { PreviewOverlayContext } from './components/PreviewOverlayContext'
 
@@ -288,7 +290,7 @@ function ConversationMessage({ message, onOpenAttachment }: { readonly message: 
       <div className="message-body">
         <span className="message-role">{isUser ? 'You' : 'OmniDesign'}</span>
         <div className="message-bubble">
-          <p>{message.text}</p>
+          {isUser ? <p>{message.text}</p> : <Markdown text={message.text} />}
           {message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => onOpenAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}
         </div>
       </div>
@@ -700,20 +702,6 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
 function ProjectThumbnail({ title, thumbnailDataUrl }: { readonly title: string; readonly thumbnailDataUrl: string | null }) {
   if (thumbnailDataUrl) return <img alt={`Preview of ${title}`} className="mini-preview-image" src={thumbnailDataUrl} />
   return <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>
-}
-
-// Conservative project-name detection for the standalone-design association suggestion: the whole
-// project name must appear as a word-bounded phrase in the prompt, and very short names are ignored,
-// so a project called "app" or "ui" no longer matches almost every prompt.
-export function promptMentionsProject(prompt: string, projectName: string): boolean {
-  const name = projectName.trim()
-  if (name.length < 4) return false
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  try {
-    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(prompt)
-  } catch {
-    return prompt.toLocaleLowerCase().includes(name.toLocaleLowerCase())
-  }
 }
 
 function designSubtitle(design: OmniDesignDocument): string {

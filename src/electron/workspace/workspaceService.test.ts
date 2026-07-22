@@ -83,32 +83,29 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
-  it('requests repair for agent quality failures and records warnings only when final output is accepted', async () => {
+  it('accepts accessibility/best-practice imperfections and repairs only genuine errors', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)
     const store = new WorkspaceStore(directory)
     const service = new WorkspaceService(store)
     const activity: GenerationActivity[] = []
     const design = service.createAgentDesignShell('Build a dashboard', (event) => activity.push(event))
-    const repositoryPath = service.getDesignRepositoryPath(design.id)
-    writeFileSync(path.join(repositoryPath, 'index.html'), '<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><h1>Dashboard</h1></body></html>')
+    const indexHtml = path.join(service.getDesignRepositoryPath(design.id), 'index.html')
 
-    const rejected = await service.saveAgentWorkspaceResult(design.id, 'Build a dashboard', 'claude', 'fable', 'First pass', (event) => activity.push(event), true)
-
-    expect(rejected.revisions).toHaveLength(0)
-    expect(rejected.invalidCandidates.at(-1)?.diagnostic).toContain('exactly one main landmark')
-    expect(activity.at(-1)?.stage).toBe('repairing')
-
-    writeFileSync(path.join(repositoryPath, 'index.html'), '<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main><h1>Dashboard</h1></main></body></html>')
-    const repaired = await service.saveAgentWorkspaceResult(design.id, 'Build a dashboard', 'claude', 'fable', 'Repaired', (event) => activity.push(event), false)
-
-    expect(repaired.revisions).toHaveLength(1)
-    expect(repaired.revisions[0].diagnostics).toHaveLength(0)
+    // No <main>, no lang, no viewport, two <h1> — all accessibility/best-practice, not obvious errors.
+    // It is accepted as-is, with no repair and no recorded diagnostics.
+    writeFileSync(indexHtml, '<html><body><h1>Dashboard</h1><h1>Second</h1></body></html>')
+    const accepted = await service.saveAgentWorkspaceResult(design.id, 'Build a dashboard', 'claude', 'fable', 'First pass', (event) => activity.push(event), true)
+    expect(accepted.revisions).toHaveLength(1)
+    expect(accepted.revisions[0].diagnostics).toHaveLength(0)
     expect(activity.at(-1)?.stage).toBe('complete')
 
-    writeFileSync(path.join(repositoryPath, 'index.html'), '<html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><h1>Final fallback</h1></body></html>')
-    const acceptedWithWarning = await service.saveAgentWorkspaceResult(design.id, 'Try another direction', 'claude', 'fable', 'Fallback', (event) => activity.push(event), false)
-    expect(acceptedWithWarning.revisions.at(-1)?.diagnostics).toMatchObject([{ kind: 'quality', level: 'warning', message: expect.stringContaining('main landmark') }])
+    // A genuine error (no <body>, so compilation fails) is rejected and asks for repair.
+    writeFileSync(indexHtml, '<html><head></head></html>')
+    const rejected = await service.saveAgentWorkspaceResult(design.id, 'Build a dashboard', 'claude', 'fable', 'Broken', (event) => activity.push(event), true)
+    expect(rejected.revisions).toHaveLength(1)
+    expect(rejected.invalidCandidates).toHaveLength(1)
+    expect(activity.at(-1)?.stage).toBe('repairing')
     store.close()
   })
 
