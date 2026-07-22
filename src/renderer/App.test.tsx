@@ -91,6 +91,8 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       cancelGeneration: vi.fn().mockResolvedValue(undefined),
       removeGeneration: vi.fn().mockResolvedValue(undefined),
       retryGeneration: vi.fn().mockResolvedValue(undefined),
+      continueGeneration: vi.fn().mockResolvedValue(undefined),
+      resumeGenerationQueue: vi.fn().mockResolvedValue(design),
       selectRevision: vi.fn().mockResolvedValue(design),
       restoreRevision: vi.fn().mockResolvedValue(design),
       saveDraft: vi.fn().mockResolvedValue(undefined),
@@ -258,9 +260,31 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('heading', { name: 'Generations' })).toBeInTheDocument()
     expect(screen.getByText(/Try a warmer direction/)).toBeInTheDocument()
     expect(screen.getByText(/Queue paused/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
+    await waitFor(() => expect(bridge.workspace.resumeGenerationQueue).toHaveBeenCalledWith('design-1'))
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
     await waitFor(() => expect(bridge.workspace.removeGeneration).toHaveBeenCalledWith('7e3670bd-2f6c-444d-afd0-a26e17839964'))
+  })
+
+  it('offers an explicit resume action for a paused queue without a failed predecessor', async () => {
+    const queuedDesign: OmniDesignDocument = {
+      ...design,
+      queuePaused: true,
+      generationJobs: [{
+        id: '7e3670bd-2f6c-444d-afd0-a26e17839964', designId: 'design-1', prompt: 'Queued across restart', providerId: 'mock', modelId: 'mock-v1', state: 'queued',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [],
+      }],
+    }
+    const bridge = installBridge([queuedDesign], queuedDesign)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume queue' }))
+
+    expect(bridge.workspace.resumeGenerationQueue).toHaveBeenCalledWith('design-1')
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument()
   })
 
   it('shows recent detailed progress for a running generation', async () => {

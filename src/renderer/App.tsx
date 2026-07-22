@@ -160,11 +160,12 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
   )
 }
 
-function Generations({ designs, onOpen, onCancel, onRemove }: {
+function Generations({ designs, onOpen, onCancel, onRemove, onResume }: {
   readonly designs: readonly OmniDesignDocument[]
   readonly onOpen: (design: OmniDesignDocument) => void
   readonly onCancel: (jobId: string) => Promise<void>
   readonly onRemove: (jobId: string) => Promise<void>
+  readonly onResume: (designId: string) => Promise<void>
 }) {
   const jobs = designs.flatMap((design) => design.generationJobs
     .filter((job) => ['queued', 'running'].includes(job.state))
@@ -185,7 +186,9 @@ function Generations({ designs, onOpen, onCancel, onRemove }: {
                 <Button aria-label={`${design.projectName}, ${design.title}: ${stage}`} className="generation-copy" onPress={() => onOpen(design)}><span className="generation-heading"><strong>{design.title}</strong><em>{design.projectName}</em></span><small>{stage} · {job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`} · {job.prompt}</small></Button>
                 <GenerationElapsed startedAt={job.startedAt ?? job.createdAt} />
                 {job.state === 'queued'
-                  ? <Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button>
+                  ? design.queuePaused && design.generationJobs.find((candidate) => candidate.state === 'queued')?.id === job.id
+                    ? <span className="generation-actions"><Button className="secondary-action" onPress={() => void onResume(design.id)}>Resume</Button><Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button></span>
+                    : <Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button>
                   : <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>}
                 {progress.length ? <GenerationActivitySection className="active-generation-activity" id={`${job.id}-progress`} steps={progress} title="Progress details" /> : null}
               </article>
@@ -1055,6 +1058,11 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     const updated = await runWorkspaceAction(() => api.get(design.id), 'The continued generation could not be refreshed.')
     if (updated) onChange(updated)
   }
+  const resumeGenerationQueue = async () => {
+    if (!api || !design.queuePaused || retryableJob) return
+    const updated = await runWorkspaceAction(() => api.resumeGenerationQueue(design.id), 'The queued work could not be resumed.')
+    if (updated) onChange(updated)
+  }
   const chooseAttachments = async (kind: AttachmentPickerKind) => {
     if (!api) return
     const selected = await runWorkspaceAction(() => api.chooseAttachments(kind), 'References could not be attached.')
@@ -1127,7 +1135,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
         {activity && (runningJob || (queuedJobs.length > 0 && !design.queuePaused)) && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{runningJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
-        {queuedJobs.length > 0 && <section className="workspace-queue" aria-label="Queued prompts"><header><strong>{queuedJobs.length} queued prompt{queuedJobs.length === 1 ? '' : 's'}</strong><small>{design.queuePaused ? 'Waiting for you to resume generation' : runningJob ? 'Runs after the current request' : 'Waiting to start'}</small></header>{queuedJobs.map((job) => <article key={job.id}><span><strong>{job.prompt}</strong><small>{job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`}</small></span><Button className="text-button" onPress={() => void removeGeneration(job.id)}>Remove</Button></article>)}</section>}
+        {queuedJobs.length > 0 && <section className="workspace-queue" aria-label="Queued prompts"><header><span><strong>{queuedJobs.length} queued prompt{queuedJobs.length === 1 ? '' : 's'}</strong><small>{design.queuePaused ? 'Waiting for you to resume generation' : runningJob ? 'Runs after the current request' : 'Waiting to start'}</small></span>{design.queuePaused && !retryableJob && <Button className="secondary-action" onPress={() => void resumeGenerationQueue()}>Resume queue</Button>}</header>{queuedJobs.map((job) => <article key={job.id}><span><strong>{job.prompt}</strong><small>{job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`}</small></span><Button className="text-button" onPress={() => void removeGeneration(job.id)}>Remove</Button></article>)}</section>}
         {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
         {!runningJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
         {latestInvalidCandidate && <section className="invalid-candidate-notice" role="alert">
@@ -1411,6 +1419,10 @@ export function App() {
     await workspaceApi?.removeGeneration(jobId)
     await refresh()
   }
+  const resumeGenerationQueue = async (designId: string) => {
+    await workspaceApi?.resumeGenerationQueue(designId)
+    await refresh()
+  }
   const changeNotifications = (enabled: boolean) => {
     setNotificationsEnabled(enabled)
     void window.omnidesign?.settings.saveNotificationsEnabled(enabled)
@@ -1479,7 +1491,7 @@ export function App() {
     <div className="app-frame">
       <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} diagnosticCount={diagnosticCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !diagnosticsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} diagnosticsOpen={diagnosticsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onDiagnostics={openDiagnostics} onTrash={openTrash} />
       {generationsOpen
-        ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} />
+        ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} onResume={resumeGenerationQueue} />
         : diagnosticsOpen
         ? <Diagnostics designs={designs} onOpen={(design, revisionId) => void openDiagnostic(design, revisionId)} />
         : trashOpen

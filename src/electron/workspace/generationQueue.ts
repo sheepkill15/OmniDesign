@@ -29,8 +29,9 @@ export class GenerationQueue {
   }
 
   public recoverAfterRestart(): GenerationJob[] {
+    const interrupted = this.store.markGenerationJobsInterrupted()
     for (const designId of this.store.listPausedGenerationDesignIds()) this.pausedDesignIds.add(designId)
-    return this.store.markGenerationJobsInterrupted()
+    return interrupted
   }
 
   public cancel(jobId: string): GenerationJob {
@@ -78,6 +79,13 @@ export class GenerationQueue {
     this.onActivity({ designId: job.designId, stage: 'queued', detail: 'Continuing from the retained partial workspace.' })
     void this.drain()
     return job
+  }
+
+  public resume(designId: string): void {
+    this.store.resumeGenerationQueue(designId)
+    this.pausedDesignIds.delete(designId)
+    this.onActivity({ designId, stage: 'queued', detail: 'Generation queue resumed.' })
+    void this.drain()
   }
 
   private async drain(): Promise<void> {

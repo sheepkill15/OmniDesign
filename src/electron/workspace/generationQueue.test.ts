@@ -65,7 +65,7 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
-  it('marks queued and running jobs interrupted when the application closes or restarts', () => {
+  it('interrupts running work while preserving and pausing queued follow-ups across restart', () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')
     const queued = store.enqueueGenerationJob(design.id, 'Queued prompt')
@@ -73,10 +73,24 @@ describe('GenerationQueue', () => {
     store.setGenerationJobState(running.id, 'running')
     const queue = new GenerationQueue(store, vi.fn(), () => undefined)
 
-    expect(queue.recoverAfterRestart()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: queued.id, state: 'interrupted' }),
-      expect.objectContaining({ id: running.id, state: 'interrupted' }),
-    ]))
+    expect(queue.recoverAfterRestart()).toEqual([expect.objectContaining({ id: running.id, state: 'interrupted' })])
+    expect(store.getGenerationJob(queued.id)).toMatchObject({ state: 'queued' })
+    expect(store.getDesign(design.id)?.queuePaused).toBe(true)
+    store.close()
+  })
+
+  it('resumes a persisted queue that had no running predecessor', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const queued = store.enqueueGenerationJob(design.id, 'Queued prompt')
+    const queue = new GenerationQueue(store, async () => undefined, () => undefined)
+
+    queue.recoverAfterRestart()
+    expect(store.getDesign(design.id)?.queuePaused).toBe(true)
+    queue.resume(design.id)
+
+    await waitFor(() => store.getGenerationJob(queued.id)?.state === 'completed')
+    expect(store.getDesign(design.id)?.queuePaused).toBe(false)
     store.close()
   })
 

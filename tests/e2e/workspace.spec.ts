@@ -258,8 +258,12 @@ test('confirms close with active work and recovers it as interrupted', async () 
     const database = new DatabaseSync(path.join(userDataDirectory, 'workspace', 'omnidesign.sqlite'))
     database.prepare(`
       INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, 'mock', 'mock-v1', NULL, '[]', 'fresh', 'running', ?, ?, NULL, NULL)
+    `).run('8a348393-c286-40dc-ad06-a1174bfeb5a7', designId, 'Running before close', new Date().toISOString(), new Date().toISOString())
+    database.prepare(`
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
       VALUES (?, ?, ?, 'mock', 'mock-v1', NULL, '[]', 'fresh', 'queued', ?, NULL, NULL, NULL)
-    `).run('8a348393-c286-40dc-ad06-a1174bfeb5a7', designId, 'Queued before close', new Date().toISOString())
+    `).run('9a348393-c286-40dc-ad06-a1174bfeb5a7', designId, 'Queued after interruption', new Date(Date.now() + 1_000).toISOString())
     database.close()
     await firstRun.app.evaluate(({ dialog }) => {
       dialog.showMessageBoxSync = () => 0
@@ -283,6 +287,10 @@ test('confirms close with active work and recovers it as interrupted', async () 
     await expect(secondRun.window.getByRole('status').filter({ hasText: 'Generation interrupted' })).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: 'Continue' })).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: 'Retry' })).toBeVisible()
+    const recoveredQueue = secondRun.window.getByRole('region', { name: 'Queued prompts' })
+    await expect(recoveredQueue).toContainText('Queued after interruption')
+    await recoveredQueue.getByRole('button', { name: 'Remove' }).click()
+    await expect(recoveredQueue).toHaveCount(0)
   } finally {
     await activeApp?.close().catch(() => undefined)
     await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

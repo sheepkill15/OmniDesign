@@ -36,6 +36,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Continue persists and resumes the original Codex thread or Claude session when the provider exposes one, including across cancellation, failure, and application restart; Retry still starts a fresh provider session.
 - Active-work elapsed time now advances live instead of remaining frozen at the instant the Generations view opened.
 - A successfully completed later attempt now retires older failure recovery controls instead of resurrecting stale Continue and Retry actions.
+- Restart recovery now interrupts only work that was actually running, preserves queued follow-ups in submission order, persists the queue as paused, and exposes an explicit Resume action when no failed predecessor needs Continue or Retry.
 
 ## Remaining functional gaps
 

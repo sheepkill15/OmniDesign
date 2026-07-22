@@ -889,8 +889,11 @@ export class WorkspaceStore {
 
   public markGenerationJobsInterrupted(): GenerationJob[] {
     const now = new Date().toISOString()
-    this.database.prepare("UPDATE generation_jobs SET state = 'interrupted', completed_at = ?, error = 'OmniDesign closed before this generation completed.' WHERE state IN ('queued', 'running')")
-      .run(now)
+    this.transaction(() => {
+      this.database.prepare("UPDATE designs SET queue_paused = 1 WHERE id IN (SELECT DISTINCT design_id FROM generation_jobs WHERE state IN ('queued', 'running'))").run()
+      this.database.prepare("UPDATE generation_jobs SET state = 'interrupted', completed_at = ?, error = 'OmniDesign closed before this generation completed.' WHERE state = 'running'")
+        .run(now)
+    })
     return this.listGenerationJobs(['interrupted'])
   }
 

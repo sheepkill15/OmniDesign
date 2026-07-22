@@ -359,6 +359,12 @@ function registerIpc(): void {
     authorize(event)
     return requireGenerationQueue().continue(generationJobIdRequestSchema.parse(value).jobId)
   })
+  ipcMain.handle('workspace:resume-generation-queue', (event, value: unknown) => {
+    authorize(event)
+    const designId = designIdRequestSchema.parse(value).designId
+    requireGenerationQueue().resume(designId)
+    return requireWorkspace().getDesign(designId)
+  })
   ipcMain.handle('workspace:choose-attachments', async (event, value: unknown) => {
     authorize(event)
     const { kind } = attachmentPickerRequestSchema.parse(value)
