@@ -175,13 +175,19 @@ function Generations({ designs, onOpen, onCancel, onRemove }: {
         <section className="settings-section" aria-labelledby="active-generations-heading">
           <div className="section-heading"><h2 id="active-generations-heading">Active work</h2><span>{jobs.length ? `${jobs.length} active` : 'All caught up'}</span></div>
           <div className="generation-list">
-            {jobs.map(({ design, job }) => <article className="generation-row" key={job.id}>
-              <Button className="generation-copy" onPress={() => onOpen(design)}><strong>{design.title}</strong><small>{design.queuePaused ? 'Queue paused' : job.state === 'queued' ? 'Queued' : design.generationSteps.at(-1)?.label ?? 'Running'} · {job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`} · {job.prompt}</small></Button>
-              <time className="generation-elapsed" dateTime={job.startedAt ?? job.createdAt}>{formatGenerationElapsed(job.startedAt ?? job.createdAt)}</time>
-              {job.state === 'queued'
-                ? <Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button>
-                : <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>}
-            </article>)}
+            {jobs.map(({ design, job }) => {
+              const progress = job.startedAt
+                ? design.generationSteps.filter((step) => step.createdAt >= job.startedAt! && !terminalGenerationStages.includes(step.stage)).slice(-8)
+                : []
+              return <article className="generation-row" key={job.id}>
+                <Button className="generation-copy" onPress={() => onOpen(design)}><strong>{design.title}</strong><small>{design.queuePaused ? 'Queue paused' : job.state === 'queued' ? 'Queued' : design.generationSteps.at(-1)?.label ?? 'Running'} · {job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`} · {job.prompt}</small></Button>
+                <time className="generation-elapsed" dateTime={job.startedAt ?? job.createdAt}>{formatGenerationElapsed(job.startedAt ?? job.createdAt)}</time>
+                {job.state === 'queued'
+                  ? <Button className="secondary-action" onPress={() => void onRemove(job.id)}>Remove</Button>
+                  : <Button className="secondary-action" onPress={() => void onCancel(job.id)}><StopIcon aria-hidden="true" />Stop</Button>}
+                {progress.length ? <GenerationActivitySection className="active-generation-activity" id={`${job.id}-progress`} steps={progress} title="Progress details" /> : null}
+              </article>
+            })}
             {!jobs.length && <p className="settings-empty">No generations are queued or running.</p>}
           </div>
         </section>
@@ -217,11 +223,11 @@ function buildConversationFeed(design: OmniDesignDocument, detail: 'full' | 'con
   }, [])
 }
 
-function GenerationActivitySection({ id, steps }: { readonly id: string; readonly steps: readonly GenerationStep[] }) {
+function GenerationActivitySection({ className = 'conversation-activity', id, steps, title = 'Generation details' }: { readonly className?: string; readonly id: string; readonly steps: readonly GenerationStep[]; readonly title?: string }) {
   const [expanded, setExpanded] = useState(true)
   return (
-    <details className="conversation-activity" key={id} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
-      <summary><span>Generation details</span><small>{steps.length} update{steps.length === 1 ? '' : 's'}</small></summary>
+    <details className={className} key={id} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
+      <summary><span>{title}</span><small>{steps.length} update{steps.length === 1 ? '' : 's'}</small></summary>
       <div className="conversation-activity-steps">{steps.map((step) => <div className={`conversation-step step-${step.stage}`} key={step.id}><span className="conversation-step-label">{step.label}</span>{step.detail && <span className="conversation-step-detail">{step.detail}</span>}</div>)}</div>
     </details>
   )

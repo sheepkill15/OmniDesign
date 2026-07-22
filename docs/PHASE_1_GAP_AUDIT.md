@@ -49,7 +49,7 @@ Manual reassociation of an existing standalone design to a linked project now pr
 
 ### Provider and generation-detail acceptance
 
-The active-generations surface now shows the recorded stage, provider/model, elapsed time, and cancellation. Queued prompts can be removed before they start without pausing their design queue, and their unrun prompt message is removed with the queue item. Distinct streamed activity details are retained and a persisted Full/Concise setting controls their conversation presentation. Transport-contract coverage verifies standalone Codex read-only/streaming behavior and Claude plan-mode/cancellation behavior, and live installed-CLI interoperability has been exercised on Windows.
+The active-generations surface now shows the recorded stage, provider/model, elapsed time, cancellation, and the latest detailed progress/tool activity for each running job. Queued prompts can be removed before they start without pausing their design queue, and their unrun prompt message is removed with the queue item. Distinct streamed activity details are retained and a persisted Full/Concise setting controls their conversation presentation. Transport-contract coverage verifies standalone Codex read-only/streaming behavior and Claude plan-mode/cancellation behavior, and live installed-CLI interoperability has been exercised on Windows.
 
 ### Attachment completeness
 

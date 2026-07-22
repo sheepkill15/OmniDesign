@@ -258,6 +258,30 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.removeGeneration).toHaveBeenCalledWith('7e3670bd-2f6c-444d-afd0-a26e17839964'))
   })
 
+  it('shows recent detailed progress for a running generation', async () => {
+    const runningDesign: OmniDesignDocument = {
+      ...design,
+      generationJobs: [{
+        id: '7e3670bd-2f6c-444d-afd0-a26e17839964', designId: 'design-1', prompt: 'Try a warmer direction', providerId: 'codex', modelId: 'gpt-5.6', state: 'running',
+        createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: null, error: null, attachments: [],
+      }],
+      generationSteps: [
+        { id: 'old-step', stage: 'complete', label: 'Completed', detail: 'Earlier run', createdAt: '2026-07-20T10:00:30.000Z' },
+        { id: 'step-1', stage: 'generating', label: 'Agent action', detail: 'Reading src/App.tsx', createdAt: '2026-07-20T10:01:02.000Z' },
+        { id: 'step-2', stage: 'validating', label: 'Validating', detail: 'Checking responsive layout', createdAt: '2026-07-20T10:01:03.000Z' },
+      ],
+    }
+    installBridge([runningDesign], runningDesign)
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Generations/ }))
+    const progress = await screen.findByText('Progress details')
+    expect(progress.closest('details')).toHaveAttribute('open')
+    expect(screen.getByText('Reading src/App.tsx')).toBeInTheDocument()
+    expect(screen.getByText('Checking responsive layout')).toBeInTheDocument()
+    expect(screen.queryByText('Earlier run')).not.toBeInTheDocument()
+  })
+
   it('keeps background activity associated with the correct design', async () => {
     const runningJob = (id: string, designId: string): GenerationJob => ({
       id, designId, prompt: 'Refine it', providerId: 'mock', modelId: 'mock-v1', state: 'running', attachments: [],

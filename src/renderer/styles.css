@@ -1329,7 +1329,8 @@ button:disabled,
 }
 
 .generation-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 14px;
   min-height: 76px;
@@ -1358,6 +1359,29 @@ button:disabled,
 }
 
 .generation-row .secondary-action { margin-left: auto; }
+
+.active-generation-activity {
+  min-width: 0;
+  grid-column: 1 / -1;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.active-generation-activity summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text-subtle);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.active-generation-activity summary small { color: var(--text-faint); font-weight: 400; }
+.active-generation-activity summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.active-generation-activity .conversation-activity-steps { display: grid; gap: 5px; padding: 9px 0 1px; }
+.active-generation-activity .conversation-step { margin: 0; padding-left: 10px; }
+.active-generation-activity .conversation-step-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .generation-elapsed {
   color: var(--text-faint);
