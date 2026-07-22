@@ -157,7 +157,11 @@ function recordActivity(activity: GenerationActivity): void {
       // The design may have been removed while a late activity arrived; the live event below is enough.
     }
   }
-  if (workspaceStore?.getNotificationsEnabled() && ['complete', 'failed', 'cancelled', 'interrupted'].includes(activity.stage)) {
+  // Notify only for background outcomes worth surfacing: completion, failure, and restart interruption.
+  // A user-initiated cancel needs no toast, and nothing is announced while the window is focused (the
+  // user is already watching this generation).
+  const windowFocused = mainWindow != null && !mainWindow.isDestroyed() && mainWindow.isFocused()
+  if (workspaceStore?.getNotificationsEnabled() && Notification.isSupported() && !windowFocused && ['complete', 'failed', 'interrupted'].includes(activity.stage)) {
     const title = workspaceStore.getDesign(activity.designId)?.title ?? 'Design generation'
     new Notification({ title: 'OmniDesign', body: `${title}: ${activity.detail}` }).show()
   }
@@ -238,14 +242,20 @@ function registerIpc(): void {
     const fallbackTitle = fallbackDesignTitle(request.prompt)
     const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target, fallbackTitle)
     requireWorkspace().rememberSelection(design.id, selection)
+    // The title is generated in the background, concurrently with the first generation. Flag it pending
+    // so the workspace shows a spinner in place of the rename control until the generated title lands.
+    requireWorkspace().setTitlePending(design.id, true)
     requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
     void generateDesignTitle(request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments).then((title) => {
       const current = workspace?.getDesign(design.id)
-      if (!current || !shouldReplaceFallbackTitle(current.title, fallbackTitle, title)) return
-      if (!current.sourceProjectPath && current.projectName !== fallbackTitle) return
-      workspace?.renameDesign(design.id, title)
+      if (current && shouldReplaceFallbackTitle(current.title, fallbackTitle, title) && (current.sourceProjectPath || current.projectName === fallbackTitle)) {
+        workspace?.renameDesign(design.id, title)
+      }
+    }).catch(() => undefined).finally(() => {
+      // Whether the title landed, failed, or was superseded by a user edit, the pending state is over.
+      workspace?.setTitlePending(design.id, false)
       sendWorkspaceChanged(design.id)
-    }).catch(() => undefined)
+    })
     return requireWorkspace().getDesign(design.id) ?? design
   })
   ipcMain.handle('workspace:list-projects', (event) => {
@@ -509,6 +519,11 @@ void app.whenReady().then(() => {
             providerSessionId = activity.sessionId
             store.saveGenerationJobSession(job.id, activity.sessionId)
           }
+          // Streamed response tokens ('text') are raw partial output — JSON, for the agent path — and
+          // are captured whole in the final assistant message. Logging each as its own milestone flooded
+          // the conversation with one entry per token and triggered a renderer refresh per token. Keep
+          // only meaningful milestones (tool actions, results, status, diagnostics) in the activity log.
+          if (activity.kind === 'text') return
           onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: activity.detail ?? activity.label })
         })
         if (reply.sessionId && reply.sessionId !== providerSessionId) {

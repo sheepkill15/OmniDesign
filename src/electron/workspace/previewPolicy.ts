@@ -33,7 +33,12 @@ export function previewContentSecurityPolicy(): string {
     // (x-data, @click, etc.) via the Function constructor. Without it Alpine loads but throws on every
     // directive. The preview is sandboxed (no Node, isolated session), so this stays contained.
     "script-src 'unsafe-inline' 'unsafe-eval' https: omnidesign-preview:",
-    "connect-src https:",
+    // No programmatic network egress from the untrusted preview: fetch/XHR/WebSocket/EventSource/beacon
+    // are all denied. This closes the most direct data-exfiltration channel for generated code. External
+    // subresources (fonts, images, plugin scripts, styles) still load via their HTML tags over HTTPS —
+    // that remains the Phase 1 asset strategy until designs can carry local assets (deferred), at which
+    // point the remaining external-HTTPS grants can be reduced to a strict allowlist.
+    "connect-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",

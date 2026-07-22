@@ -270,6 +270,25 @@ function GenerationActivitySection({ className = 'conversation-activity', id, st
   )
 }
 
+// One conversational turn. The user's prompt reads as a trailing-aligned bubble; OmniDesign's reply
+// reads as an avatar-led narrative, so the two sides of the exchange are distinguishable at a glance
+// without wrapping every generation event in a card.
+function ConversationMessage({ message, onOpenAttachment }: { readonly message: DesignMessage; readonly onOpenAttachment: (attachment: DesignAttachment) => void }) {
+  const isUser = message.role === 'user'
+  return (
+    <article className={`conversation-message message-${message.role}`}>
+      {!isUser && <span className="message-avatar" aria-hidden="true"><SparklesIcon /></span>}
+      <div className="message-body">
+        <span className="message-role">{isUser ? 'You' : 'OmniDesign'}</span>
+        <div className="message-bubble">
+          <p>{message.text}</p>
+          {message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => onOpenAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}
+        </div>
+      </div>
+    </article>
+  )
+}
+
 function Providers({ providers, loading, error, onRefresh }: {
   readonly providers: readonly ProviderStatus[]
   readonly loading: boolean
@@ -349,10 +368,11 @@ function describeStoppedGeneration(job: GenerationJob): { readonly title: string
   return { title: 'Generation failed', message: 'Review the technical details, then continue partial work or retry from the last revision.', openProviders: false }
 }
 
-function EditableTitle({ value, label, variant, onSave }: {
+function EditableTitle({ value, label, variant, pending = false, onSave }: {
   readonly value: string
   readonly label: string
   readonly variant: 'page' | 'workspace' | 'card'
+  readonly pending?: boolean
   readonly onSave: (value: string) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
@@ -380,7 +400,9 @@ function EditableTitle({ value, label, variant, onSave }: {
     return <div className={`editable-title editable-title-${variant}`}><form onSubmit={(event) => { event.preventDefault(); void save() }}><Input aria-label={`Rename ${label}`} autoFocus maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setEditing(false); setError(null) } }} /><Button className="secondary-action" isDisabled={!draft.trim() || saving} type="submit">{saving ? 'Saving…' : 'Save'}</Button><Button className="text-button" isDisabled={saving} onPress={() => { setEditing(false); setError(null) }}>Cancel</Button></form>{error && <small role="alert">{error}</small>}</div>
   }
   const TitleElement: 'h1' | 'h3' = variant === 'card' ? 'h3' : 'h1'
-  return <div className={`editable-title editable-title-${variant}`}><span><TitleElement>{value}</TitleElement><IconButton label={`Rename ${label}`} icon={PencilSquareIcon} onPress={() => setEditing(true)} /></span>{error && <small role="alert">{error}</small>}</div>
+  return <div className={`editable-title editable-title-${variant}`}><span><TitleElement>{value}</TitleElement>{pending
+    ? <span className="title-pending" role="status" aria-label="Generating title…"><ArrowPathIcon className="spin" aria-hidden="true" /></span>
+    : <IconButton label={`Rename ${label}`} icon={PencilSquareIcon} onPress={() => setEditing(true)} />}</span>{error && <small role="alert">{error}</small>}</div>
 }
 
 interface DiagnosticListItem {
@@ -742,28 +764,43 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
   )
 }
 
-function projectSubtitle(project: ProjectSummary): string {
-  const kindLabel = project.kind === 'linked' ? 'Linked project' : 'Standalone'
-  const designs = `${project.designCount} design${project.designCount === 1 ? '' : 's'}`
-  const detail = project.latestPrompt ?? project.latestDesignTitle
-  return detail ? `${kindLabel} · ${detail}` : `${kindLabel} · ${designs}`
-}
-
 function ProjectThumbnail({ title, thumbnailDataUrl }: { readonly title: string; readonly thumbnailDataUrl: string | null }) {
   if (thumbnailDataUrl) return <img alt={`Preview of ${title}`} className="mini-preview-image" src={thumbnailDataUrl} />
   return <span className="mini-preview preview-sand" aria-hidden="true"><span className="preview-rail" /><span className="preview-line preview-line-long" /><span className="preview-line" /><span className="preview-block" /></span>
 }
 
-function Home({ projects, providers, busy, activity, composerProject, onCreate, onOpen, onOpenProviders }: {
+// Conservative project-name detection for the standalone-design association suggestion: the whole
+// project name must appear as a word-bounded phrase in the prompt, and very short names are ignored,
+// so a project called "app" or "ui" no longer matches almost every prompt.
+export function promptMentionsProject(prompt: string, projectName: string): boolean {
+  const name = projectName.trim()
+  if (name.length < 4) return false
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  try {
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(prompt)
+  } catch {
+    return prompt.toLocaleLowerCase().includes(name.toLocaleLowerCase())
+  }
+}
+
+function designSubtitle(design: OmniDesignDocument): string {
+  const detail = design.revisions.at(-1)?.prompt ?? design.messages.find((message) => message.role === 'user')?.text ?? 'Ready for a first direction'
+  return design.sourceProjectPath ? `${design.projectName} · ${detail}` : detail
+}
+
+function Home({ projects, designs, providers, busy, activity, composerProject, onCreate, onOpenDesign, onOpenProviders }: {
   readonly projects: readonly ProjectSummary[]
+  readonly designs: readonly OmniDesignDocument[]
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly activity: GenerationActivity | null
   readonly composerProject: ProjectSummary | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
-  readonly onOpen: (project: ProjectSummary) => void
+  readonly onOpenDesign: (design: OmniDesignDocument) => void
   readonly onOpenProviders: () => void
 }) {
+  // Recent entries are the most recently active designs; opening one goes straight to its workspace.
+  const recentDesigns = [...designs].sort((first, second) => second.updatedAt.localeCompare(first.updatedAt)).slice(0, 3)
   return (
     <main className="home-main">
       <div className="home-content">
@@ -772,18 +809,18 @@ function Home({ projects, providers, busy, activity, composerProject, onCreate, 
         {busy
           ? <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>
           : activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}
-        <section className="recent-section" aria-labelledby="recent-projects">
-          <div className="section-heading"><h2 id="recent-projects">Continue designing</h2><span>{projects.length ? `${projects.length} project${projects.length === 1 ? '' : 's'}` : 'Nothing here yet'}</span></div>
+        <section className="recent-section" aria-labelledby="recent-designs">
+          <div className="section-heading"><h2 id="recent-designs">Continue designing</h2><span>{designs.length ? `${designs.length} design${designs.length === 1 ? '' : 's'}` : 'Nothing here yet'}</span></div>
           <div className="recent-rows">
-            {projects.slice(0, 3).map((project) => (
-              <Button className="recent-row" key={project.id} onPress={() => onOpen(project)}>
-                <ProjectThumbnail title={project.name} thumbnailDataUrl={project.thumbnailDataUrl} />
-                <span className="recent-copy"><strong>{project.name}</strong><small>{projectSubtitle(project)}</small></span>
-                <span className="recent-time"><ClockIcon aria-hidden="true" />{new Date(project.updatedAt).toLocaleDateString()}</span>
+            {recentDesigns.map((design) => (
+              <Button className="recent-row" key={design.id} onPress={() => onOpenDesign(design)}>
+                <ProjectThumbnail title={design.title} thumbnailDataUrl={design.thumbnailDataUrl} />
+                <span className="recent-copy"><strong>{design.title}</strong><small>{designSubtitle(design)}</small></span>
+                <span className="recent-time"><ClockIcon aria-hidden="true" />{new Date(design.updatedAt).toLocaleDateString()}</span>
                 <ArrowRightIcon className="row-arrow" aria-hidden="true" />
               </Button>
             ))}
-            {!projects.length && <div className="empty-designs"><DocumentDuplicateIcon aria-hidden="true" /><strong>Your first design starts above</strong><p>A connected provider will generate, compile, validate, and save it locally.</p></div>}
+            {!designs.length && <div className="empty-designs"><DocumentDuplicateIcon aria-hidden="true" /><strong>Your first design starts above</strong><p>A connected provider will generate, compile, validate, and save it locally.</p></div>}
           </div>
         </section>
       </div>
@@ -867,7 +904,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
                     <article className="design-card" key={design.id}>
                       <Button aria-label={`Open ${design.title}`} className="design-card-open" onPress={() => onOpenDesign(design)}><span className="design-card-thumb"><ProjectThumbnail title={design.title} thumbnailDataUrl={design.thumbnailDataUrl} /></span></Button>
                       <span className="design-card-body">
-                        <EditableTitle value={design.title} label={`${design.title} design`} variant="card" onSave={(title) => renameDesign(design, title)} />
+                        <EditableTitle value={design.title} label={`${design.title} design`} variant="card" pending={design.titlePending} onSave={(title) => renameDesign(design, title)} />
                         <small>{design.revisions.at(-1)?.prompt ?? design.messages.find((message) => message.role === 'user')?.text ?? 'Ready for a first direction'}</small>
                         <span className="design-card-meta"><span>{new Date(design.updatedAt).toLocaleDateString()}</span><span>{design.lastSelection.providerId === 'mock' ? 'Development provider' : `${design.lastSelection.providerId} · ${design.lastSelection.modelId}`}</span></span>
                         <span className="design-card-status" data-busy={Boolean(activeJob) || undefined}>{status}</span>
@@ -1226,7 +1263,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed">
         {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
-          ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p>{item.message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{item.message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => void openAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}</article>
+          ? <ConversationMessage key={item.message.id} message={item.message} onOpenAttachment={(attachment) => void openAttachment(attachment)} />
           : item.kind === 'activity'
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
@@ -1266,7 +1303,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     <main className="workspace-main">
       <header className="workspace-toolbar">
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
-        <span className="workspace-title"><EditableTitle value={design.title} label="design" variant="workspace" onSave={renameDesign} /><small>{providerStatus} · {busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
+        <span className="workspace-title"><EditableTitle value={design.title} label="design" variant="workspace" pending={design.titlePending} onSave={renameDesign} /><small>{providerStatus} · {busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
             <LayoutMenu mode={mode} onChange={setMode} />
           <DropdownButton
@@ -1465,7 +1502,7 @@ export function App() {
       setActiveDesign(design)
       if (!target) {
         const availableProjects = projects.length ? projects : await workspaceApi.listProjects()
-        const matchingProject = availableProjects.find((project) => project.kind === 'linked' && prompt.toLocaleLowerCase().includes(project.name.toLocaleLowerCase()))
+        const matchingProject = availableProjects.find((project) => project.kind === 'linked' && promptMentionsProject(prompt, project.name))
         if (matchingProject) setAssociationNotice({ designId: design.id, projectId: matchingProject.id, projectName: matchingProject.name, mode: 'suggested' })
       }
       await refresh()
@@ -1645,7 +1682,7 @@ export function App() {
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => setAssociationNotice(null)} onOpenProviders={openProviders} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onOpenProviders={openProviders} />
-        : <Home projects={projects} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpen={openProject} onOpenProviders={openProviders} />}
+        : <Home projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}
     </div>
   )
 }

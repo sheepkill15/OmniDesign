@@ -107,20 +107,32 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
-  it('automatically retries transient provider failures up to three attempts', async () => {
+  it('automatically retries transient provider failures up to three times (four attempts)', async () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')
     let attempts = 0
     const activity: string[] = []
     const queue = new GenerationQueue(store, async () => {
       attempts += 1
-      if (attempts < 3) throw new Error('Network connection timed out.')
+      if (attempts < 4) throw new Error('Network connection timed out.')
     }, (event) => activity.push(event.detail))
     const job = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6')
 
     await waitFor(() => store.getGenerationJob(job.id)?.state === 'completed')
-    expect(attempts).toBe(3)
-    expect(activity).toEqual(expect.arrayContaining(['Provider connection failed. Retrying (2 of 3)…', 'Provider connection failed. Retrying (3 of 3)…']))
+    expect(attempts).toBe(4)
+    expect(activity).toEqual(expect.arrayContaining(['Provider connection failed. Retrying (1 of 3)…', 'Provider connection failed. Retrying (2 of 3)…', 'Provider connection failed. Retrying (3 of 3)…']))
+    store.close()
+  })
+
+  it('gives up after the third transient retry', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    let attempts = 0
+    const queue = new GenerationQueue(store, async () => { attempts += 1; throw new Error('Network connection timed out.') }, () => undefined)
+    const job = queue.enqueue(design.id, 'Refine this', 'codex', 'gpt-5.6')
+
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'failed')
+    expect(attempts).toBe(4)
     store.close()
   })
 

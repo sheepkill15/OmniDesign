@@ -117,6 +117,7 @@ interface OmniDesignDocument {
   readonly draftAttachments: readonly DesignAttachment[]
   readonly thumbnailDataUrl: string | null
   readonly queuePaused: boolean
+  readonly titlePending: boolean
   readonly lastSelection: GenerationSelection
   readonly generationSteps: readonly GenerationStep[]
   readonly layout: { readonly conversationWidth: number; readonly mode: LayoutMode }

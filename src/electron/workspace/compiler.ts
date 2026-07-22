@@ -64,5 +64,29 @@ export function findDesignQualityWarnings(html: string): string[] {
   const headingCount = html.match(/<h1\b/gi)?.length ?? 0
   if (mainCount !== 1) warnings.push(`Use exactly one main landmark (found ${mainCount}).`)
   if (headingCount !== 1) warnings.push(`Use exactly one h1 heading (found ${headingCount}).`)
+  const unnamedControls = countUnnamedControls(html)
+  if (unnamedControls) warnings.push(`Give every interactive control an accessible name (${unnamedControls} without one).`)
+  const imagesMissingAlt = countImagesMissingAlt(html)
+  if (imagesMissingAlt) warnings.push(`Add alt text to images (${imagesMissingAlt} missing an alt attribute).`)
   return warnings
+}
+
+// A control is unnamed when it has no aria-label/aria-labelledby/title, no visible text, and no
+// named child (an image with alt text, an svg <title>, or a labelled child). Anchors without href
+// are not controls. This is a heuristic warning, so it errs toward silence over false positives.
+function countUnnamedControls(html: string): number {
+  let count = 0
+  for (const match of html.matchAll(/<(button|a)\b([^>]*)>([\s\S]*?)<\/\1>/gi)) {
+    const [, tag, attributes, inner] = match
+    if (tag.toLowerCase() === 'a' && !/\bhref\s*=/i.test(attributes)) continue
+    const selfNamed = /\b(aria-label|aria-labelledby|title)\s*=\s*["'][^"']+["']/i.test(attributes)
+    const hasVisibleText = inner.replace(/<[^>]*>/g, '').trim().length > 0
+    const childNamed = /\baria-label\s*=\s*["'][^"']+["']|\balt\s*=\s*["'][^"']+["']|<title\b/i.test(inner)
+    if (!selfNamed && !hasVisibleText && !childNamed) count += 1
+  }
+  return count
+}
+
+function countImagesMissingAlt(html: string): number {
+  return [...html.matchAll(/<img\b([^>]*?)\/?>/gi)].filter((match) => !/\balt\s*=/i.test(match[1])).length
 }

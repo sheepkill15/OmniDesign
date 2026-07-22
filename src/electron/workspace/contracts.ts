@@ -163,6 +163,7 @@ export const designSchema = z.object({
   draftAttachments: z.array(attachmentSchema),
   thumbnailDataUrl: z.string().nullable(),
   queuePaused: z.boolean(),
+  titlePending: z.boolean().default(false),
   lastSelection: generationSelectionSchema,
   generationSteps: z.array(generationStepSchema),
   layout: layoutSchema,

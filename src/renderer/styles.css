@@ -159,6 +159,21 @@ button:disabled,
   opacity: .42;
 }
 
+/* A calm, universal pressed state (React Aria exposes [data-pressed]; plain controls use :active). */
+button:not(:disabled)[data-pressed],
+[role='button']:not([data-disabled])[data-pressed],
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.submit-prompt[data-pressed],
+.clone-confirm-action[data-pressed] { background: var(--accent-strong); }
+
+.secondary-action[data-pressed],
+.toolbar-button[data-pressed],
+.icon-button[data-pressed],
+.navigation-item[data-pressed] { background: var(--surface-selected); }
+
 .app-frame {
   height: 100%;
   min-height: 0;
@@ -406,7 +421,7 @@ button:disabled,
 .project-add[data-focus-visible] {
   opacity: 1;
   pointer-events: auto;
-  box-shadow: 0 0 0 2px var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus);
 }
 
 .project-nav-row:hover .project-count,
@@ -807,7 +822,7 @@ button:disabled,
 .effort-node { width: 12px; height: 12px; box-sizing: border-box; border: 2px solid var(--text-faint); border-radius: 50%; background: var(--surface-1); }
 .effort-node[data-active] { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
 .effort-slider-thumb { width: 1px; height: 1px; opacity: 0; outline: none; pointer-events: none; }
-.effort-slider-thumb[data-focus-visible] { opacity: 1; box-shadow: 0 0 0 3px var(--focus-ring); }
+.effort-slider-thumb[data-focus-visible] { opacity: 1; box-shadow: 0 0 0 3px var(--focus); }
 .effort-labels { display: flex; flex-direction: column; justify-content: space-between; min-height: 158px; }
 .effort-labels span:last-child { text-align: left; }
 .effort-control[data-disabled] { opacity: .55; }
@@ -1021,6 +1036,8 @@ button:disabled,
 }
 
 .editable-title h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-pending { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; color: var(--text-subtle); flex: none; }
+.title-pending svg { width: 16px; height: 16px; }
 .editable-title .icon-button { width: 28px; height: 28px; opacity: 0; }
 .editable-title:hover .icon-button,
 .editable-title:focus-within .icon-button { opacity: 1; }
@@ -1102,6 +1119,12 @@ button:disabled,
   border-color: var(--text-subtle);
 }
 
+/* React Aria surfaces keyboard focus as [data-focus-visible] on the styled label, not :focus-visible. */
+.settings-switch[data-focus-visible] .settings-switch-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .section-heading-actions {
   display: flex;
   align-items: center;
@@ -1137,7 +1160,7 @@ button:disabled,
   margin: 10px 0;
   padding: 0 12px;
   color: var(--text);
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
@@ -1177,7 +1200,7 @@ button:disabled,
 .app-modal h2 { margin: 0; font-size: 18px; }
 .app-modal p { margin: 0; color: var(--text-subtle); line-height: 1.5; }
 .clone-modal-fields { display: grid; gap: 10px; }
-.clone-modal input { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.clone-modal input { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 8px; }
 .clone-modal input:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 .clone-modal-note { font-size: 12px; }
 .clone-modal-note code { color: var(--text); }
@@ -1198,7 +1221,7 @@ button:disabled,
 .clone-confirm-action[data-disabled] { opacity: .42; cursor: not-allowed; }
 
 .attachment-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
-.attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 12px; }
+.attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-subtle); font-size: 12px; }
 .attachment-chip[data-status="changed"], .attachment-chip[data-status="missing"] { color: var(--warning, #c58a2a); border-color: currentColor; }
 .attachment-chip button { color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
@@ -1228,7 +1251,7 @@ button:disabled,
   background: var(--surface-accent);
 }
 
-.theme-option:focus-visible {
+.theme-option[data-focus-visible] {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -1959,10 +1982,45 @@ button[aria-expanded="true"] .dropdown-caret {
 }
 
 .conversation-message {
-  margin: 0 0 26px;
+  margin: 0 0 24px;
+  display: flex;
+  gap: 12px;
 }
 
-.conversation-message > span {
+/* The user's turn is pushed to the trailing edge; OmniDesign's reply stays leading with its avatar. */
+.message-user {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--accent);
+}
+
+.message-avatar svg {
+  width: 16px;
+  height: 16px;
+}
+
+.message-body {
+  min-width: 0;
+  max-width: 88%;
+  display: grid;
+  gap: 6px;
+}
+
+.message-user .message-body {
+  justify-items: end;
+  text-align: right;
+}
+
+.message-role {
   color: var(--text-faint);
   font-size: 11px;
   font-weight: 600;
@@ -1970,16 +2028,31 @@ button[aria-expanded="true"] .dropdown-caret {
   text-transform: uppercase;
 }
 
-.conversation-message p {
-  margin: 8px 0 0;
+.message-bubble {
+  min-width: 0;
+}
+
+.message-bubble p {
+  margin: 0;
   color: var(--text-subtle);
   font-size: 14px;
   line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.message-user p {
+/* The prompt reads as a discrete, solid bubble — a bounded element that communicates "your turn". */
+.message-user .message-bubble {
+  padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--surface-3);
+  text-align: left;
+}
+
+.message-user .message-bubble p {
   color: var(--text);
-  font-size: 16px;
+  font-size: 15px;
+  line-height: 1.6;
 }
 
 .conversation-step {

@@ -1,7 +1,17 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { App } from './App'
+import { App, promptMentionsProject } from './App'
+
+describe('promptMentionsProject', () => {
+  it('matches a linked project only as a word-bounded, non-trivial phrase', () => {
+    expect(promptMentionsProject('Add a settings page to Acme Portal', 'Acme Portal')).toBe(true)
+    expect(promptMentionsProject('redesign the acme portal header', 'Acme Portal')).toBe(true)
+    // No substring false positives, and very short names are ignored.
+    expect(promptMentionsProject('scaffold a new app shell', 'app')).toBe(false)
+    expect(promptMentionsProject('a portalgun for the demo', 'Portal')).toBe(false)
+  })
+})
 
 const design: OmniDesignDocument = {
   id: 'design-1',
@@ -17,6 +27,7 @@ const design: OmniDesignDocument = {
   draftAttachments: [],
   thumbnailDataUrl: null,
   queuePaused: false,
+  titlePending: false,
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
   layout: { conversationWidth: 43, mode: 'split' },
@@ -975,6 +986,27 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     expect(await screen.findByRole('img', { name: 'Preview of Calm dashboard' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
+  })
+
+  it('opens a design directly from the recent list instead of a project page', async () => {
+    installBridge([design])
+    render(<App />)
+
+    const main = await screen.findByRole('main')
+    fireEvent.click(await within(main).findByRole('button', { name: /Calm dashboard/ }))
+
+    expect(await screen.findByRole('textbox', { name: 'Request a design change' })).toBeInTheDocument()
+  })
+
+  it('shows a title-pending indicator instead of the rename control while a title generates', async () => {
+    installBridge([{ ...design, titlePending: true }])
+    render(<App />)
+
+    const main = await screen.findByRole('main')
+    fireEvent.click(await within(main).findByRole('button', { name: /Calm dashboard/ }))
+
+    expect(await screen.findByRole('status', { name: 'Generating title…' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Rename design' })).not.toBeInTheDocument()
   })
 
   it('lets the user choose and persist the trusted application theme', async () => {

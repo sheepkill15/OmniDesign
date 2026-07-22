@@ -21,9 +21,12 @@ describe('preview security policy', () => {
     const policy = previewContentSecurityPolicy()
     expect(policy).toContain("script-src 'unsafe-inline' 'unsafe-eval' https:")
     expect(policy).toContain("style-src 'unsafe-inline' https:")
-    expect(policy).toContain("connect-src https:")
     expect(policy).toContain("base-uri 'none'")
     expect(policy).toContain("form-action 'none'")
     expect(policy).toContain("frame-ancestors 'none'")
+  })
+
+  it('denies programmatic network egress (fetch/XHR/WebSocket) from the untrusted preview', () => {
+    expect(previewContentSecurityPolicy()).toContain("connect-src 'none'")
   })
 })

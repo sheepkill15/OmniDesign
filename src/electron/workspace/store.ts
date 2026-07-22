@@ -37,6 +37,7 @@ interface DesignRow {
   last_provider_id: string
   last_model_id: string
   last_effort: string | null
+  title_pending: number
 }
 
 interface ProjectRow {
@@ -362,9 +363,20 @@ const migrationTwentyFive = `
 ALTER TABLE generation_jobs ADD COLUMN provider_session_id TEXT;
 `
 
+// Tracks whether a background design-title request is still in flight, so the trusted UI can show a
+// pending indicator instead of the rename affordance until the generated title arrives.
+const migrationTwentySix = `
+ALTER TABLE designs ADD COLUMN title_pending INTEGER NOT NULL DEFAULT 0 CHECK (title_pending IN (0, 1));
+`
+
+// Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
+// without waiting for the next restart.
+const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
+  private readonly purgeTimer: ReturnType<typeof setInterval>
 
   public constructor(storageDirectory: string) {
     mkdirSync(storageDirectory, { recursive: true })
@@ -374,9 +386,15 @@ export class WorkspaceStore {
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;')
     this.migrate()
     this.purgeExpiredTrash()
+    // A background title request never survives a process exit, so no design can still be pending on open.
+    this.database.exec('UPDATE designs SET title_pending = 0 WHERE title_pending = 1')
+    this.purgeTimer = setInterval(() => { try { this.purgeExpiredTrash() } catch { /* a transient DB error should not crash the sweep */ } }, TRASH_PURGE_INTERVAL_MS)
+    // Do not keep the process alive solely for the sweep.
+    this.purgeTimer.unref?.()
   }
 
   public close(): void {
+    clearInterval(this.purgeTimer)
     this.database.close()
   }
 
@@ -388,7 +406,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
       ORDER BY d.updated_at DESC
@@ -400,7 +418,7 @@ export class WorkspaceStore {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -437,7 +455,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
       ORDER BY d.updated_at DESC, d.rowid DESC
@@ -465,10 +483,16 @@ export class WorkspaceStore {
         WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
       `).get(designId) as { project_id: string; kind: 'linked' | 'standalone' } | undefined
       if (!row) throw new Error('Design not found.')
-      this.database.prepare('UPDATE designs SET title = ?, updated_at = ? WHERE id = ?').run(title, now, designId)
+      // Any rename resolves the pending title: a background title landed, or the user took ownership.
+      this.database.prepare('UPDATE designs SET title = ?, title_pending = 0, updated_at = ? WHERE id = ?').run(title, now, designId)
       if (row.kind === 'standalone') this.database.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(title, now, row.project_id)
     })
     return this.requireDesign(designId)
+  }
+
+  /** Flag (or clear) that a background title request is in flight for a design. */
+  public setTitlePending(designId: string, pending: boolean): void {
+    this.database.prepare('UPDATE designs SET title_pending = ? WHERE id = ?').run(pending ? 1 : 0, designId)
   }
 
   private findTrashedProjectBySourcePath(sourcePath: string): string | null {
@@ -964,7 +988,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1010,6 +1034,7 @@ export class WorkspaceStore {
       draftAttachments: this.hydrateAttachments(row.draft_attachments_json),
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
       queuePaused: row.queue_paused === 1,
+      titlePending: row.title_pending === 1,
       lastSelection: {
         providerId: row.last_provider_id,
         modelId: row.last_model_id,

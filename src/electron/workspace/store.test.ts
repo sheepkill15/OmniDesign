@@ -39,6 +39,26 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('tracks a pending background title and clears it on rename or reopen', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('Create a calm dashboard', 'Create a calm')
+    expect(store.getDesign(created.id)?.titlePending).toBe(false)
+
+    store.setTitlePending(created.id, true)
+    expect(store.getDesign(created.id)?.titlePending).toBe(true)
+
+    // Renaming resolves the pending state (a title landed or the user edited it).
+    store.renameDesign(created.id, 'Calm dashboard')
+    expect(store.getDesign(created.id)?.titlePending).toBe(false)
+
+    // A pending title never survives a restart, so reopening always clears it.
+    store.setTitlePending(created.id, true)
+    store.close()
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.titlePending).toBe(false)
+    reopened.close()
+  })
+
   it('restores history by appending a new head without removing later revisions', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
