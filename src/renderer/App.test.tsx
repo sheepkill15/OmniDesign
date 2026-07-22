@@ -282,6 +282,53 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('button', { name: 'Send change' })).toBeDisabled()
   })
 
+  it('groups full generation activity into an open collapsible section', async () => {
+    const activityDesign: OmniDesignDocument = {
+      ...design,
+      generationSteps: [
+        { id: 'step-1', stage: 'queued', label: 'Queued', detail: 'Waiting to start', createdAt: '2026-07-20T10:00:01.000Z' },
+        { id: 'step-2', stage: 'generating', label: 'Generating', detail: 'Reading project files', createdAt: '2026-07-20T10:00:02.000Z' },
+        { id: 'step-3', stage: 'validating', label: 'Validating', detail: 'Checking the candidate', createdAt: '2026-07-20T10:00:03.000Z' },
+        { id: 'step-4', stage: 'complete', label: 'Completed', detail: '1,326 tokens used', createdAt: '2026-07-20T10:00:04.000Z' },
+      ],
+    }
+    installBridge([activityDesign], activityDesign)
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    const summary = await screen.findByText('Generation details')
+    const details = summary.closest('details')
+    expect(details).toHaveAttribute('open')
+    expect(details).toHaveTextContent('2 updates')
+    expect(details).toHaveTextContent('Reading project files')
+    expect(screen.getByText('1,326 tokens used')).toBeInTheDocument()
+
+    fireEvent.click(summary)
+    await waitFor(() => expect(details).not.toHaveAttribute('open'))
+  })
+
+  it('keeps only queue and outcome milestones in concise generation history', async () => {
+    const activityDesign: OmniDesignDocument = {
+      ...design,
+      generationSteps: [
+        { id: 'step-1', stage: 'queued', label: 'Queued', detail: 'Waiting to start', createdAt: '2026-07-20T10:00:01.000Z' },
+        { id: 'step-2', stage: 'generating', label: 'Generating', detail: 'Reading project files', createdAt: '2026-07-20T10:00:02.000Z' },
+        { id: 'step-3', stage: 'complete', label: 'Completed', detail: '1,326 tokens used', createdAt: '2026-07-20T10:00:03.000Z' },
+      ],
+    }
+    const bridge = installBridge([activityDesign], activityDesign)
+    vi.mocked(bridge.settings.getGenerationDetail).mockResolvedValue('concise')
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    expect(await screen.findByText('1,326 tokens used')).toBeInTheDocument()
+    expect(screen.getByText('Waiting to start')).toBeInTheDocument()
+    expect(screen.queryByText('Generation details')).not.toBeInTheDocument()
+    expect(screen.queryByText('Reading project files')).not.toBeInTheDocument()
+  })
+
   it('creates a design through the workspace bridge and opens the split workspace', async () => {
     const bridge = installBridge()
     render(<App />)

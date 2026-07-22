@@ -27,6 +27,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - The no-provider state now disables both initial and follow-up submission without clearing drafts, keeps project/history/export access available, and links directly to provider availability. The deterministic mock provider is advertised only in development or explicitly enabled package-equivalent tests, never assumed in a normal packaged launch.
 - Multi-design project cards now expose separate, keyboard-named open and rename controls without nested interactive elements. Card renames update optimistically, roll back on failure, and no longer navigate into the design; background design refreshes likewise cannot steal the user's current screen.
 - Completed provider progress now records the metadata each CLI actually reports: Codex shows per-turn input/output usage and the model context limit, while Claude shows turn count, input/output usage when present, and actual USD cost. Claude's full final response is no longer duplicated into its completion-detail row.
+- Full generation history groups streamed provider, tool, validation, and saving activity into open-by-default collapsible sections; the persisted Concise preference keeps only queue and terminal outcomes visible.
 
 ## Remaining functional gaps
 

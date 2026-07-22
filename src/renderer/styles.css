@@ -1928,6 +1928,45 @@ button[aria-expanded="true"] .dropdown-caret {
   text-transform: uppercase;
 }
 
+.conversation-activity {
+  margin: 0 0 26px;
+  border-left: 2px solid var(--border);
+}
+
+.conversation-activity summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0 2px 14px;
+  color: var(--text-subtle);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.conversation-activity summary::-webkit-details-marker { display: none; }
+
+.conversation-activity summary::before {
+  width: 5px;
+  height: 5px;
+  margin-right: 2px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  content: '';
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+
+.conversation-activity[open] summary::before { transform: rotate(45deg) translate(-1px, -1px); }
+
+.conversation-activity summary:hover { color: var(--text); }
+.conversation-activity summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+.conversation-activity summary small { color: var(--text-faint); font-size: 11px; font-weight: 400; }
+.conversation-activity-steps { padding-top: 10px; }
+.conversation-activity .conversation-step { margin-bottom: 10px; padding-left: 30px; border-left: 0; }
+.conversation-activity .conversation-step:last-child { margin-bottom: 0; }
+
 .workspace-feedback {
   display: flex;
   align-items: center;

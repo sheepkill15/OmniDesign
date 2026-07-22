@@ -193,15 +193,38 @@ function Generations({ designs, onOpen, onCancel, onRemove }: {
 type ConversationFeedItem =
   | { readonly kind: 'message'; readonly createdAt: string; readonly message: DesignMessage }
   | { readonly kind: 'step'; readonly createdAt: string; readonly step: GenerationStep }
+  | { readonly kind: 'activity'; readonly createdAt: string; readonly id: string; readonly steps: GenerationStep[] }
+
+const terminalGenerationStages = ['queued', 'complete', 'failed', 'cancelled', 'interrupted']
 
 // Interleave persisted user/assistant messages with the recorded generation milestones so the major
 // steps of each run appear in the conversation history in the order they happened.
 function buildConversationFeed(design: OmniDesignDocument, detail: 'full' | 'concise'): ConversationFeedItem[] {
   const items: ConversationFeedItem[] = [
     ...design.messages.map((message) => ({ kind: 'message' as const, createdAt: message.createdAt, message })),
-    ...design.generationSteps.filter((step) => detail === 'full' || ['queued', 'complete', 'failed', 'cancelled', 'interrupted'].includes(step.stage)).map((step) => ({ kind: 'step' as const, createdAt: step.createdAt, step })),
+    ...design.generationSteps.filter((step) => detail === 'full' || terminalGenerationStages.includes(step.stage)).map((step) => ({ kind: 'step' as const, createdAt: step.createdAt, step })),
   ]
-  return items.sort((first, second) => first.createdAt < second.createdAt ? -1 : first.createdAt > second.createdAt ? 1 : 0)
+  const sorted = items.sort((first, second) => first.createdAt < second.createdAt ? -1 : first.createdAt > second.createdAt ? 1 : 0)
+  if (detail === 'concise') return sorted
+  return sorted.reduce<ConversationFeedItem[]>((feed, item) => {
+    if (item.kind !== 'step' || terminalGenerationStages.includes(item.step.stage)) return [...feed, item]
+    const previous = feed.at(-1)
+    if (previous?.kind === 'activity') {
+      previous.steps.push(item.step)
+      return feed
+    }
+    return [...feed, { kind: 'activity', createdAt: item.createdAt, id: item.step.id, steps: [item.step] }]
+  }, [])
+}
+
+function GenerationActivitySection({ id, steps }: { readonly id: string; readonly steps: readonly GenerationStep[] }) {
+  const [expanded, setExpanded] = useState(true)
+  return (
+    <details className="conversation-activity" key={id} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
+      <summary><span>Generation details</span><small>{steps.length} update{steps.length === 1 ? '' : 's'}</small></summary>
+      <div className="conversation-activity-steps">{steps.map((step) => <div className={`conversation-step step-${step.stage}`} key={step.id}><span className="conversation-step-label">{step.label}</span>{step.detail && <span className="conversation-step-detail">{step.detail}</span>}</div>)}</div>
+    </details>
+  )
 }
 
 function formatGenerationElapsed(startedAt: string): string {
@@ -1081,6 +1104,8 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
       <div className="conversation-feed">
         {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
           ? <article className={`conversation-message message-${item.message.role}`} key={item.message.id}><span>{item.message.role === 'user' ? 'You' : 'OmniDesign'}</span><p>{item.message.text}</p>{item.message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{item.message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => void api?.openAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}</article>
+          : item.kind === 'activity'
+          ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
         {activity && busy && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{activeJob && (activeJob.state === 'queued' ? <Button className="secondary-action" onPress={() => void removeGeneration()}>Remove</Button> : <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>)}</div>}
         {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
