@@ -1996,15 +1996,17 @@ button[aria-expanded="true"] .dropdown-caret {
   color: var(--text);
 }
 
-/* Rendered Markdown inside an agent reply. */
+/* Rendered Markdown inside an agent reply. The container fixes size/line-height/color so every block
+   (paragraphs, lists, quotes) matches — otherwise only <p> picked up the .message-bubble p size. */
+.markdown { font-size: 14px; line-height: 1.65; color: var(--text); }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
-.markdown .md-paragraph { margin: 0 0 10px; }
+.markdown .md-paragraph { margin: 0 0 10px; font-size: inherit; }
 .markdown .md-heading { margin: 12px 0 6px; color: var(--text); font-weight: 600; }
 .markdown .md-heading[data-level='1'], .markdown .md-heading[data-level='2'] { font-size: 15px; }
 .markdown .md-heading[data-level='3'] { font-size: 14px; }
 .markdown .md-list { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 3px; }
-.markdown .md-list li { line-height: 1.6; }
+.markdown .md-list li { line-height: inherit; }
 .markdown .md-code { padding: 1px 5px; border-radius: 5px; background: var(--surface-3); font: 0.92em/1.5 var(--font-mono, ui-monospace, monospace); }
 .markdown .md-pre { margin: 0 0 10px; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-3); }
 .markdown .md-pre code { font: 12px/1.55 var(--font-mono, ui-monospace, monospace); color: var(--text); white-space: pre; }
