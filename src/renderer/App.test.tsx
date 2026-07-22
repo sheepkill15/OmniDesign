@@ -70,7 +70,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       convertProjectToStandalone: vi.fn(),
       associateDesign: vi.fn().mockResolvedValue(createdDesign),
       associateAndRestart: vi.fn().mockResolvedValue(createdDesign),
-      trash: vi.fn().mockResolvedValue(undefined),
+      trash: vi.fn().mockResolvedValue({ cancelled: false }),
       restoreTrash: vi.fn().mockResolvedValue(undefined),
       purgeTrash: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(createdDesign),
@@ -157,6 +157,39 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByText('No deleted projects or designs.')).toBeInTheDocument()
   })
 
+  it('requires confirmation before permanently deleting trash', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.listTrash).mockResolvedValue([{
+      id: 'design-1', kind: 'design', name: 'Calm dashboard', projectId: 'project-1', projectName: 'Calm dashboard', sourceProjectPath: null,
+      trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z',
+    }])
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete permanently' }))
+    expect(screen.getByRole('dialog', { name: 'Permanently delete Calm dashboard?' })).toHaveTextContent('cannot be undone')
+    expect(bridge.workspace.purgeTrash).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+    await waitFor(() => expect(bridge.workspace.purgeTrash).toHaveBeenCalledWith('design', 'design-1'))
+  })
+
+  it('confirms before emptying all trash items', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.listTrash).mockResolvedValue([
+      { id: 'design-1', kind: 'design', name: 'Calm dashboard', projectId: 'project-1', projectName: 'Calm dashboard', sourceProjectPath: null, trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z' },
+      { id: 'project-2', kind: 'project', name: 'Aurora', projectId: null, projectName: null, sourceProjectPath: 'C:\\Projects\\Aurora', trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z' },
+    ])
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Empty trash' }))
+    expect(screen.getByRole('dialog', { name: 'Empty trash?' })).toHaveTextContent('all 2 trashed items')
+    fireEvent.click(screen.getByRole('button', { name: 'Empty trash' }))
+
+    await waitFor(() => expect(bridge.workspace.purgeTrash).toHaveBeenCalledTimes(2))
+  })
+
   it('shows active work globally and can remove queued work from the generations view', async () => {
     const queuedDesign: OmniDesignDocument = {
       ...design,
@@ -191,6 +224,22 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
+  })
+
+  it('stays in the workspace when active-work removal is cancelled', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.trash).mockResolvedValue({ cancelled: true })
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Design conversation' })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    await waitFor(() => expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-1'))
+    expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
+    expect(bridge.preview.hide).not.toHaveBeenCalled()
   })
 
   it('selects the provider, model, and effort from the composer settings menu', async () => {
@@ -408,6 +457,27 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
     expect(await screen.findByText('1 diagnostic captured')).toBeInTheDocument()
+  })
+
+  it('lists retained issues in global diagnostics and opens their revision', async () => {
+    const diagnosticDesign: OmniDesignDocument = {
+      ...design,
+      revisions: [{ ...design.revisions[0], diagnostics: [{
+        id: 'diagnostic-1', kind: 'runtime', level: 'error', message: 'Uncaught TypeError', source: 'index.html', line: 8, createdAt: '2026-07-20T10:01:00.000Z',
+      }] }],
+    }
+    const bridge = installBridge([diagnosticDesign], diagnosticDesign)
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }))
+    expect(await screen.findByRole('heading', { name: 'Diagnostics' })).toBeInTheDocument()
+    expect(screen.getByText('Preview runtime issue')).toBeInTheDocument()
+    expect(screen.getByText('Uncaught TypeError')).toBeInTheDocument()
+    expect(screen.getByText(/index\.html:8/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Preview runtime issue/ }))
+    await screen.findByRole('region', { name: 'Design conversation' })
+    expect(bridge.workspace.get).toHaveBeenCalledWith('design-1')
   })
 
   it('keeps an invalid candidate inspectable in the conversation', async () => {

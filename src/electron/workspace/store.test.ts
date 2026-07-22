@@ -85,12 +85,16 @@ describe('WorkspaceStore', () => {
     store.addPreviewDiagnostic(created.id, revisionId, {
       kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', source: 'omnidesign-preview://revision/token', line: 12,
     })
+    store.addPreviewDiagnostic(created.id, revisionId, {
+      kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', source: 'omnidesign-preview://revision/token', line: 12,
+    })
     store.close()
 
     const reopened = new WorkspaceStore(directory)
     expect(reopened.getDesign(created.id)?.revisions[0].diagnostics).toMatchObject([
       { kind: 'runtime', level: 'error', message: 'Uncaught ReferenceError', line: 12 },
     ])
+    expect(reopened.getDesign(created.id)?.revisions[0].diagnostics).toHaveLength(1)
     reopened.close()
   })
 

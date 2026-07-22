@@ -855,6 +855,12 @@ export class WorkspaceStore {
 
   public addPreviewDiagnostic(designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
     this.requireRevision(designId, revisionId)
+    const existing = this.database.prepare(`
+      SELECT 1 FROM preview_diagnostics
+      WHERE revision_id = ? AND kind = ? AND level = ? AND message = ? AND source IS ? AND line IS ?
+      LIMIT 1
+    `).get(revisionId, diagnostic.kind, diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line)
+    if (existing) return
     this.database.prepare(`
       INSERT INTO preview_diagnostics (id, revision_id, kind, level, message, source, line, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)

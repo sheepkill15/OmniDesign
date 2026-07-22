@@ -204,7 +204,7 @@ interface Window {
       registerLinkedProject(sourceProjectPath: string): Promise<ProjectSummary>
       reconnectProject(projectId: string, sourceProjectPath: string): Promise<ProjectSummary>
       convertProjectToStandalone(projectId: string): Promise<ProjectSummary>
-      trash(kind: 'project' | 'design', id: string): Promise<void>
+      trash(kind: 'project' | 'design', id: string): Promise<{ readonly cancelled: boolean }>
       restoreTrash(kind: 'project' | 'design', id: string): Promise<ProjectSummary | OmniDesignDocument>
       purgeTrash(kind: 'project' | 'design', id: string): Promise<void>
       get(designId: string): Promise<OmniDesignDocument | null>

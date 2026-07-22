@@ -5,6 +5,7 @@ type CapturedPreviewDiagnostic = Omit<PreviewDiagnostic, 'id' | 'createdAt'>
 export function captureConsoleDiagnostic(level: number | 'info' | 'warning' | 'error' | 'debug', message: string, line: number, source: string): CapturedPreviewDiagnostic | null {
   const severity = typeof level === 'number' ? level : ({ debug: 0, info: 1, warning: 2, error: 3 } as const)[level]
   if (severity < 2) return null
+  if (source.startsWith('node:electron/') && message.includes('Electron Security Warning')) return null
   return {
     kind: /^uncaught\b/i.test(message) ? 'runtime' : 'console',
     level: severity >= 3 ? 'error' : 'warning',

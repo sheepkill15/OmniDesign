@@ -87,6 +87,9 @@ test('creates and recovers a standalone design in the built Electron app', async
       compact: { horizontalOverflow: false, lang: 'en', viewport: 'width=device-width, initial-scale=1', mainCount: 1, headingCount: 1, unnamedInteractiveCount: 0 },
       wide: { horizontalOverflow: false, lang: 'en', viewport: 'width=device-width, initial-scale=1', mainCount: 1, headingCount: 1, unnamedInteractiveCount: 0 },
     })
+    await firstRun.window.getByRole('button', { name: 'Diagnostics' }).click()
+    await expect(firstRun.window.getByRole('heading', { name: 'Diagnostics' })).toBeVisible()
+    await expect(firstRun.window.getByText('No diagnostics recorded')).toBeVisible()
     await firstRun.app.close()
     activeApp = null
 

@@ -11,6 +11,7 @@ import {
   Cog6ToothIcon,
   CommandLineIcon,
   DocumentDuplicateIcon,
+  ExclamationTriangleIcon,
   FolderIcon,
   HomeIcon,
   PaperClipIcon,
@@ -104,15 +105,17 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
   )
 }
 
-function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, homeActive, settingsOpen, providersOpen, generationsOpen, trashOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onTrash }: {
+function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, diagnosticCount, homeActive, settingsOpen, providersOpen, generationsOpen, diagnosticsOpen, trashOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onDiagnostics, onTrash }: {
   readonly projects: readonly ProjectSummary[]
   readonly activeProjectId: string | null
   readonly activeDesignId: string | null
   readonly activeGenerationCount: number
+  readonly diagnosticCount: number
   readonly homeActive: boolean
   readonly settingsOpen: boolean
   readonly providersOpen: boolean
   readonly generationsOpen: boolean
+  readonly diagnosticsOpen: boolean
   readonly trashOpen: boolean
   readonly onHome: () => void
   readonly onOpen: (project: ProjectSummary) => void
@@ -121,6 +124,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
   readonly onSettings: () => void
   readonly onProviders: () => void
   readonly onGenerations: () => void
+  readonly onDiagnostics: () => void
   readonly onTrash: () => void
 }) {
   return (
@@ -128,7 +132,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
       <div className="brand-row">
         <span className="brand-mark" aria-hidden="true"><SparklesIcon /></span>
         <span className="brand-name">OmniDesign</span>
-        <IconButton label="Notifications" icon={BellIcon} />
+        <IconButton label="Generation activity" icon={BellIcon} onPress={onGenerations} />
       </div>
       <nav className="global-navigation" aria-label="Application">
         <NavigationItem icon={HomeIcon} label="Home" active={homeActive} onPress={onHome} />
@@ -145,6 +149,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
       </div>
       <div className="sidebar-footer">
         <NavigationItem icon={CommandLineIcon} label="Providers" active={providersOpen} onPress={onProviders} />
+        <NavigationItem icon={ExclamationTriangleIcon} label="Diagnostics" badge={diagnosticCount ? String(diagnosticCount) : undefined} active={diagnosticsOpen} onPress={onDiagnostics} />
         <NavigationItem icon={TrashIcon} label="Trash" active={trashOpen} onPress={onTrash} />
         <NavigationItem icon={Cog6ToothIcon} label="Settings" active={settingsOpen} onPress={onSettings} />
         <div className="account-row"><span className="avatar">OD</span><span><strong>Local workspace</strong><small>Stored on this device</small></span></div>
@@ -257,6 +262,80 @@ function Settings({ theme, notificationsEnabled, generationDetail, onThemeChange
   )
 }
 
+interface DiagnosticListItem {
+  readonly id: string
+  readonly design: OmniDesignDocument
+  readonly revisionId: string | null
+  readonly level: 'warning' | 'error'
+  readonly title: string
+  readonly detail: string
+  readonly context: string
+  readonly createdAt: string
+}
+
+function collectDiagnostics(designs: readonly OmniDesignDocument[]): DiagnosticListItem[] {
+  const items = designs.flatMap((design) => [
+    ...design.revisions.flatMap((revision) => revision.diagnostics.map((diagnostic): DiagnosticListItem => ({
+      id: diagnostic.id,
+      design,
+      revisionId: revision.id,
+      level: diagnostic.level,
+      title: diagnostic.kind === 'runtime' ? 'Preview runtime issue' : diagnostic.kind === 'load' ? 'Preview load issue' : 'Preview console issue',
+      detail: diagnostic.message,
+      context: `${design.projectName} · ${design.title}${diagnostic.source ? ` · ${diagnostic.source}${diagnostic.line ? `:${diagnostic.line}` : ''}` : ''}`,
+      createdAt: diagnostic.createdAt,
+    }))),
+    ...design.invalidCandidates.map((candidate): DiagnosticListItem => ({
+      id: candidate.id,
+      design,
+      revisionId: null,
+      level: 'error',
+      title: 'Candidate rejected',
+      detail: candidate.diagnostic,
+      context: `${design.projectName} · ${design.title}`,
+      createdAt: candidate.createdAt,
+    })),
+    ...design.generationJobs.filter((job) => job.state === 'failed' && job.error).map((job): DiagnosticListItem => ({
+      id: job.id,
+      design,
+      revisionId: null,
+      level: 'error',
+      title: 'Generation failed',
+      detail: job.error ?? 'Generation failed.',
+      context: `${design.projectName} · ${design.title} · ${job.providerId} · ${job.modelId}`,
+      createdAt: job.completedAt ?? job.createdAt,
+    })),
+  ])
+  return items.sort((first, second) => second.createdAt.localeCompare(first.createdAt))
+}
+
+function Diagnostics({ designs, onOpen }: {
+  readonly designs: readonly OmniDesignDocument[]
+  readonly onOpen: (design: OmniDesignDocument, revisionId: string | null) => void
+}) {
+  const diagnostics = collectDiagnostics(designs)
+  return (
+    <main className="settings-main">
+      <div className="settings-content">
+        <header className="page-heading"><h1>Diagnostics</h1><p>Review retained generation and preview issues. Opening a preview issue selects the revision where it occurred.</p></header>
+        <section className="settings-section" aria-labelledby="diagnostics-heading">
+          <div className="section-heading"><h2 id="diagnostics-heading">Recorded issues</h2><span>{diagnostics.length ? `${diagnostics.length} retained` : 'All clear'}</span></div>
+          <div className="diagnostics-list">
+            {diagnostics.map((diagnostic) => (
+              <Button className="diagnostic-row" data-level={diagnostic.level} key={`${diagnostic.design.id}-${diagnostic.id}`} onPress={() => onOpen(diagnostic.design, diagnostic.revisionId)}>
+                <span className="diagnostic-indicator" aria-hidden="true"><ExclamationTriangleIcon /></span>
+                <span className="diagnostic-copy"><strong>{diagnostic.title}</strong><small>{diagnostic.detail}</small><em>{diagnostic.context}</em></span>
+                <time dateTime={diagnostic.createdAt}>{new Date(diagnostic.createdAt).toLocaleString()}</time>
+              </Button>
+            ))}
+            {!diagnostics.length && <div className="diagnostics-empty"><CheckCircleIcon aria-hidden="true" /><strong>No diagnostics recorded</strong><p>Preview warnings, rejected candidates, and failed generation details will appear here.</p></div>}
+          </div>
+        </section>
+      </div>
+    </main>
+  )
+}
+
 function AttachmentPicker({ onChoose, placement = 'top' }: { readonly onChoose: (kind: AttachmentPickerKind) => void; readonly placement?: 'top' | 'bottom' }) {
   return (
     <DropdownButton label="Attach files or folders" triggerClassName="icon-button attachment-picker" popoverClassName="project-popover attachment-picker-popover" placement={placement} trigger={<PaperClipIcon aria-hidden="true" />}>
@@ -268,23 +347,46 @@ function AttachmentPicker({ onChoose, placement = 'top' }: { readonly onChoose: 
   )
 }
 
-function Trash({ items, onRestore, onPurge }: { readonly items: readonly TrashItem[]; readonly onRestore: (item: TrashItem) => Promise<void>; readonly onPurge: (item: TrashItem) => Promise<void> }) {
+function Trash({ items, onRestore, onPurge, onEmpty }: { readonly items: readonly TrashItem[]; readonly onRestore: (item: TrashItem) => Promise<void>; readonly onPurge: (item: TrashItem) => Promise<void>; readonly onEmpty: (items: readonly TrashItem[]) => Promise<void> }) {
+  const [pendingPurge, setPendingPurge] = useState<TrashItem | 'all' | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const run = async (action: () => Promise<void>, close?: () => void) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await action()
+      close?.()
+      setPendingPurge(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The trash action could not be completed.')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <main className="settings-main">
       <div className="settings-content">
         <header className="page-heading"><h1>Trash</h1><p>Deleted projects and designs are recoverable for 30 days. Linked source folders are never deleted.</p></header>
         <section className="settings-section" aria-labelledby="trash-heading">
-          <div className="section-heading"><h2 id="trash-heading">Recently deleted</h2><span>{items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : 'Empty'}</span></div>
+          <div className="section-heading"><h2 id="trash-heading">Recently deleted</h2><span className="section-heading-actions"><span>{items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : 'Empty'}</span>{items.length > 0 && <Button className="secondary-action danger-action" onPress={() => setPendingPurge('all')}>Empty trash</Button>}</span></div>
           <div className="generation-list">
             {items.map((item) => <article className="generation-row" key={`${item.kind}-${item.id}`}>
               <span className="generation-copy"><strong>{item.name}</strong><small>{item.kind === 'project' ? 'Project' : `Design in ${item.projectName ?? 'project'}`} · Purges {new Date(item.purgeAt).toLocaleDateString()}</small></span>
-              <Button className="secondary-action" onPress={() => void onRestore(item)}>Restore</Button>
-              <Button className="secondary-action" onPress={() => void onPurge(item)}>Delete permanently</Button>
+              <Button className="secondary-action" isDisabled={busy} onPress={() => void run(() => onRestore(item))}>Restore</Button>
+              <Button className="secondary-action danger-action" isDisabled={busy} onPress={() => setPendingPurge(item)}>Delete permanently</Button>
             </article>)}
             {!items.length && <p className="settings-empty">No deleted projects or designs.</p>}
           </div>
+          {error && <p className="trash-error" role="alert">{error}</p>}
         </section>
       </div>
+      <AppModal isOpen={pendingPurge !== null} onOpenChange={(open) => { if (!open && !busy) setPendingPurge(null) }} title={pendingPurge === 'all' ? 'Empty trash?' : `Permanently delete ${pendingPurge?.name ?? 'item'}?`}>
+        {(close) => <>
+          <p>{pendingPurge === 'all' ? `This permanently deletes all ${items.length} trashed item${items.length === 1 ? '' : 's'} and their OmniDesign history.` : 'This permanently deletes the design and its OmniDesign history.'} This cannot be undone. Linked source folders remain untouched.</p>
+          <div className="clone-modal-actions"><Button className="secondary-action" isDisabled={busy} onPress={close}>Cancel</Button><Button className="clone-confirm-action danger-confirm-action" isDisabled={busy} onPress={() => void run(() => pendingPurge === 'all' ? onEmpty(items) : pendingPurge ? onPurge(pendingPurge) : Promise.resolve(), close)}>{busy ? 'Deleting…' : pendingPurge === 'all' ? 'Empty trash' : 'Delete permanently'}</Button></div>
+        </>}
+      </AppModal>
     </main>
   )
 }
@@ -1019,6 +1121,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [providersOpen, setProvidersOpen] = useState(false)
   const [generationsOpen, setGenerationsOpen] = useState(false)
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
@@ -1101,15 +1204,28 @@ export function App() {
     document.documentElement.dataset.theme = nextTheme
     void window.omnidesign?.settings.saveTheme(nextTheme)
   }
-  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false) }
+  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setDiagnosticsOpen(false); setTrashOpen(false) }
   const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setActivity(null); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
   const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
   const openProviders = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
   const openGenerations = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
+  const openDiagnostics = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setDiagnosticsOpen(true); void refresh() }
   const openTrash = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
-  const openDesign = (design: OmniDesignDocument) => { closePanels(); setActiveDesign(design) }
+  const openDesign = (design: OmniDesignDocument) => {
+    closePanels()
+    const project = projects.find((candidate) => candidate.id === design.projectId)
+    setActiveProject(project && project.kind === 'linked' && project.designCount > 1 ? project : null)
+    setActiveDesign(design)
+  }
+  const openDiagnostic = async (design: OmniDesignDocument, revisionId: string | null) => {
+    const current = await workspaceApi?.get(design.id) ?? design
+    const selected = revisionId && current.selectedRevisionId !== revisionId
+      ? await workspaceApi?.selectRevision(current.id, revisionId) ?? current
+      : current
+    openDesign(selected)
+  }
   const openProjectDesign = (project: ProjectSummary, design: OmniDesignDocument) => { closePanels(); setActiveProject(project); setActiveDesign(design) }
   // A project with exactly one design opens straight into its workspace; empty or multi-design projects
   // open the project page (composer plus design grid).
@@ -1156,12 +1272,21 @@ export function App() {
   }
   const restoreTrash = async (item: TrashItem) => { await workspaceApi?.restoreTrash(item.kind, item.id); await refresh() }
   const purgeTrash = async (item: TrashItem) => { await workspaceApi?.purgeTrash(item.kind, item.id); await refresh() }
+  const emptyTrash = async (items: readonly TrashItem[]) => {
+    for (const item of items) await workspaceApi?.purgeTrash(item.kind, item.id)
+    await refresh()
+  }
   const trashDesign = async (design: OmniDesignDocument) => {
-    await workspaceApi?.trash('design', design.id)
+    const result = await workspaceApi?.trash('design', design.id)
+    if (!result || result.cancelled) return
     await window.omnidesign?.preview.hide()
     home()
   }
-  const trashProject = async (project: ProjectSummary) => { await workspaceApi?.trash('project', project.id); home() }
+  const trashProject = async (project: ProjectSummary) => {
+    const result = await workspaceApi?.trash('project', project.id)
+    if (!result || result.cancelled) return
+    home()
+  }
   const associateDesign = async (design: OmniDesignDocument, projectId: string) => {
     const associated = await workspaceApi?.associateDesign(design.id, projectId)
     if (associated) { updateDesign(associated); setAssociationNotice({ designId: associated.id, projectId: associated.projectId, projectName: associated.projectName, mode: 'associated' }) }
@@ -1174,14 +1299,17 @@ export function App() {
     await refresh()
   }
   const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => ['queued', 'running'].includes(job.state)).length
+  const diagnosticCount = collectDiagnostics(designs).length
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} />
+      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} diagnosticCount={diagnosticCount} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !diagnosticsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} diagnosticsOpen={diagnosticsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onDiagnostics={openDiagnostics} onTrash={openTrash} />
       {generationsOpen
         ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} />
+        : diagnosticsOpen
+        ? <Diagnostics designs={designs} onOpen={(design, revisionId) => void openDiagnostic(design, revisionId)} />
         : trashOpen
-        ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} />
+        ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} onEmpty={emptyTrash} />
         : providersOpen
         ? <Providers providers={providerState.providers} loading={providerState.loading} onRefresh={providerState.refresh} />
         : settingsOpen
