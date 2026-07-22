@@ -1752,6 +1752,8 @@ button[aria-expanded="true"] .dropdown-caret {
    menu-item styling. Rows highlight via React Aria's data-focused (pointer hover and keyboard). */
 .history-popover {
   min-width: 320px;
+  /* Cap the width so a long prompt truncates with an ellipsis instead of stretching the row. */
+  max-width: min(440px, 92vw);
   max-height: min(70vh, 520px);
   overflow-y: auto;
   border: 1px solid var(--border-strong);
