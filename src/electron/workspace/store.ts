@@ -521,8 +521,21 @@ export class WorkspaceStore {
   }
 
   public moveDesignToTrash(designId: string): void {
-    const result = this.database.prepare('UPDATE designs SET trashed_at = ? WHERE id = ? AND trashed_at IS NULL').run(new Date().toISOString(), designId)
-    if (result.changes !== 1) throw new Error('Design not found.')
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      const design = this.database.prepare(`
+        SELECT d.project_id, p.kind FROM designs d
+        JOIN projects p ON p.id = d.project_id
+        WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
+      `).get(designId) as { project_id: string; kind: 'linked' | 'standalone' } | undefined
+      if (!design) throw new Error('Design not found.')
+      if (design.kind === 'standalone') {
+        this.database.prepare('UPDATE projects SET trashed_at = ? WHERE id = ?').run(now, design.project_id)
+        this.database.prepare('UPDATE designs SET trashed_at = ? WHERE project_id = ? AND trashed_at IS NULL').run(now, design.project_id)
+        return
+      }
+      this.database.prepare('UPDATE designs SET trashed_at = ? WHERE id = ?').run(now, designId)
+    })
   }
 
   public listTrash(): TrashItem[] {

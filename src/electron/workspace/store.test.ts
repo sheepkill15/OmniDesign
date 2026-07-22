@@ -192,7 +192,7 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
-  it('moves designs to recoverable trash without touching their managed artifacts until purge', () => {
+  it('moves a standalone design and its associated project to recoverable trash without touching managed artifacts until purge', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
     const saved = store.addRevision(created.id, 'First')
@@ -202,15 +202,29 @@ describe('WorkspaceStore', () => {
 
     store.moveDesignToTrash(created.id)
     expect(store.getDesign(created.id)).toBeNull()
-    expect(store.listTrash()).toMatchObject([{ id: created.id, kind: 'design', name: 'Design' }])
+    expect(store.listProjects()).toHaveLength(0)
+    expect(store.listTrash()).toMatchObject([{ id: created.projectId, kind: 'project', name: 'Design' }])
     expect(existsSync(artifactPath)).toBe(true)
 
-    store.restoreDesign(created.id)
+    store.restoreProject(created.projectId)
     expect(store.getDesign(created.id)?.revisions).toHaveLength(1)
     store.moveDesignToTrash(created.id)
-    store.purgeTrashItem('design', created.id)
+    store.purgeTrashItem('project', created.projectId)
     expect(existsSync(artifactPath)).toBe(false)
     expect(store.listTrash()).toHaveLength(0)
+    store.close()
+  })
+
+  it('moves only the selected design when it belongs to a linked project', () => {
+    const { store } = createStore()
+    const folder = mkdtempSync(path.join(tmpdir(), 'omnidesign-linked-'))
+    directories.push(folder)
+    const created = store.createLinkedDesign('First', 'Design', folder)
+
+    store.moveDesignToTrash(created.id)
+
+    expect(store.getProjectSummary(created.projectId)).not.toBeNull()
+    expect(store.listTrash()).toMatchObject([{ id: created.id, kind: 'design', name: 'Design', projectId: created.projectId }])
     store.close()
   })
 
