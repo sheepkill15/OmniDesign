@@ -283,6 +283,7 @@ describe('WorkspaceStore', () => {
 
     expect(store.getDesign(created.id)?.draftAttachments).toHaveLength(1)
     expect(store.getGenerationJob(queued.id)?.attachments).toMatchObject([{ path: attachmentPath, name: 'reference.txt' }])
+    expect(store.getDesign(created.id)?.messages.at(-1)).toMatchObject({ text: 'Use the attached reference', attachments: [{ path: attachmentPath, name: 'reference.txt' }] })
     expect(existsSync(attachmentPath)).toBe(true)
     store.close()
   })
