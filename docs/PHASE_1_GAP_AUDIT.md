@@ -6,6 +6,8 @@
 
 This audit distinguishes behavior demonstrated by current implementation and tests from behavior that is absent or only partially demonstrated. A passing unit or Electron journey is not evidence for a broader acceptance criterion unless that criterion is directly covered.
 
+As of the verification snapshot below, the non-deferred functional audit is closed. The remaining functional blocker is the explicitly deferred external-root write boundary.
+
 ## Completed slices with direct evidence
 
 - Standalone and linked project containers, multiple designs, history, isolated preview, thumbnails, offline ZIP export, layout restoration, and the mock-provider walking skeleton are implemented and covered by unit and Electron tests.
@@ -82,8 +84,12 @@ The current automated suite does not yet prove all Phase 1 quality gates:
 - an Electron journey now verifies both themes across Home, Generations, Providers, Diagnostics, Trash, Settings, and the design workspace, including viewport fit and restart persistence; pixel-level regression coverage for every reusable control remains open;
 - an Electron journey now covers declining close, confirming interruption, restart recovery, Continue, and Retry affordances; external-root security still needs targeted acceptance coverage.
 
+## Verification snapshot
+
+The 2026-07-22 polish baseline passes `pnpm typecheck`, `pnpm build`, all 163 unit and integration tests, and all 7 built-Electron journeys. This snapshot includes the initial composer, project navigation and recovery, attachment history, cross-platform notifications, restart recovery, both trusted-UI themes, minimum-window keyboard coverage, generated-design export behavior, and preview layout transitions.
+
 ## Implementation order
 
 1. Keep the deferred external-root enforcement gap explicit in provider instructions and architecture until that boundary is resumed.
-2. Expand trusted-UI visual, keyboard, reduced-motion, forced-colors, and smaller-window acceptance coverage while continuing the polish pass.
-3. Re-audit every `docs/PHASE_1_SPEC.md` acceptance bullet before declaring Phase 1 complete.
+2. Add pixel-level reusable-control regression coverage when the visual baseline is ready to be frozen.
+3. Resume the external-root security boundary and re-run every acceptance gate before declaring Phase 1 complete.
