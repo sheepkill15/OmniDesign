@@ -823,44 +823,6 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText('codex · gpt-5.6 · Saved locally')).toBeInTheDocument()
   })
 
-  it('shows the selected revision diagnostic count in the preview status', async () => {
-    const diagnosticDesign: OmniDesignDocument = {
-      ...design,
-      revisions: [{ ...design.revisions[0], diagnostics: [{
-        id: 'diagnostic-1', kind: 'runtime', level: 'error', message: 'Uncaught TypeError', source: null, line: 8, createdAt: '2026-07-20T10:01:00.000Z',
-      }] }],
-    }
-    installBridge([], diagnosticDesign)
-    render(<App />)
-
-    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
-    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
-    fireEvent.keyDown(prompt, { key: 'Enter' })
-
-    expect(await screen.findByText('1 diagnostic captured')).toBeInTheDocument()
-  })
-
-  it('lists retained issues in global diagnostics and opens their revision', async () => {
-    const diagnosticDesign: OmniDesignDocument = {
-      ...design,
-      revisions: [{ ...design.revisions[0], diagnostics: [{
-        id: 'diagnostic-1', kind: 'runtime', level: 'error', message: 'Uncaught TypeError', source: 'index.html', line: 8, createdAt: '2026-07-20T10:01:00.000Z',
-      }] }],
-    }
-    const bridge = installBridge([diagnosticDesign], diagnosticDesign)
-    render(<App />)
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }))
-    expect(await screen.findByRole('heading', { name: 'Diagnostics' })).toBeInTheDocument()
-    expect(screen.getByText('Preview runtime issue')).toBeInTheDocument()
-    expect(screen.getByText('Uncaught TypeError')).toBeInTheDocument()
-    expect(screen.getByText(/index\.html:8/)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /Preview runtime issue/ }))
-    await screen.findByRole('region', { name: 'Design conversation' })
-    expect(bridge.workspace.get).toHaveBeenCalledWith('design-1')
-  })
-
   it('keeps an invalid candidate inspectable in the conversation', async () => {
     const failedDesign: OmniDesignDocument = {
       ...design,

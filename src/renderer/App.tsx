@@ -120,18 +120,16 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
   )
 }
 
-function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, diagnosticCount, workspaceError, homeActive, settingsOpen, providersOpen, generationsOpen, diagnosticsOpen, trashOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onDiagnostics, onTrash, onRetryWorkspace }: {
+function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, workspaceError, homeActive, settingsOpen, providersOpen, generationsOpen, trashOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onTrash, onRetryWorkspace }: {
   readonly projects: readonly ProjectSummary[]
   readonly activeProjectId: string | null
   readonly activeDesignId: string | null
   readonly activeGenerationCount: number
-  readonly diagnosticCount: number
   readonly workspaceError: string | null
   readonly homeActive: boolean
   readonly settingsOpen: boolean
   readonly providersOpen: boolean
   readonly generationsOpen: boolean
-  readonly diagnosticsOpen: boolean
   readonly trashOpen: boolean
   readonly onHome: () => void
   readonly onOpen: (project: ProjectSummary) => void
@@ -140,7 +138,6 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
   readonly onSettings: () => void
   readonly onProviders: () => void
   readonly onGenerations: () => void
-  readonly onDiagnostics: () => void
   readonly onTrash: () => void
   readonly onRetryWorkspace: () => void
 }) {
@@ -167,7 +164,6 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
       </div>
       <div className="sidebar-footer">
         <NavigationItem icon={CommandLineIcon} label="Providers" active={providersOpen} onPress={onProviders} />
-        <NavigationItem icon={ExclamationTriangleIcon} label="Diagnostics" badge={diagnosticCount ? String(diagnosticCount) : undefined} active={diagnosticsOpen} onPress={onDiagnostics} />
         <NavigationItem icon={TrashIcon} label="Trash" active={trashOpen} onPress={onTrash} />
         <NavigationItem icon={Cog6ToothIcon} label="Settings" active={settingsOpen} onPress={onSettings} />
         <div className="account-row"><span className="avatar">OD</span><span><strong>Local workspace</strong><small>Stored on this device</small></span></div>
@@ -414,80 +410,6 @@ function EditableTitle({ value, label, variant, pending = false, onSave }: {
   return <div className={`editable-title editable-title-${variant}`}><span><TitleElement>{value}</TitleElement>{pending
     ? <span className="title-pending" role="status" aria-label="Generating title…"><ArrowPathIcon className="spin" aria-hidden="true" /></span>
     : <IconButton label={`Rename ${label}`} icon={PencilSquareIcon} onPress={() => setEditing(true)} />}</span>{error && <small role="alert">{error}</small>}</div>
-}
-
-interface DiagnosticListItem {
-  readonly id: string
-  readonly design: OmniDesignDocument
-  readonly revisionId: string | null
-  readonly level: 'warning' | 'error'
-  readonly title: string
-  readonly detail: string
-  readonly context: string
-  readonly createdAt: string
-}
-
-function collectDiagnostics(designs: readonly OmniDesignDocument[]): DiagnosticListItem[] {
-  const items = designs.flatMap((design) => [
-    ...design.revisions.flatMap((revision) => revision.diagnostics.map((diagnostic): DiagnosticListItem => ({
-      id: diagnostic.id,
-      design,
-      revisionId: revision.id,
-      level: diagnostic.level,
-      title: diagnostic.kind === 'runtime' ? 'Preview runtime issue' : diagnostic.kind === 'load' ? 'Preview load issue' : diagnostic.kind === 'quality' ? 'Design quality warning' : 'Preview console issue',
-      detail: diagnostic.message,
-      context: `${design.projectName} · ${design.title}${diagnostic.source ? ` · ${diagnostic.source}${diagnostic.line ? `:${diagnostic.line}` : ''}` : ''}`,
-      createdAt: diagnostic.createdAt,
-    }))),
-    ...design.invalidCandidates.map((candidate): DiagnosticListItem => ({
-      id: candidate.id,
-      design,
-      revisionId: null,
-      level: 'error',
-      title: 'Candidate rejected',
-      detail: candidate.diagnostic,
-      context: `${design.projectName} · ${design.title}`,
-      createdAt: candidate.createdAt,
-    })),
-    ...design.generationJobs.filter((job) => job.state === 'failed' && job.error).map((job): DiagnosticListItem => ({
-      id: job.id,
-      design,
-      revisionId: null,
-      level: 'error',
-      title: 'Generation failed',
-      detail: job.error ?? 'Generation failed.',
-      context: `${design.projectName} · ${design.title} · ${job.providerId} · ${job.modelId}`,
-      createdAt: job.completedAt ?? job.createdAt,
-    })),
-  ])
-  return items.sort((first, second) => second.createdAt.localeCompare(first.createdAt))
-}
-
-function Diagnostics({ designs, onOpen }: {
-  readonly designs: readonly OmniDesignDocument[]
-  readonly onOpen: (design: OmniDesignDocument, revisionId: string | null) => void
-}) {
-  const diagnostics = collectDiagnostics(designs)
-  return (
-    <main className="settings-main">
-      <div className="settings-content">
-        <header className="page-heading"><h1>Diagnostics</h1><p>Review retained generation and preview issues. Opening a preview issue selects the revision where it occurred.</p></header>
-        <section className="settings-section" aria-labelledby="diagnostics-heading">
-          <div className="section-heading"><h2 id="diagnostics-heading">Recorded issues</h2><span>{diagnostics.length ? `${diagnostics.length} retained` : 'All clear'}</span></div>
-          <div className="diagnostics-list">
-            {diagnostics.map((diagnostic) => (
-              <Button className="diagnostic-row" data-level={diagnostic.level} key={`${diagnostic.design.id}-${diagnostic.id}`} onPress={() => onOpen(diagnostic.design, diagnostic.revisionId)}>
-                <span className="diagnostic-indicator" aria-hidden="true"><ExclamationTriangleIcon /></span>
-                <span className="diagnostic-copy"><strong>{diagnostic.title}</strong><small>{diagnostic.detail}</small><em>{diagnostic.context}</em></span>
-                <time dateTime={diagnostic.createdAt}>{new Date(diagnostic.createdAt).toLocaleString()}</time>
-              </Button>
-            ))}
-            {!diagnostics.length && <div className="diagnostics-empty"><CheckCircleIcon aria-hidden="true" /><strong>No diagnostics recorded</strong><p>Preview warnings, rejected candidates, and failed generation details will appear here.</p></div>}
-          </div>
-        </section>
-      </div>
-    </main>
-  )
 }
 
 function AttachmentPicker({ onChoose, placement = 'top' }: { readonly onChoose: (kind: AttachmentPickerKind) => void; readonly placement?: 'top' | 'bottom' }) {
@@ -1288,9 +1210,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     }
   }
 
-  const previewStatus = selectedRevision
-    ? selectedRevision.diagnostics.length ? `${selectedRevision.diagnostics.length} diagnostic${selectedRevision.diagnostics.length === 1 ? '' : 's'} captured` : 'Offline · validated'
-    : 'Waiting for revision'
+  const previewStatus = selectedRevision ? 'Offline · validated' : 'Waiting for revision'
   const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
 
   const conversationPane = (
@@ -1462,7 +1382,6 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [providersOpen, setProvidersOpen] = useState(false)
   const [generationsOpen, setGenerationsOpen] = useState(false)
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
@@ -1516,10 +1435,6 @@ export function App() {
     void workspaceApi.get(designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The changed design could not be refreshed.'))
     void refresh()
   }), [refresh, updateDesign, workspaceApi])
-  useEffect(() => window.omnidesign?.preview.onDiagnostic((event) => {
-    if (event.designId !== activeDesign?.id || !workspaceApi) return
-    void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'Preview diagnostics could not refresh the design.'))
-  }), [activeDesign?.id, updateDesign, workspaceApi])
   useEffect(() => window.omnidesign?.preview.onThumbnail((event) => {
     void refresh()
     if (event.designId !== activeDesign?.id || !workspaceApi) return
@@ -1561,32 +1476,19 @@ export function App() {
       throw reason
     }
   }
-  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setDiagnosticsOpen(false); setTrashOpen(false) }
+  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false) }
   const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
   const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
   const openProviders = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
   const openGenerations = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
-  const openDiagnostics = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setDiagnosticsOpen(true); void refresh() }
   const openTrash = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
   const openDesign = (design: OmniDesignDocument) => {
     closePanels()
     const project = projects.find((candidate) => candidate.id === design.projectId)
     setActiveProject(project && project.kind === 'linked' && project.designCount > 1 ? project : null)
     setActiveDesign(design)
-  }
-  const openDiagnostic = async (design: OmniDesignDocument, revisionId: string | null) => {
-    try {
-      const current = await workspaceApi?.get(design.id) ?? design
-      const selected = revisionId && current.selectedRevisionId !== revisionId
-        ? await workspaceApi?.selectRevision(current.id, revisionId) ?? current
-        : current
-      setWorkspaceError(null)
-      openDesign(selected)
-    } catch (reason) {
-      setWorkspaceError(reason instanceof Error && reason.message ? reason.message : 'The diagnostic design could not be opened.')
-    }
   }
   const openProjectDesign = (project: ProjectSummary, design: OmniDesignDocument) => { closePanels(); setActiveProject(project); setActiveDesign(design) }
   // A project with exactly one design opens straight into its workspace; empty or multi-design projects
@@ -1697,15 +1599,12 @@ export function App() {
     await refresh()
   }
   const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => job.state === 'running').length
-  const diagnosticCount = collectDiagnostics(designs).length
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} diagnosticCount={diagnosticCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !diagnosticsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} diagnosticsOpen={diagnosticsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onDiagnostics={openDiagnostics} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
+      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
       {generationsOpen
         ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} onResume={resumeGenerationQueue} />
-        : diagnosticsOpen
-        ? <Diagnostics designs={designs} onOpen={(design, revisionId) => void openDiagnostic(design, revisionId)} />
         : trashOpen
         ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} onEmpty={emptyTrash} />
         : providersOpen
