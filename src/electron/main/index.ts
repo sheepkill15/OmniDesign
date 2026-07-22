@@ -6,6 +6,7 @@ import { isProviderId, ProviderService } from '../provider/providerService.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
+  attachmentPickerRequestSchema,
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
   designIdRequestSchema,
@@ -290,9 +291,10 @@ function registerIpc(): void {
     authorize(event)
     return requireGenerationQueue().continue(generationJobIdRequestSchema.parse(value).jobId)
   })
-  ipcMain.handle('workspace:choose-attachments', async (event) => {
+  ipcMain.handle('workspace:choose-attachments', async (event, value: unknown) => {
     authorize(event)
-    const selection = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile', 'openDirectory', 'multiSelections'] })
+    const { kind } = attachmentPickerRequestSchema.parse(value)
+    const selection = await dialog.showOpenDialog(mainWindow!, { properties: kind === 'files' ? ['openFile', 'multiSelections'] : ['openDirectory'] })
     if (selection.canceled) return []
     return selection.filePaths.flatMap((attachmentPath) => {
       try {

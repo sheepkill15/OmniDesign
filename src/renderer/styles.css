@@ -259,6 +259,8 @@ button:disabled,
   border-radius: var(--radius-control);
   color: var(--text-subtle);
 }
+.attachment-picker .dropdown-caret { display: none; }
+.attachment-picker-popover { min-width: 164px; }
 
 .project-nav-row:hover {
   background: var(--surface-2);

@@ -292,6 +292,7 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Attach files or folders' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Choose files…' }))
     expect(await screen.findByText('reference.pdf')).toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: 'What would you like to design?' }), { target: { value: 'Use this reference' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create design' }))
@@ -299,6 +300,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('Use this reference', 'mock', 'mock-v1', undefined, null, [{
       id: '123e4567-e89b-42d3-a456-426614174000', name: 'reference.pdf', path: 'C:\\references\\reference.pdf', kind: 'file', size: 42, modifiedAt: '2026-07-22T12:00:00.000Z', selectedAt: '2026-07-22T12:00:00.000Z', status: 'available',
     }]))
+    expect(bridge.workspace.chooseAttachments).toHaveBeenCalledWith('files')
   })
 
   it('uses the shared project chooser for associating a standalone design', async () => {

@@ -208,7 +208,7 @@ interface Window {
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
       generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>
-      chooseAttachments(): Promise<DesignAttachment[]>
+      chooseAttachments(kind: 'files' | 'folder'): Promise<DesignAttachment[]>
       cancelGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
       continueGeneration(jobId: string): Promise<GenerationJob>

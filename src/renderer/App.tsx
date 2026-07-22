@@ -31,6 +31,7 @@ import { DropdownButton } from './components/DropdownButton'
 import { PreviewOverlayContext } from './components/PreviewOverlayContext'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
+type AttachmentPickerKind = 'files' | 'folder'
 
 function IconButton({ label, icon: IconComponent, onPress }: { readonly label: string; readonly icon: Icon; readonly onPress?: () => void }) {
   return (
@@ -242,6 +243,17 @@ function Settings({ theme, onThemeChange }: { readonly theme: 'dark' | 'light'; 
   )
 }
 
+function AttachmentPicker({ onChoose, placement = 'top' }: { readonly onChoose: (kind: AttachmentPickerKind) => void; readonly placement?: 'top' | 'bottom' }) {
+  return (
+    <DropdownButton label="Attach files or folders" triggerClassName="icon-button attachment-picker" popoverClassName="project-popover attachment-picker-popover" placement={placement} trigger={<PaperClipIcon aria-hidden="true" />}>
+      <Menu aria-label="Choose attachment type" onAction={(key) => onChoose(String(key) as AttachmentPickerKind)}>
+        <MenuItem id="files">Choose files…</MenuItem>
+        <MenuItem id="folder">Choose folder…</MenuItem>
+      </Menu>
+    </DropdownButton>
+  )
+}
+
 function Trash({ items, onRestore, onPurge }: { readonly items: readonly TrashItem[]; readonly onRestore: (item: TrashItem) => Promise<void>; readonly onPurge: (item: TrashItem) => Promise<void> }) {
   return (
     <main className="settings-main">
@@ -422,8 +434,8 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
       void submit()
     }
   }
-  const chooseAttachments = async () => {
-    const selected = await window.omnidesign?.workspace.chooseAttachments()
+  const chooseAttachments = async (kind: AttachmentPickerKind) => {
+    const selected = await window.omnidesign?.workspace.chooseAttachments(kind)
     if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
   }
 
@@ -435,7 +447,7 @@ function NewDesignComposer({ providers, busy, fixedProject, projects = [], initi
       {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
       <div className="composer-footer">
         <div className="composer-leading">
-          <IconButton label="Attach files or folders" icon={PaperClipIcon} onPress={() => void chooseAttachments()} />
+          <AttachmentPicker onChoose={(kind) => void chooseAttachments(kind)} />
           {fixedProject
             ? <span className="project-context project-context-fixed">{fixedProject.kind === 'linked' ? <FolderIcon aria-hidden="true" /> : <DocumentDuplicateIcon aria-hidden="true" />}{fixedProject.name}</span>
             : <DropdownButton triggerClassName="project-context" popoverClassName="project-popover" placement="top" trigger={<><FolderIcon aria-hidden="true" />{projectLabel}</>}>
@@ -781,8 +793,8 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
     const updated = await api.get(design.id)
     if (updated) onChange(updated)
   }
-  const chooseAttachments = async () => {
-    const selected = await api?.chooseAttachments()
+  const chooseAttachments = async (kind: AttachmentPickerKind) => {
+    const selected = await api?.chooseAttachments(kind)
     if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
   }
   const adaptToAssociatedProject = async () => {
@@ -851,7 +863,7 @@ function DesignWorkspace({ design, providers, projects, associatedProjectName, a
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
-        <div className="workspace-composer-footer"><Button className="toolbar-button" aria-label="Attach files or folders" onPress={() => void chooseAttachments()}><PaperClipIcon aria-hidden="true" /></Button><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
       </div>
     </section>
   )

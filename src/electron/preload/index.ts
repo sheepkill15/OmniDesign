@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, target?: { sourceProjectPath?: string | null; projectId?: string | null; cloneRemoteUrl?: string | null; cloneDestinationDirectory?: string | null } | null, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: target?.sourceProjectPath ?? null, projectId: target?.projectId ?? null, cloneRemoteUrl: target?.cloneRemoteUrl ?? null, cloneDestinationDirectory: target?.cloneDestinationDirectory ?? null, attachments }),
     generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null, attachments }),
     chooseProjectFolder: () => ipcRenderer.invoke('workspace:choose-project-folder'),
-    chooseAttachments: () => ipcRenderer.invoke('workspace:choose-attachments'),
+    chooseAttachments: (kind: 'files' | 'folder') => ipcRenderer.invoke('workspace:choose-attachments', { kind }),
     cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),
     retryGeneration: (jobId: string) => ipcRenderer.invoke('workspace:retry-generation', { jobId }),
     continueGeneration: (jobId: string) => ipcRenderer.invoke('workspace:continue-generation', { jobId }),

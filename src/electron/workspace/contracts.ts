@@ -178,6 +178,10 @@ export const createDesignRequestSchema = z.object({
   attachments: z.array(attachmentSchema).max(100).default([]),
 })
 
+export const attachmentPickerRequestSchema = z.object({
+  kind: z.enum(['files', 'folder']),
+})
+
 export const designIdRequestSchema = z.object({
   designId: z.string().min(1).max(100),
 })
