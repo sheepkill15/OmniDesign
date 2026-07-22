@@ -67,6 +67,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     this.emit(onActivity, 'status', 'Starting Claude Code')
     const command = await resolveProviderCommand('claude')
     let finalText = ''
+    let sessionId = request.resumeSessionId
     const args = [
       '-p',
       '--output-format', 'stream-json',
@@ -76,7 +77,8 @@ export class ClaudeAdapter implements ProviderAdapter {
       ...(request.effort ? ['--effort', request.effort] : []),
       '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
       ...(request.referencePaths ?? []).flatMap((referencePath) => ['--add-dir', referencePath]),
-      '--no-session-persistence',
+      ...(request.resumeSessionId ? ['--resume', request.resumeSessionId] : []),
+      ...(!request.workspacePath ? ['--no-session-persistence'] : []),
       ...(request.instructions ? ['--append-system-prompt', request.instructions] : []),
       ...(request.outputSchema ? ['--json-schema', JSON.stringify(request.outputSchema)] : []),
     ]
@@ -94,13 +96,14 @@ export class ClaudeAdapter implements ProviderAdapter {
         const view = this.describeEvent(parsed)
         if (!view) return
         if (view.finalText) finalText = view.finalText
-        this.emit(onActivity, view.kind, view.label, view.detail)
+        if (view.sessionId) sessionId = view.sessionId
+        this.emit(onActivity, view.kind, view.label, view.detail, view.sessionId)
       },
       onStderrLine: (line) => this.emit(onActivity, 'diagnostic', 'Claude stderr', line),
     })
     if (result.code !== 0) throw providerFailure('Claude', result.stdout, result.stderr)
     if (!finalText) throw new Error('Claude completed without a final text response.')
-    return { modelId: request.modelId, text: finalText }
+    return { modelId: request.modelId, text: finalText, ...(sessionId ? { sessionId } : {}) }
   }
 
   private readEvent(line: string): Record<string, unknown> | undefined {
@@ -117,6 +120,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     readonly label: string
     readonly detail?: string
     readonly finalText?: string
+    readonly sessionId?: string
   } | undefined {
     const type = typeof event.type === 'string' ? event.type : 'event'
     if (type === 'result') {
@@ -125,7 +129,8 @@ export class ClaudeAdapter implements ProviderAdapter {
       return { kind: 'result', label: 'Completed', ...(detail ? { detail } : {}), ...(finalText ? { finalText } : {}) }
     }
     if (type === 'system') {
-      return { kind: 'status', label: 'Provider status', detail: typeof event.subtype === 'string' ? event.subtype : 'system' }
+      const sessionId = typeof event.session_id === 'string' ? event.session_id : undefined
+      return { kind: 'status', label: 'Provider status', detail: typeof event.subtype === 'string' ? event.subtype : 'system', ...(sessionId ? { sessionId } : {}) }
     }
     if (type === 'stream_event' && isObject(event.event)) {
       const streamEvent = event.event
@@ -152,11 +157,13 @@ export class ClaudeAdapter implements ProviderAdapter {
     kind: ProviderAdapterActivity['kind'],
     label: string,
     detail?: string,
+    sessionId?: string,
   ): void {
     listener({
       kind,
       label,
       ...(detail ? { detail } : {}),
+      ...(sessionId ? { sessionId } : {}),
     })
   }
 }

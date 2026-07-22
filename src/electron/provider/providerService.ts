@@ -42,6 +42,7 @@ export class ProviderService {
       ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
       ...(request.referencePaths?.length ? { referencePaths: request.referencePaths } : {}),
+      ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
     }
     const reply = await adapter.prompt(adapterRequest, (activity) => {
       onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity })
@@ -63,11 +64,12 @@ export class ProviderService {
       ...(request.effort ? { effort: request.effort } : {}),
       workspacePath: request.workspacePath,
       ...(request.sourceProjectPath ? { referencePaths: [request.sourceProjectPath] } : {}),
+      ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
       instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath),
       outputSchema: agentCompletionOutputSchema,
     }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
     const completion = parseAgentCompletionPayload(reply.text)
-    return { providerId: adapter.id, modelId: reply.modelId, response: completion.response }
+    return { providerId: adapter.id, modelId: reply.modelId, response: completion.response, ...(reply.sessionId ? { sessionId: reply.sessionId } : {}) }
   }
 
   private validatePrompt(request: ProviderPrompt): void {

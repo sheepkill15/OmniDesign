@@ -69,6 +69,7 @@ function isProviderPrompt(value: unknown): value is ProviderPrompt {
     && typeof request.requestId === 'string' && request.requestId.length > 0 && request.requestId.length <= 100
     && typeof request.modelId === 'string' && request.modelId.length > 0
     && (request.effort === undefined || typeof request.effort === 'string')
+    && (request.resumeSessionId === undefined || (typeof request.resumeSessionId === 'string' && request.resumeSessionId.length > 0 && request.resumeSessionId.length <= 1_000))
     && typeof request.prompt === 'string' && request.prompt.length <= 100_000
 }
 
@@ -483,6 +484,7 @@ void app.whenReady().then(() => {
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
       let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
+      let providerSessionId = job.providerSessionId ?? undefined
       for (let attempt = 0; attempt < 4; attempt += 1) {
         onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? `Starting ${job.providerId} in the design's Git repository.` : `Starting repair ${attempt} of 3.` })
         const reply = await providers.runDesignAgent({
@@ -495,9 +497,18 @@ void app.whenReady().then(() => {
           workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
           attachments: job.attachments,
           sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
+          ...(providerSessionId ? { resumeSessionId: providerSessionId } : {}),
         }, (activity) => {
+          if (activity.sessionId && activity.sessionId !== providerSessionId) {
+            providerSessionId = activity.sessionId
+            store.saveGenerationJobSession(job.id, activity.sessionId)
+          }
           onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: activity.detail ?? activity.label })
         })
+        if (reply.sessionId && reply.sessionId !== providerSessionId) {
+          providerSessionId = reply.sessionId
+          store.saveGenerationJobSession(job.id, reply.sessionId)
+        }
         if (signal.aborted) throw new Error('Generation was cancelled.')
         const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
         const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3)

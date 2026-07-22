@@ -33,6 +33,7 @@ This audit distinguishes behavior demonstrated by current implementation and tes
 - Stopped work now distinguishes connection, sign-in, model, cancellation, interruption, and generic failure states with a concise next action. Raw provider diagnostics remain available in a collapsed technical section, and provider-related failures link back to availability.
 - The design workspace now treats running and queued jobs separately: Stop always targets the provider request, every queued prompt shows its provider/model and Remove action, and a paused dependent queue no longer hides Continue/Retry behind a queued item or displays a false running spinner.
 - Continue now resumes a stopped attempt before its already-queued dependent prompts and reuses the original conversation message instead of inserting a duplicate prompt.
+- Continue persists and resumes the original Codex thread or Claude session when the provider exposes one, including across cancellation, failure, and application restart; Retry still starts a fresh provider session.
 
 ## Remaining functional gaps
 

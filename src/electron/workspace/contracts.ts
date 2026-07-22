@@ -141,6 +141,7 @@ export const generationJobSchema = z.object({
   effort: z.string().min(1).nullable().optional(),
   attachments: z.array(attachmentSchema).default([]),
   mode: generationJobModeSchema.default('fresh'),
+  providerSessionId: z.string().min(1).nullable().default(null),
   state: generationJobStateSchema,
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),

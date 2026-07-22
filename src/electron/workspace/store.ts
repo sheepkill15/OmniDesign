@@ -113,6 +113,7 @@ interface GenerationJobRow {
   effort: string | null
   attachments_json: string
   mode: 'fresh' | 'continue'
+  provider_session_id: string | null
   state: GenerationJobState
   created_at: string
   started_at: string | null
@@ -355,6 +356,10 @@ INSERT INTO preview_diagnostics_rebuilt (id, revision_id, kind, level, message, 
 DROP TABLE preview_diagnostics;
 ALTER TABLE preview_diagnostics_rebuilt RENAME TO preview_diagnostics;
 CREATE INDEX preview_diagnostics_by_revision ON preview_diagnostics(revision_id, created_at);
+`
+
+const migrationTwentyFive = `
+ALTER TABLE generation_jobs ADD COLUMN provider_session_id TEXT;
 `
 
 export class WorkspaceStore {
@@ -791,7 +796,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -799,7 +804,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -820,6 +825,12 @@ export class WorkspaceStore {
       .run(now, id)
     if (result.changes !== 1) throw new Error('Generation job is not queued.')
     return this.requireGenerationJob(id)
+  }
+
+  public saveGenerationJobSession(id: string, providerSessionId: string): void {
+    if (!providerSessionId) throw new Error('Provider session identifier is required.')
+    const result = this.database.prepare('UPDATE generation_jobs SET provider_session_id = ? WHERE id = ?').run(providerSessionId, id)
+    if (result.changes !== 1) throw new Error('Generation job not found.')
   }
 
   public removeQueuedGenerationJob(id: string): GenerationJob {
@@ -870,9 +881,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
     const continueId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', 'queued', ?, NULL, NULL, NULL)
-    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.createdAt)
     return this.requireGenerationJob(continueId)
   }
 
@@ -950,7 +961,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1085,7 +1096,7 @@ export class WorkspaceStore {
 
   private listGenerationJobsForDesign(designId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
     `).all(designId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1101,6 +1112,7 @@ export class WorkspaceStore {
       effort: row.effort,
       attachments: this.hydrateAttachments(row.attachments_json),
       mode: row.mode,
+      providerSessionId: row.provider_session_id,
       state: row.state,
       createdAt: row.created_at,
       startedAt: row.started_at,

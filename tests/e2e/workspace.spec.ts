@@ -280,7 +280,7 @@ test('confirms close with active work and recovers it as interrupted', async () 
     activeApp = secondRun.app
     const recoveredDesign = secondRun.window.getByRole('region', { name: 'Continue designing' }).getByRole('button').filter({ hasText: 'An interruption recovery check' })
     await recoveredDesign.click()
-    await expect(secondRun.window.getByText('interrupted', { exact: true })).toBeVisible()
+    await expect(secondRun.window.getByRole('status').filter({ hasText: 'Generation interrupted' })).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: 'Continue' })).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: 'Retry' })).toBeVisible()
   } finally {

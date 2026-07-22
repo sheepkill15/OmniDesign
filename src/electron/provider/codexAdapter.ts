@@ -61,7 +61,8 @@ export class CodexAdapter implements ProviderAdapter {
     request.signal?.addEventListener('abort', cancel, { once: true })
     try {
       await this.initialize(rpc)
-      const thread = await rpc.request('thread/start', {
+      const thread = await rpc.request(request.resumeSessionId ? 'thread/resume' : 'thread/start', {
+        ...(request.resumeSessionId ? { threadId: request.resumeSessionId, excludeTurns: true } : {}),
         cwd: request.workspacePath ?? process.cwd(),
         model: request.modelId,
         sandbox: request.workspacePath ? 'workspace-write' : 'read-only',
@@ -72,8 +73,8 @@ export class CodexAdapter implements ProviderAdapter {
       if (!isObject(thread) || !isObject(thread.thread) || typeof thread.thread.id !== 'string') {
         throw new Error('Codex did not create a conversation.')
       }
-      this.emit(onActivity, 'status', 'Codex thread started', thread.thread.id)
-      return { modelId: request.modelId, text: await this.collectReply(rpc, thread.thread.id, request, onActivity) }
+      this.emit(onActivity, 'status', request.resumeSessionId ? 'Codex thread resumed' : 'Codex thread started', thread.thread.id, thread.thread.id)
+      return { modelId: request.modelId, text: await this.collectReply(rpc, thread.thread.id, request, onActivity), sessionId: thread.thread.id }
     } finally {
       request.signal?.removeEventListener('abort', cancel)
       rpc.close()
@@ -171,11 +172,13 @@ export class CodexAdapter implements ProviderAdapter {
     kind: ProviderAdapterActivity['kind'],
     label: string,
     detail?: string,
+    sessionId?: string,
   ): void {
     listener({
       kind,
       label,
       ...(detail ? { detail } : {}),
+      ...(sessionId ? { sessionId } : {}),
     })
   }
 }
