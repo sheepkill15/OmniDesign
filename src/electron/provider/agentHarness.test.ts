@@ -12,12 +12,14 @@ describe('agent completion payload', () => {
     expect(parseAgentCompletionPayload('Just a plain sentence.')).toEqual({ response: 'Just a plain sentence.' })
   })
 
-  it('uses the final message when a provider streams several concatenated JSON objects', () => {
+  it('keeps every message when a provider streams several concatenated JSON objects', () => {
     const concatenated = '{"response":"Starting on the layout."}{"response":"Building the cards."}{"response":"The cooking app is complete."}'
-    expect(parseAgentCompletionPayload(concatenated)).toEqual({ response: 'The cooking app is complete.' })
-    // Braces inside the response text must not split an object.
+    expect(parseAgentCompletionPayload(concatenated)).toEqual({ response: 'Starting on the layout.\n\nBuilding the cards.\n\nThe cooking app is complete.' })
+    // Braces inside the response text must not split an object, and all messages are preserved in order.
     expect(parseAgentCompletionPayload('{"response":"first"}{"response":"uses {braces} inside"}'))
-      .toEqual({ response: 'uses {braces} inside' })
+      .toEqual({ response: 'first\n\nuses {braces} inside' })
+    // Consecutive duplicate messages are collapsed.
+    expect(parseAgentCompletionPayload('{"response":"same"}{"response":"same"}')).toEqual({ response: 'same' })
   })
 
   it('directs the agent to work in the prepared repository without self-reporting Git evidence', () => {

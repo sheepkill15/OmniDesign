@@ -55,14 +55,17 @@ export function createDesignAgentInstructions(workspacePath: string, attachments
  */
 export function parseAgentCompletionPayload(value: string): AgentCompletionPayload {
   const text = stripCodeFences(value.trim())
-  // Prefer the LAST well-formed {response} object. Codex streams several assistant messages during a
-  // turn (progress narration + the final answer), each its own JSON object, and they arrive
-  // concatenated; the final object is the actual completion.
+  // An agent can emit several {response} objects across one turn (a message, then a follow-up that
+  // continues from it, then a final summary), and they arrive concatenated. Keep ALL of them, in order,
+  // joined into the reply — dropping all but the last left the saved message reading as a fragment of
+  // content no longer in the history. Consecutive duplicates are collapsed.
   const objects = extractJsonObjects(text)
-  for (let index = objects.length - 1; index >= 0; index -= 1) {
-    const payload = tryParsePayload(objects[index])
-    if (payload) return payload
+  const responses: string[] = []
+  for (const object of objects) {
+    const payload = tryParsePayload(object)
+    if (payload && payload.response !== responses.at(-1)) responses.push(payload.response)
   }
+  if (responses.length) return { response: responses.join('\n\n').slice(0, MAX_RESPONSE_LENGTH) }
 
   // Fall back to parsing the whole text, then to the raw text so a valid revision is never discarded
   // over a formatting quirk.
