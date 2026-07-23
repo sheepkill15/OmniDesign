@@ -2856,3 +2856,36 @@ button[aria-expanded="true"] .dropdown-caret {
     display: none;
   }
 }
+
+/* Page switcher in the preview toolbar for multi-page designs. */
+.preview-page-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.preview-page-picker:hover {
+  background: var(--surface-3);
+}
+
+.preview-page-picker svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-subtle);
+}
+
+.preview-page-home {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

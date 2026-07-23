@@ -272,6 +272,7 @@ export const previewRequestSchema = selectRevisionRequestSchema.extend({
     width: z.number().int().positive(),
     height: z.number().int().positive(),
   }),
+  page: z.string().min(1).max(1_000).optional(),
 })
 
 export const exportRequestSchema = selectRevisionRequestSchema

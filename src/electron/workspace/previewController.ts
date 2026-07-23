@@ -23,6 +23,7 @@ export class PreviewController {
   private lastBounds: Rectangle | null = null
   private designId: string | null = null
   private revisionId: string | null = null
+  private page: string | null = null
   private token: string | null = null
   private popWindow: BrowserWindow | null = null
   private suppressPopNotify = false
@@ -43,12 +44,12 @@ export class PreviewController {
 
   // Dock the preview inside the main window at the given bounds. Any popped-out window is closed first
   // so the single shared view moves back into the docked layout.
-  public show(designId: string, revisionId: string, files: RevisionFiles, bounds: Rectangle): void {
+  public show(designId: string, revisionId: string, files: RevisionFiles, bounds: Rectangle, page = 'index.html'): void {
     if (this.window.isDestroyed()) return
     const view = this.ensureView()
     if (view.webContents.isDestroyed()) return
     this.closePopWindow()
-    this.loadDocument(designId, revisionId, files)
+    this.loadDocument(designId, revisionId, files, page)
     this.suspended = false
     this.lastBounds = bounds
     if (!this.attached) {
@@ -96,7 +97,7 @@ export class PreviewController {
 
   // Move the shared preview view into a dedicated top-level window, leaving the main workspace free for
   // the conversation. The view keeps its loaded revision as it moves between windows.
-  public popOut(designId: string, revisionId: string, files: RevisionFiles): void {
+  public popOut(designId: string, revisionId: string, files: RevisionFiles, page = 'index.html'): void {
     if (this.window.isDestroyed()) return
     const view = this.ensureView()
     if (view.webContents.isDestroyed()) return
@@ -105,7 +106,7 @@ export class PreviewController {
       this.attached = false
     }
     this.suspended = false
-    this.loadDocument(designId, revisionId, files)
+    this.loadDocument(designId, revisionId, files, page)
     if (this.popWindow && !this.popWindow.isDestroyed()) {
       this.fitPopWindow()
       return
@@ -151,6 +152,7 @@ export class PreviewController {
     this.documents.clear()
     this.designId = null
     this.revisionId = null
+    this.page = null
     this.token = null
     if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close()
     this.view = null
@@ -162,17 +164,25 @@ export class PreviewController {
     this.view = null
   }
 
-  private loadDocument(designId: string, revisionId: string, files: RevisionFiles): void {
+  private loadDocument(designId: string, revisionId: string, files: RevisionFiles, page = 'index.html'): void {
     const view = this.view
     if (!view || view.webContents.isDestroyed()) return
-    if (this.designId === designId && this.revisionId === revisionId) return
-    const token = randomUUID()
-    this.documents.clear()
-    this.documents.set(token, files)
-    this.token = token
+    const sameRevision = this.designId === designId && this.revisionId === revisionId
+    // No-op when nothing changed, so a resize or re-show does not reload the frame.
+    if (sameRevision && this.page === page) return
+    // Reuse the loaded file map when only the page changed within the same revision; otherwise mint a
+    // fresh token so a new revision's files replace the old ones.
+    let token = this.token
+    if (!sameRevision || !token) {
+      token = randomUUID()
+      this.documents.clear()
+      this.documents.set(token, files)
+      this.token = token
+    }
     this.designId = designId
     this.revisionId = revisionId
-    void view.webContents.loadURL(`omnidesign-preview://revision/${token}/index.html`)
+    this.page = page
+    void view.webContents.loadURL(`omnidesign-preview://revision/${token}/${page}`)
   }
 
   private fitPopWindow(): void {

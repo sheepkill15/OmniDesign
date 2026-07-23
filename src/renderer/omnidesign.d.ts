@@ -295,7 +295,7 @@ interface Window {
       saveGenerationDefaults(selection: GenerationSelection): Promise<void>
     }
     readonly preview: {
-      show(request: { readonly designId: string; readonly revisionId: string; readonly bounds: PreviewBounds }): Promise<void>
+      show(request: { readonly designId: string; readonly revisionId: string; readonly bounds: PreviewBounds; readonly page?: string }): Promise<void>
       resize(bounds: PreviewBounds): Promise<void>
       hide(): Promise<void>
       popOut(request: { readonly designId: string; readonly revisionId: string }): Promise<void>

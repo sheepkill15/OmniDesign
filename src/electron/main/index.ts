@@ -508,7 +508,8 @@ function registerIpc(): void {
     const request = previewRequestSchema.parse(value)
     if (!requireWorkspace().getDesign(request.designId)) return
     const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
-    preview?.show(request.designId, request.revisionId, files, request.bounds)
+    const page = request.page ?? requireWorkspace().getRevisionPages(request.designId, request.revisionId).entryPagePath ?? 'index.html'
+    preview?.show(request.designId, request.revisionId, files, request.bounds, page)
   })
   ipcMain.handle('preview:resize', (event, value: unknown) => {
     authorize(event)
@@ -519,7 +520,8 @@ function registerIpc(): void {
     const request = selectRevisionRequestSchema.parse(value)
     if (!requireWorkspace().getDesign(request.designId)) return
     const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
-    preview?.popOut(request.designId, request.revisionId, files)
+    const page = requireWorkspace().getRevisionPages(request.designId, request.revisionId).entryPagePath ?? 'index.html'
+    preview?.popOut(request.designId, request.revisionId, files, page)
   })
   ipcMain.handle('preview:hide', (event) => {
     authorize(event)

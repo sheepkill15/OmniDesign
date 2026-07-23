@@ -128,6 +128,8 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       saveDraft: vi.fn().mockResolvedValue(undefined),
       saveLayout: vi.fn().mockResolvedValue(undefined),
       exportRevision: vi.fn().mockResolvedValue({ canceled: true }),
+      revisionPages: vi.fn().mockResolvedValue({ pages: [], entryPagePath: null }),
+      setEntryPage: vi.fn().mockResolvedValue(design),
       onActivity: vi.fn((listener: (activity: GenerationActivity) => void) => { listeners.push(listener); return () => undefined }),
       onChanged: vi.fn((listener: (event: { readonly designId: string }) => void) => { changeListeners.push(listener); return () => undefined }),
       onCloneActivity: vi.fn().mockReturnValue(() => undefined),

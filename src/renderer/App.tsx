@@ -865,7 +865,7 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   )
 }
 
-function PreviewSurface({ design, freezeFrame }: { readonly design: OmniDesignDocument; readonly freezeFrame: string | null }) {
+function PreviewSurface({ design, freezeFrame, page }: { readonly design: OmniDesignDocument; readonly freezeFrame: string | null; readonly page: string | null }) {
   const surface = useRef<HTMLDivElement>(null)
   const revisionId = design.selectedRevisionId
 
@@ -877,7 +877,7 @@ function PreviewSurface({ design, freezeFrame }: { readonly design: OmniDesignDo
       const rectangle = element.getBoundingClientRect()
       return { x: Math.round(rectangle.x), y: Math.round(rectangle.y), width: Math.max(1, Math.round(rectangle.width)), height: Math.max(1, Math.round(rectangle.height)) }
     }
-    void api.show({ designId: design.id, revisionId, bounds: readBounds() })
+    void api.show({ designId: design.id, revisionId, bounds: readBounds(), ...(page ? { page } : {}) })
     if (typeof ResizeObserver === 'undefined') return () => { void api.hide() }
     const resize = () => { void api.resize(readBounds()) }
     const observer = new ResizeObserver(resize)
@@ -888,7 +888,7 @@ function PreviewSurface({ design, freezeFrame }: { readonly design: OmniDesignDo
       window.removeEventListener('resize', resize)
       void api.hide()
     }
-  }, [design.id, revisionId])
+  }, [design.id, revisionId, page])
 
   return (
     <div className="preview-surface" ref={surface}>
@@ -956,6 +956,8 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
+  const [revisionPages, setRevisionPages] = useState<RevisionPages | null>(null)
+  const [previewPage, setPreviewPage] = useState<string | null>(null)
   const split = useRef<HTMLDivElement>(null)
   const openDropdownCount = useRef(0)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
@@ -1046,6 +1048,17 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
   useEffect(() => setSelection(design.lastSelection), [design.id])
+  // Discover the selected revision's pages so a multi-page design can be previewed page by page. The
+  // preview defaults to the resolved home page; the switcher below lets the user follow the others.
+  useEffect(() => {
+    const revisionId = design.selectedRevisionId
+    if (!api || !revisionId) { setRevisionPages(null); setPreviewPage(null); return }
+    let cancelled = false
+    void api.revisionPages(design.id, revisionId)
+      .then((result) => { if (!cancelled) { setRevisionPages(result); setPreviewPage(result.entryPagePath) } })
+      .catch(() => { if (!cancelled) { setRevisionPages(null); setPreviewPage(null) } })
+    return () => { cancelled = true }
+  }, [api, design.id, design.selectedRevisionId])
   const applySelection = (next: GenerationSelection) => {
     setSelection(next)
     const save = window.omnidesign?.workspace.saveSelection?.(design.id, next)
@@ -1257,10 +1270,28 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     </section>
   )
 
+  const previewPages = revisionPages?.pages ?? []
+  const currentPageLabel = previewPages.find((candidate) => candidate.path === previewPage)?.title ?? previewPage ?? 'Home'
   const previewPane = (
     <section className="preview-pane" aria-label="Generated design preview">
-      <div className="preview-toolbar"><span><CheckCircleIcon aria-hidden="true" />Isolated preview</span><small>{previewStatus}</small></div>
-      <PreviewSurface design={design} freezeFrame={freezeFrame} />
+      <div className="preview-toolbar">
+        <span><CheckCircleIcon aria-hidden="true" />Isolated preview</span>
+        {previewPages.length > 1 && (
+          <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<><WindowIcon aria-hidden="true" /><span>{currentPageLabel}</span></>}>
+            <Menu aria-label="Preview page" onAction={(key) => setPreviewPage(String(key))}>
+              {previewPages.map((candidate) => (
+                <MenuItem id={candidate.path} key={candidate.path} textValue={candidate.title ?? candidate.path}>
+                  <span>{candidate.title ?? candidate.path}</span>
+                  {candidate.isHome && <span className="preview-page-home">Home</span>}
+                  {candidate.path === previewPage && <CheckCircleIcon aria-hidden="true" />}
+                </MenuItem>
+              ))}
+            </Menu>
+          </DropdownButton>
+        )}
+        <small>{previewStatus}</small>
+      </div>
+      <PreviewSurface design={design} freezeFrame={freezeFrame} page={previewPage} />
     </section>
   )
 
