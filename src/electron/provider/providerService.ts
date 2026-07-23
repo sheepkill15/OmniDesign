@@ -34,6 +34,14 @@ export class ProviderService {
     return Promise.all([...this.adapters.values()].map(async (adapter) => ({ id: adapter.id, ...await adapter.discover() })))
   }
 
+  // Discover a single provider without contacting the others. Metadata work (e.g. title generation)
+  // must only ever spin up the provider the user selected, never fan out to every installed CLI.
+  public async discoverProvider(providerId: ProviderId): Promise<ProviderStatus | undefined> {
+    const adapter = this.adapters.get(providerId)
+    if (!adapter) return undefined
+    return { id: adapter.id, ...await adapter.discover() }
+  }
+
   public async prompt(request: ProviderPrompt, onActivity: ActivityListener = () => undefined): Promise<ProviderReply> {
     this.validatePrompt(request)
     const adapter = this.adapters.get(request.providerId)

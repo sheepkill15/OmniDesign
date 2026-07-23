@@ -80,7 +80,9 @@ function isProviderPrompt(value: unknown): value is ProviderPrompt {
 async function generateDesignTitle(prompt: string, providerId: 'codex' | 'claude', modelId: string, effort: string | null, attachments: readonly import('../workspace/contracts.js').Attachment[]): Promise<string> {
   const fallback = fallbackDesignTitle(prompt)
   try {
-    const selection = selectLightweightMetadataSelection(await providers.discover(), providerId, { modelId, effort })
+    // Only ever contact the selected provider — never fan out to every installed CLI just to name a design.
+    const status = await providers.discoverProvider(providerId)
+    const selection = selectLightweightMetadataSelection(status ? [status] : [], providerId, { modelId, effort })
     const reply = await providers.prompt({
       requestId: randomUUID(),
       providerId,

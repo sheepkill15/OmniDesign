@@ -49,6 +49,17 @@ describe('ProviderService', () => {
     expect(claude.discover).toHaveBeenCalledOnce()
   })
 
+  it('discovers a single provider without contacting the others', async () => {
+    const codex = createAdapter('codex')
+    const claude = createAdapter('claude')
+    const service = new ProviderService([codex, claude])
+
+    await expect(service.discoverProvider('claude')).resolves.toMatchObject({ id: 'claude', installed: true })
+    expect(claude.discover).toHaveBeenCalledOnce()
+    expect(codex.discover).not.toHaveBeenCalled()
+    await expect(service.discoverProvider('mock' as 'codex')).resolves.toBeUndefined()
+  })
+
   it('routes prompts without leaking provider differences to the caller', async () => {
     const codex = createAdapter('codex')
     const claude = createAdapter('claude')
