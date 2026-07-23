@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { alpineRuntimeBase64 } from './alpineRuntime.js'
@@ -72,6 +72,16 @@ export class DesignRepositoryManager {
     this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
     if (!this.commit(repositoryPath, message)) return null
     return this.run(repositoryPath, ['rev-parse', 'HEAD'])
+  }
+
+  // Clone one design's whole Git repository (history and all) to another design's storage, so a
+  // duplicated design keeps every committed revision and its working tree byte-for-byte.
+  public duplicateRepository(sourceDesignId: string, targetDesignId: string): void {
+    const source = this.initialize(sourceDesignId)
+    const target = this.getPath(targetDesignId)
+    if (existsSync(path.join(target, '.git'))) throw new Error('Target design repository already exists.')
+    mkdirSync(path.dirname(target), { recursive: true })
+    cpSync(source, target, { recursive: true })
   }
 
   public readIndexHtml(designId: string): string {

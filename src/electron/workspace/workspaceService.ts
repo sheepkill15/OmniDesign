@@ -45,6 +45,25 @@ export class WorkspaceService {
   public setAdaptationPending(designId: string, pending: boolean): void { this.store.setAdaptationPending(designId, pending) }
   public associateDesignWithProject(designId: string, projectId: string): Design { return this.store.associateDesignWithProject(designId, projectId) }
 
+  /** Duplicate a design (head revision + metadata) and clone its Git repository into the copy. */
+  public duplicateDesign(designId: string): Design {
+    const source = this.store.getDesign(designId)
+    if (!source) throw new Error('Design not found.')
+    const duplicate = this.store.duplicateDesign(designId, `${source.title} copy`)
+    try {
+      this.repositories.duplicateRepository(designId, duplicate.id)
+    } catch (error) {
+      // If the repository could not be cloned the duplicate cannot preview or export, so remove it
+      // rather than leaving a broken design behind.
+      try {
+        this.store.moveDesignToTrash(duplicate.id)
+        this.store.purgeTrashItem('design', duplicate.id)
+      } catch { /* best-effort cleanup */ }
+      throw error
+    }
+    return this.store.getDesign(duplicate.id) ?? duplicate
+  }
+
   public listFolders(): Folder[] { return this.store.listFolders() }
   public createFolder(name: string, parentFolderId: string | null = null): Folder { return this.store.createFolder(name, parentFolderId) }
   public renameFolder(folderId: string, name: string): Folder { return this.store.renameFolder(folderId, name) }

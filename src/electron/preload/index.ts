@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     listProjects: () => ipcRenderer.invoke('workspace:list-projects'),
     getProject: (projectId: string) => ipcRenderer.invoke('workspace:get-project', { projectId }),
     associateDesign: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-design', { designId, projectId }),
+    duplicateDesign: (designId: string) => ipcRenderer.invoke('workspace:duplicate-design', { designId }),
     associateAndRestart: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-and-restart', { designId, projectId }),
     dismissAdaptation: (designId: string) => ipcRenderer.invoke('workspace:dismiss-adaptation', { designId }),
     listFolders: () => ipcRenderer.invoke('workspace:list-folders'),

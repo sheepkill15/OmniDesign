@@ -291,6 +291,10 @@ function registerIpc(): void {
     const request = associateDesignRequestSchema.parse(value)
     return requireWorkspace().associateDesignWithProject(request.designId, request.projectId)
   })
+  ipcMain.handle('workspace:duplicate-design', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().duplicateDesign(designIdRequestSchema.parse(value).designId)
+  })
   ipcMain.handle('workspace:dismiss-adaptation', (event, value: unknown) => {
     authorize(event)
     const request = designIdRequestSchema.parse(value)

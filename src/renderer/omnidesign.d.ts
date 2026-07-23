@@ -238,6 +238,7 @@ interface Window {
       listProjects(): Promise<ProjectSummary[]>
       getProject(projectId: string): Promise<ProjectDetail | null>
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
+      duplicateDesign(designId: string): Promise<OmniDesignDocument>
       associateAndRestart(designId: string, projectId: string): Promise<OmniDesignDocument | null>
       dismissAdaptation(designId: string): Promise<OmniDesignDocument | null>
       listFolders(): Promise<Folder[]>

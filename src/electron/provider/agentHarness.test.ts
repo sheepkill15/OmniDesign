@@ -54,6 +54,20 @@ describe('agent completion payload', () => {
     expect(() => createDesignAgentInstructions('relative/design')).toThrow('must be absolute')
   })
 
+  it('tells the agent it may author multiple linked pages discovered from Git', () => {
+    const instructions = createDesignAgentInstructions('C:\\workspace\\design')
+    // Multi-page contract: pages are discovered, not declared; index.html is home; relative links.
+    expect(instructions).toContain('Every *.html file you commit outside the .build/ folder is a page')
+    expect(instructions).toContain('index.html is the home page when it exists')
+    expect(instructions).toContain('<a href="about.html">')
+    expect(instructions).toContain('never declare a file list or choose an entry point')
+    // One shared stylesheet across every page, still owned by OmniDesign.
+    expect(instructions).toContain('one shared compiled Tailwind stylesheet (.build/tailwind.css) covering every page')
+    // Sibling files now ship in preview and export (reversal of the Phase 1 single-file contract).
+    expect(instructions).toContain('All committed files are included in both the preview and the exported design')
+    expect(instructions).toContain('Every page must be a complete HTML document')
+  })
+
   it('directs the agent to inspect a linked project before implementing the design', () => {
     const instructions = createDesignAgentInstructions('C:\\workspace\\design', [], 'C:\\projects\\aurora')
 

@@ -75,6 +75,26 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it('duplicates a design with its head revision, metadata, and a cloned repository', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+
+    const original = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const duplicate = service.duplicateDesign(original.id)
+
+    expect(duplicate.id).not.toBe(original.id)
+    expect(duplicate.title).toBe(`${original.title} copy`)
+    expect(duplicate.revisions).toHaveLength(1)
+    expect(duplicate.revisions[0].gitCommit).toBe(original.revisions[0].gitCommit)
+    // The clone previews from its own repository copy, independent of the source.
+    const files = service.getRevisionFiles(duplicate.id, duplicate.revisions[0].id)
+    expect(files['index.html']).toContain('.build/tailwind.css')
+    expect(existsSync(path.join(directory, 'designs', duplicate.id, 'repository', '.git'))).toBe(true)
+    store.close()
+  })
+
   it('retains invalid candidates without replacing the last valid revision', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

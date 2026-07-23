@@ -464,6 +464,12 @@ CREATE INDEX project_tags_by_tag ON project_tags(tag_id);
 CREATE INDEX design_tags_by_tag ON design_tags(tag_id);
 `
 
+// Optional manual ordering of designs within a project grid. Defaults to 0 so existing designs keep
+// falling back to recency order until the user arranges them.
+const migrationThirtyTwo = `
+ALTER TABLE designs ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -553,7 +559,7 @@ export class WorkspaceStore {
              d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
-      ORDER BY d.updated_at DESC, d.rowid DESC
+      ORDER BY d.sort_order, d.updated_at DESC, d.rowid DESC
     `).all(projectId) as unknown as DesignRow[]
     return rows.map((row) => this.hydrateDesign(row))
   }
@@ -668,12 +674,54 @@ export class WorkspaceStore {
     })
   }
 
+  /**
+   * Create a duplicate of a design's current state: a new design carrying the source's head revision,
+   * generation selection, layout, page metadata, entry page, and tags. A standalone design duplicates
+   * into its own new standalone project; a design in a shared project duplicates alongside its siblings.
+   * The caller is responsible for cloning the Git repository into the returned design's storage.
+   */
+  public duplicateDesign(sourceDesignId: string, newTitle: string): Design {
+    const source = this.requireDesign(sourceDesignId)
+    const activeRevision = source.revisions.find((revision) => revision.id === source.activeRevisionId)
+    if (!activeRevision?.gitCommit) throw new Error('Only a design with a committed revision can be duplicated.')
+    const newDesignId = randomUUID()
+    const newRevisionId = randomUUID()
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      const sourceProject = this.database.prepare('SELECT kind FROM projects WHERE id = ?').get(source.projectId) as { kind: 'standalone' | 'linked' } | undefined
+      let projectId = source.projectId
+      if (sourceProject?.kind === 'standalone') {
+        projectId = randomUUID()
+        this.database.prepare('INSERT INTO projects (id, name, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(projectId, newTitle, 'standalone', now, now)
+      }
+      this.database.prepare(`
+        INSERT INTO designs (id, project_id, title, active_revision_id, selected_revision_id, draft, draft_attachments_json, layout_json, queue_paused,
+          last_provider_id, last_model_id, last_effort, entry_page_path, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, '', '[]', ?, 0, ?, ?, ?, ?, ?, ?)
+      `).run(newDesignId, projectId, newTitle, newRevisionId, newRevisionId, JSON.stringify(source.layout), source.lastSelection.providerId, source.lastSelection.modelId, source.lastSelection.effort, source.entryPagePath, now, now)
+      this.database.prepare(`
+        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
+        VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
+      `).run(newRevisionId, newDesignId, `Duplicated from ${source.title}`, activeRevision.providerId, activeRevision.modelId, activeRevision.gitCommit, now)
+      for (const page of source.pages) {
+        this.database.prepare('INSERT INTO design_pages (design_id, path, title, sort_order) VALUES (?, ?, ?, ?)').run(newDesignId, page.path, page.title, page.order)
+      }
+      for (const tag of source.tags) {
+        this.database.prepare('INSERT OR IGNORE INTO design_tags (design_id, tag_id) VALUES (?, ?)').run(newDesignId, tag.id)
+      }
+      this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, projectId)
+    })
+    return this.requireDesign(newDesignId)
+  }
+
   public associateDesignWithProject(designId: string, projectId: string): Design {
     const design = this.requireDesign(designId)
     if (design.projectId === projectId) return design
     this.transaction(() => {
-      const target = this.database.prepare("SELECT id, kind FROM projects WHERE id = ? AND trashed_at IS NULL").get(projectId) as { id: string; kind: string } | undefined
-      if (!target || target.kind !== 'linked') throw new Error('Choose an available linked project.')
+      // Any existing, non-trashed project is a valid move target (generalized from the original
+      // standalone->linked association so designs can move freely between projects).
+      const target = this.database.prepare('SELECT id, kind FROM projects WHERE id = ? AND trashed_at IS NULL').get(projectId) as { id: string; kind: string } | undefined
+      if (!target) throw new Error('Choose an available project.')
       // Moving into a project raises the "adapt to this project's design language?" decision. Persist it
       // so the notice survives navigation and restarts; it clears on adapt, keep, or the next prompt.
       this.database.prepare('UPDATE designs SET project_id = ?, adaptation_pending = 1, updated_at = ? WHERE id = ?').run(projectId, new Date().toISOString(), designId)
@@ -1230,7 +1278,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
