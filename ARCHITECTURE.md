@@ -596,32 +596,35 @@ and the offline export. Tailwind compiles once across all pages into one shared
 lives in `design_pages`. Implemented in `designRepository.ts`, `compiler.ts`,
 `pages.ts`, `exportService.ts`, and store migration 29.
 
-### ADR 2026-07-24: Canvas preview via sandboxed iframes (proposed, spiked, deferred)
+### ADR 2026-07-24: Canvas preview via sandboxed iframes (accepted, implemented)
 
-Phase 1 renders the preview in an isolated native `WebContentsView`. A canvas
+Phase 1 rendered the preview in an isolated native `WebContentsView`. A canvas
 mode that lays every page out on one pan/zoom board needs an in-DOM surface, so
-the proposed direction (Option A) is one sandboxed `<iframe sandbox="allow-scripts">`
-per page (opaque origin, no `allow-same-origin`) served over the existing
-`omnidesign-preview://` scheme with the current restrictive CSP, plus an
-OmniDesign-injected shim for content height, diagnostics forwarding, and
-current-page reporting.
+the preview is now one sandboxed `<iframe sandbox="allow-scripts">` per page
+(opaque origin, no `allow-same-origin`) served over the `omnidesign-preview://`
+scheme with the restrictive preview CSP, plus an OmniDesign-injected shim
+(`previewShim.ts`) for content height, diagnostics forwarding, and current-page
+reporting. `previewServer.ts` registers the scheme on the default session and
+serves each revision's files by opaque token.
 
-A standalone Electron 43 harness validated the load-bearing assumptions
-(opaque-origin iframe loads relative `.build/*` subresources because the CSP uses
-the scheme source `omnidesign-preview:`, the height shim round-trips, and
-`connect-src 'none'` is enforced inside the frame). The one required change is
-relaxing the preview CSP's `frame-ancestors 'none'` — with a `file://` parent,
-`frame-ancestors file:` works (or migrate the trusted renderer to an `app://`
-scheme).
+A standalone Electron 43 harness validated the load-bearing assumptions before
+implementation (opaque-origin iframe loads relative `.build/*` subresources
+because the CSP uses the scheme source `omnidesign-preview:`, the height shim
+round-trips, and `connect-src 'none'` is enforced inside the frame). Two CSP
+changes land with it: the preview `frame-ancestors` is relaxed from `'none'` to
+the renderer origin (`file:` packaged, the dev origin in development), and the
+trusted-renderer CSP gains `frame-src omnidesign-preview:`.
 
-This is **not yet implemented.** Relative to the Phase 1 native view it gives up
-the OS-level process sandbox and dedicated session partition while keeping
-opaque-origin isolation, denied network egress, and the custom-protocol
-boundary. Per "do not weaken preview isolation for convenience," the isolation
-downgrade must be signed off by the product owner before the rewrite merges. In
-the interim, multi-page designs are previewable in the existing native view:
-relative `<a href>` links navigate between pages, and a page switcher in the
-preview toolbar loads any discovered page.
+**The product owner cleared the isolation downgrade (2026-07-24)** — a follow-up
+hardening pass is planned. Relative to the Phase 1 native view this gives up the
+OS-level process sandbox and dedicated session partition while keeping
+opaque-origin DOM/storage isolation, denied network egress (`connect-src 'none'`),
+the sandbox restrictions (no forms/popups/top-navigation), a `will-frame-navigate`
+guard against in-frame navigation to non-preview URLs, and the custom-protocol
+boundary. Diagnostics forward from the shim to the store; thumbnails are captured
+via `capturePage` of the on-screen iframe rect; pop-out opens a sandboxed window
+on the preview URL. The native freeze/detach occlusion dance is gone (DOM overlays
+paint over iframes naturally).
 
 ## Rules for Changing This Architecture
 

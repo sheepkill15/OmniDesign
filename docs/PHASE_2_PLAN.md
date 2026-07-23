@@ -15,7 +15,8 @@ implementation resolves the open items in the last section.
 
 ## Implementation Status (2026-07-24)
 
-Landed on `feature/phase-2` (each slice test-gated; unit suite green at 202 tests):
+Landed on `feature/phase-2` (each slice test-gated; unit suite green at 205 tests;
+production build clean):
 
 - **Track C1 — pages discovered from Git.** Complete. Multi-file `readRevisionFiles`,
   multi-page Tailwind compile into one shared stylesheet, entry-page export,
@@ -26,27 +27,32 @@ Landed on `feature/phase-2` (each slice test-gated; unit suite green at 202 test
   rail, tag chips + inline tag management, client-side search/filter/sort, and the
   sidebar Library entry.
 - **Track B — mature multiple designs.** Complete. `duplicateDesign` (repo clone +
-  metadata), generalized move between any projects, migration 32 (`sort_order`), and
-  Library duplicate/move actions.
+  metadata), generalized move between any projects, migration 32 (`sort_order`),
+  Library duplicate/move actions, and project-grid multi-select with bulk remove/move.
 - **Track C4 — agent contract.** Complete. Design-agent instructions rewritten for
   multi-page authoring; contract assertions and multi-page service round-trip tested.
-- **Track C3 (partial) — preview page switcher.** The native preview loads any
-  discovered page and the workspace toolbar has a page switcher. This is the interim
-  in place of the full canvas rewrite.
+- **Track C2/C3 — preview rewrite.** Complete. The native `WebContentsView` is replaced
+  by sandboxed opaque-origin iframes (`previewServer.ts` + `previewShim.ts`) with canvas
+  and focused view modes, a global device size and fit (`layoutSchema` persistence),
+  diagnostics/height/page-sync over the shim, capturePage thumbnails, and a sandboxed
+  pop-out window. See the accepted ADR in `ARCHITECTURE.md`; the owner cleared the
+  isolation downgrade with a hardening follow-up planned.
+- **Page-metadata editing.** Set-home and rename-page from the focused-mode page
+  switcher, over `workspace:set-entry-page` / `save-page-metadata`.
 
 Remaining / deferred:
 
-- **Track C2/C3 — the full iframe/canvas preview rewrite** (canvas board, focused
-  mode, device size/fit persistence, injected shim). Spikes validated (C5); the
-  isolation-downgrade ADR is recorded in `ARCHITECTURE.md` as proposed and needs owner
-  sign-off before merging. Deferred deliberately rather than done blind.
-- **Track 0 — full `App.tsx` split.** Partially advanced (Library extracted to its own
-  module; folders/tags lifted into shared `refresh()` state). The remaining per-screen
-  extraction of Home/ProjectPage/DesignWorkspace/Sidebar is still pending, as is
-  consolidating the `ProjectNavItem`/`ProjectPage` per-project design fetches.
-- **Page metadata editing UI** (rename/reorder pages, set home) on top of the
-  `design_pages` table and `set-entry-page` IPC, which exist but have no UI yet.
-- **Project grid multi-select and bulk trash/move** (Track B polish).
+- **Preview isolation hardening** (owner-planned follow-up to the iframe ADR): tighten
+  the preview CSP toward a nonce'd shim and a strict external-resource allowlist, and
+  consider the `app://` renderer-scheme migration for a stable embedder origin.
+- **Track 0 — full `App.tsx` split.** Partially advanced (Library and DesignPreview are
+  their own modules; folders/tags lifted into shared `refresh()` state). The remaining
+  per-screen extraction of Home/ProjectPage/DesignWorkspace/Sidebar is still pending, as
+  is consolidating the `ProjectNavItem`/`ProjectPage` per-project design fetches.
+- **Folder drag-to-file** (owner would like it eventually): today projects move between
+  folders via an accessible menu; drag-and-drop is a later enhancement.
+- **Page reordering UI** (the `design_pages.sort_order` and save-page-metadata order
+  field exist; only rename/set-home have UI).
 
 ## Phase 2 Goals (from `AGENTS.md`)
 
