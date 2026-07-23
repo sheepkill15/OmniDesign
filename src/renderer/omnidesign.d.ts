@@ -294,6 +294,7 @@ interface Window {
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
       revisionPages(designId: string, revisionId: string): Promise<RevisionPages>
       setEntryPage(designId: string, entryPagePath: string | null): Promise<OmniDesignDocument>
+      savePageMetadata(designId: string, path: string, title: string | null, order: number): Promise<OmniDesignDocument>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
       onChanged(listener: (event: { readonly designId: string }) => void): () => void
       onCloneActivity(listener: (detail: string) => void): () => void

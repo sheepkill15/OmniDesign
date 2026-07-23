@@ -34,6 +34,7 @@ import {
   reconnectProjectRequestSchema,
   registerLinkedProjectRequestSchema,
   revisionPagesRequestSchema,
+  savePageMetadataRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
@@ -610,6 +611,11 @@ function registerIpc(): void {
     authorize(event)
     const request = setEntryPageRequestSchema.parse(value)
     return requireWorkspace().setDesignEntryPage(request.designId, request.entryPagePath)
+  })
+  ipcMain.handle('workspace:save-page-metadata', (event, value: unknown) => {
+    authorize(event)
+    const request = savePageMetadataRequestSchema.parse(value)
+    return requireWorkspace().saveDesignPageMetadata(request.designId, request.path, request.title, request.order)
   })
 }
 

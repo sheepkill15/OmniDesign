@@ -72,6 +72,12 @@ describe('WorkspaceService', () => {
     const resolved = service.getRevisionPages(saved.id, saved.revisions[0].id)
     expect(resolved.entryPagePath).toBe('about.html')
     expect(resolved.pages.find((page) => page.path === 'about.html')?.isHome).toBe(true)
+
+    // Per-page display titles and order carry through the merged page metadata.
+    service.saveDesignPageMetadata(saved.id, 'about.html', 'About us', 0)
+    service.saveDesignPageMetadata(saved.id, 'index.html', 'Welcome', 1)
+    const titled = service.getRevisionPages(saved.id, saved.revisions[0].id)
+    expect(titled.pages.map((page) => [page.path, page.title])).toEqual([['about.html', 'About us'], ['index.html', 'Welcome']])
     store.close()
   })
 

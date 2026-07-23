@@ -773,8 +773,9 @@ function Home({ projects, designs, providers, busy, activity, composerProject, o
   )
 }
 
-function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onDesignRenamed, onReconnect, onConvertToStandalone, onTrashProject, onOpenProviders }: {
+function ProjectPage({ project, projects, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onDesignRenamed, onReconnect, onConvertToStandalone, onTrashProject, onOpenProviders }: {
   readonly project: ProjectSummary
+  readonly projects: readonly ProjectSummary[]
   readonly providers: readonly ProviderStatus[]
   readonly busy: boolean
   readonly activity: GenerationActivity | null
@@ -791,6 +792,8 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   const [loadError, setLoadError] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<'reconnect' | 'convert' | 'remove' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const load = useCallback(async () => {
     setLoadError(null)
     try {
@@ -801,6 +804,28 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
     }
   }, [project.id])
   useEffect(() => { void load() }, [load])
+  useEffect(() => { setSelectedIds(new Set()) }, [project.id])
+  const toggleSelected = (designId: string) => setSelectedIds((current) => {
+    const next = new Set(current)
+    if (next.has(designId)) next.delete(designId); else next.add(designId)
+    return next
+  })
+  const moveTargets = projects.filter((candidate) => candidate.kind === 'linked' && candidate.id !== project.id)
+  const runBulk = async (operation: (designId: string) => Promise<unknown>, failure: string) => {
+    setBulkBusy(true)
+    setActionError(null)
+    try {
+      for (const id of selectedIds) await operation(id)
+      setSelectedIds(new Set())
+      await load()
+    } catch (reason) {
+      setActionError(`${failure}${reason instanceof Error && reason.message ? ` ${reason.message}` : ''}`)
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+  const bulkTrash = () => runBulk((id) => window.omnidesign!.workspace.trash('design', id), 'Some designs could not be removed.')
+  const bulkMove = (projectId: string) => runBulk((id) => window.omnidesign!.workspace.associateDesign(id, projectId), 'Some designs could not be moved.')
   const runProjectAction = async (action: 'reconnect' | 'convert' | 'remove', operation: () => Promise<void>, failure: string) => {
     setPendingAction(action)
     setActionError(null)
@@ -840,13 +865,28 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
         <section className="recent-section" aria-labelledby="project-designs">
           <div className="section-heading"><h2 id="project-designs">Designs</h2><span>{designs.length ? `${designs.length} design${designs.length === 1 ? '' : 's'}` : 'No designs yet'}</span></div>
           {loadError && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Project designs could not be loaded.</strong><small>{loadError}</small></span><Button className="text-button" onPress={() => void load()}>Retry</Button></div>}
+          {selectedIds.size > 0 && (
+            <div className="bulk-action-bar" role="group" aria-label="Bulk design actions">
+              <span>{selectedIds.size} selected</span>
+              {moveTargets.length > 0 && (
+                <DropdownButton label="Move selected to project" triggerClassName="secondary-action" popoverClassName="project-popover" placement="bottom" isDisabled={bulkBusy} trigger={<><FolderIcon aria-hidden="true" />Move to…</>}>
+                  <Menu aria-label="Move selected designs to" onAction={(key) => void bulkMove(String(key))}>
+                    {moveTargets.map((candidate) => <MenuItem id={candidate.id} key={candidate.id}>{candidate.name}</MenuItem>)}
+                  </Menu>
+                </DropdownButton>
+              )}
+              <Button className="secondary-action danger-action" isDisabled={bulkBusy} onPress={() => void bulkTrash()}><TrashIcon aria-hidden="true" />{bulkBusy ? 'Removing…' : 'Remove'}</Button>
+              <Button className="text-button" isDisabled={bulkBusy} onPress={() => setSelectedIds(new Set())}>Clear</Button>
+            </div>
+          )}
           {designs.length
             ? <div className="design-grid" role="group" aria-label="Designs in this project">
                 {designs.map((design) => {
                   const activeJob = [...design.generationJobs].reverse().find((job) => ['queued', 'running'].includes(job.state))
                   const status = design.queuePaused ? 'Queue paused' : activeJob ? (activeJob.state === 'queued' ? 'Queued' : 'Generating') : 'Saved locally'
                   return (
-                    <article className="design-card" key={design.id}>
+                    <article className="design-card" data-selected={selectedIds.has(design.id) || undefined} key={design.id}>
+                      <label className="design-card-select"><input type="checkbox" checked={selectedIds.has(design.id)} onChange={() => toggleSelected(design.id)} aria-label={`Select ${design.title}`} /></label>
                       <Button aria-label={`Open ${design.title}`} className="design-card-open" onPress={() => onOpenDesign(design)}><span className="design-card-thumb"><ProjectThumbnail title={design.title} thumbnailDataUrl={design.thumbnailDataUrl} /></span></Button>
                       <span className="design-card-body">
                         <EditableTitle value={design.title} label={`${design.title} design`} variant="card" pending={design.titlePending} onSave={(title) => renameDesign(design, title)} />
@@ -927,6 +967,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   const [previewViewMode, setPreviewViewMode] = useState<PreviewViewMode>(design.layout.previewViewMode)
   const [previewFit, setPreviewFit] = useState<PreviewFit>(design.layout.previewFit)
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>(design.layout.previewDevice)
+  const [pageRename, setPageRename] = useState<{ readonly path: string; readonly value: string } | null>(null)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -1009,6 +1050,28 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     setSelection(next)
     const save = window.omnidesign?.workspace.saveSelection?.(design.id, next)
     if (save) void save.catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Generation settings could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) }))
+  }
+  // Re-register the current revision after page metadata changes so the discovered pages reflect the
+  // new home page and titles (the token is stable, so the iframes do not reload).
+  const refreshPreviewRegistration = async () => {
+    const revisionId = design.selectedRevisionId
+    if (!revisionId) return
+    const result = await window.omnidesign?.preview.register(design.id, revisionId)
+    if (result) { setRevisionPages({ pages: result.pages, entryPagePath: result.entryPagePath }); setPreviewToken(result.token) }
+  }
+  const setPageAsHome = async (path: string) => {
+    if (!api) return
+    const updated = await runWorkspaceAction(() => api.setEntryPage(design.id, path), 'The home page could not be set.')
+    if (updated) { onChange(updated); await refreshPreviewRegistration() }
+  }
+  const commitPageRename = async () => {
+    if (!api || !pageRename) return
+    const title = pageRename.value.trim()
+    const order = revisionPages?.pages.find((page) => page.path === pageRename.path)?.order ?? 0
+    const target = pageRename.path
+    setPageRename(null)
+    const updated = await runWorkspaceAction(() => api.savePageMetadata(design.id, target, title || null, order), 'The page could not be renamed.')
+    if (updated) { onChange(updated); await refreshPreviewRegistration() }
   }
   useEffect(() => {
     if (!api) return
@@ -1221,14 +1284,27 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
           </div>
           {previewViewMode === 'focused' && previewPages.length > 1 && (
             <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<span>{currentPageLabel}</span>}>
-              <Menu aria-label="Preview page" onAction={(key) => setPreviewPage(String(key))}>
-                {previewPages.map((candidate) => (
-                  <MenuItem id={candidate.path} key={candidate.path} textValue={candidate.title ?? candidate.path}>
-                    <span>{candidate.title ?? candidate.path}</span>
-                    {candidate.isHome && <span className="preview-page-home">Home</span>}
-                    {candidate.path === previewPage && <CheckCircleIcon aria-hidden="true" />}
-                  </MenuItem>
-                ))}
+              <Menu aria-label="Preview page" onAction={(key) => {
+                const value = String(key)
+                if (value.startsWith('home:')) void setPageAsHome(value.slice('home:'.length))
+                else if (value.startsWith('rename:')) { const path = value.slice('rename:'.length); setPageRename({ path, value: previewPages.find((page) => page.path === path)?.title ?? '' }) }
+                else setPreviewPage(value)
+              }}>
+                <MenuSection className="project-popover-section">
+                  <Header className="project-popover-header">Pages</Header>
+                  {previewPages.map((candidate) => (
+                    <MenuItem id={candidate.path} key={candidate.path} textValue={candidate.title ?? candidate.path}>
+                      <span>{candidate.title ?? candidate.path}</span>
+                      {candidate.isHome && <span className="preview-page-home">Home</span>}
+                      {candidate.path === previewPage && <CheckCircleIcon aria-hidden="true" />}
+                    </MenuItem>
+                  ))}
+                </MenuSection>
+                <MenuSection className="project-popover-section">
+                  <Header className="project-popover-header">{currentPageLabel}</Header>
+                  <MenuItem id={`home:${previewPage ?? ''}`} textValue="Set as home page">Set as home page</MenuItem>
+                  <MenuItem id={`rename:${previewPage ?? ''}`} textValue="Rename page">Rename page…</MenuItem>
+                </MenuSection>
               </Menu>
             </DropdownButton>
           )}
@@ -1281,6 +1357,13 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
+      <AppModal isOpen={pageRename !== null} onOpenChange={(open) => { if (!open) setPageRename(null) }} title="Rename page">
+        {(close) => <>
+          <p>Give this page a display title. The file name on disk stays the same.</p>
+          <TextField aria-label="Page title"><Input autoFocus value={pageRename?.value ?? ''} maxLength={200} placeholder="Page title" onChange={(event) => setPageRename((current) => current ? { ...current, value: event.target.value } : current)} onKeyDown={(event) => { if (event.key === 'Enter') { void commitPageRename(); close() } }} /></TextField>
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" onPress={() => { void commitPageRename(); close() }}>Save</Button></div>
+        </>}
+      </AppModal>
       <AppModal isOpen={associateCloneOpen} onOpenChange={setAssociateCloneOpen} className="clone-modal" title="Clone and associate repository">
         {(close) => <>
           <p>OmniDesign will clone the repository into a new folder inside the destination you choose, then associate this design with it.</p>
@@ -1654,7 +1737,7 @@ export function App() {
         : activeDesign
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} />
         : activeProject
-        ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onOpenProviders={openProviders} />
+        ? <ProjectPage project={activeProject} projects={projects} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onOpenProviders={openProviders} />
         : <Home projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}
     </div>
   )

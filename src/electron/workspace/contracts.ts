@@ -322,6 +322,12 @@ export const setEntryPageRequestSchema = designIdRequestSchema.extend({
   entryPagePath: z.string().min(1).max(1_000).nullable(),
 })
 
+export const savePageMetadataRequestSchema = designIdRequestSchema.extend({
+  path: z.string().min(1).max(1_000),
+  title: z.string().trim().min(1).max(200).nullable(),
+  order: z.number().int().nonnegative().default(0),
+})
+
 export const createFolderRequestSchema = z.object({
   name: z.string().trim().min(1).max(120),
   parentFolderId: z.string().min(1).max(100).nullable().optional(),
@@ -397,6 +403,7 @@ export type CreateTagRequest = z.infer<typeof createTagRequestSchema>
 export type TagTargetRequest = z.infer<typeof tagTargetRequestSchema>
 export type RevisionPagesRequest = z.infer<typeof revisionPagesRequestSchema>
 export type SetEntryPageRequest = z.infer<typeof setEntryPageRequestSchema>
+export type SavePageMetadataRequest = z.infer<typeof savePageMetadataRequestSchema>
 
 export interface GenerationActivity {
   readonly designId: string

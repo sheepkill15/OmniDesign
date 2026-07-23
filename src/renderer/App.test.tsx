@@ -1228,6 +1228,27 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
   })
 
+  it('multi-selects designs in the project grid and bulk-removes them', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
+    const bridge = installBridge([first, second])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
+    const grid = await screen.findByRole('group', { name: 'Designs in this project' })
+
+    fireEvent.click(within(grid).getByRole('checkbox', { name: 'Select Overview' }))
+    fireEvent.click(within(grid).getByRole('checkbox', { name: 'Select Settings screen' }))
+    const bulkBar = await screen.findByRole('group', { name: 'Bulk design actions' })
+    expect(bulkBar).toHaveTextContent('2 selected')
+
+    fireEvent.click(within(bulkBar).getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-1'))
+    expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-2')
+  })
+
   it('offers an inline retry when sidebar project designs cannot load', async () => {
     const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
     const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }

@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     exportRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:export', { designId, revisionId }),
     revisionPages: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:revision-pages', { designId, revisionId }),
     setEntryPage: (designId: string, entryPagePath: string | null) => ipcRenderer.invoke('workspace:set-entry-page', { designId, entryPagePath }),
+    savePageMetadata: (designId: string, path: string, title: string | null, order: number) => ipcRenderer.invoke('workspace:save-page-metadata', { designId, path, title, order }),
     onActivity: (listener: (activity: GenerationActivity) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, activity: GenerationActivity) => listener(activity)
       ipcRenderer.on('workspace:activity', handler)

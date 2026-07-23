@@ -3126,3 +3126,54 @@ button[aria-expanded="true"] .dropdown-caret {
   letter-spacing: 0.04em;
   color: var(--text-faint);
 }
+
+/* Project-grid multi-select: a selection toggle per card and a bulk action bar. */
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.bulk-action-bar > span {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.design-card {
+  position: relative;
+}
+
+.design-card-select {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  display: inline-flex;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.design-card:hover .design-card-select,
+.design-card[data-selected] .design-card-select {
+  opacity: 1;
+}
+
+.design-card-select input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.design-card[data-selected] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-control);
+}
