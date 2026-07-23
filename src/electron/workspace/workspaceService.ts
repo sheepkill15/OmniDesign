@@ -1,7 +1,8 @@
-import { compileTailwindCss, validateCompiledDesign } from './compiler.js'
-import type { Attachment, Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme, TrashItem } from './contracts.js'
+import { compileTailwindCss, compileTailwindCssForFiles, validateCompiledDesign, validateDesignFiles } from './compiler.js'
+import type { Attachment, Design, DesignPage, GenerationActivity, GenerationSelection, Layout, ProjectSummary, RevisionPages, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
+import { discoverPages, resolveEntryPage } from './pages.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 import { cloneRepository } from './gitClone.js'
@@ -146,13 +147,34 @@ export class WorkspaceService {
     return this.store.restoreRevision(designId, revisionId, gitCommit)
   }
 
-  /** Read a revision's committed files (entry page + build assets) for preview and export. */
+  /** Read a revision's committed files (all pages + shared build assets) for preview and export. */
   public getRevisionFiles(designId: string, revisionId: string): RevisionFiles {
     const design = this.store.getDesign(designId)
     const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
     if (!revision) throw new Error('Revision not found.')
     if (!revision.gitCommit) throw new Error('Revision has no committed content.')
     return this.repositories.readRevisionFiles(designId, revision.gitCommit)
+  }
+
+  /**
+   * Discover a revision's pages from its committed files and resolve which one is the home page,
+   * merging any persisted per-path metadata (display title, order, home override) the design carries.
+   */
+  public getRevisionPages(designId: string, revisionId: string): RevisionPages {
+    const design = this.store.getDesign(designId)
+    if (!design) throw new Error('Design not found.')
+    const files = this.getRevisionFiles(designId, revisionId)
+    const discovered = discoverPages(files)
+    const metadata = new Map(design.pages.map((page) => [page.path, page]))
+    const entryPagePath = resolveEntryPage(discovered, design.entryPagePath)
+    const pages: DesignPage[] = discovered.map((page, index) => ({
+      path: page,
+      title: metadata.get(page)?.title ?? null,
+      order: metadata.get(page)?.order ?? index,
+      isHome: page === entryPagePath,
+    }))
+    pages.sort((a, b) => a.order - b.order)
+    return { pages, entryPagePath }
   }
 
   public async saveAgentWorkspaceResult(
@@ -168,11 +190,11 @@ export class WorkspaceService {
     if (!current) throw new Error('Design not found.')
 
     try {
-      const indexHtml = this.repositories.readIndexHtml(designId)
+      const sourceFiles = this.repositories.readWorkingTreeFiles(designId)
       onActivity({ designId, stage: 'compiling', detail: 'Preparing the design’s styles.' })
-      const tailwindCss = await compileTailwindCss(indexHtml)
+      const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
-      validateCompiledDesign(indexHtml)
+      validateDesignFiles(sourceFiles)
       onActivity({ designId, stage: 'saving', detail: 'Saving your design.' })
       const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`)
       if (gitCommit === null) {
@@ -188,11 +210,11 @@ export class WorkspaceService {
       // conversation: only a final, unrecoverable failure posts a system message and the agent's reply,
       // so a design that is fixed on a later attempt shows no leftover rejection.
       if (allowRepair) {
-        const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic)
+        const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId), diagnostic)
         onActivity({ designId, stage: 'repairing', detail: 'Making a few improvements…' })
         return rejected
       }
-      const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
+      const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
       this.store.addAssistantResponse(designId, response)
       onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
       return rejected
@@ -209,6 +231,14 @@ export class WorkspaceService {
 
   public saveLayout(designId: string, layout: Layout): void {
     this.store.saveLayout(designId, layout)
+  }
+
+  public setDesignEntryPage(designId: string, entryPagePath: string | null): Design {
+    return this.store.setDesignEntryPage(designId, entryPagePath)
+  }
+
+  public saveDesignPageMetadata(designId: string, path: string, title: string | null, order: number): Design {
+    return this.store.saveDesignPageMetadata(designId, path, title, order)
   }
 
   public getTheme(): Theme {
@@ -240,6 +270,15 @@ export class WorkspaceService {
   public rememberSelection(designId: string, selection: GenerationSelection): void {
     this.store.saveDesignSelection(designId, selection)
     this.store.saveGenerationDefaults(selection)
+  }
+
+  // The entry page's current working-tree HTML, for storing a rejected candidate. Falls back to any
+  // discovered page, then to index.html, so a design whose home page is not index.html still records.
+  private readEntryPageForDiagnostics(designId: string): string {
+    const files = this.repositories.readWorkingTreeFiles(designId)
+    const entry = resolveEntryPage(discoverPages(files))
+    if (entry && files[entry] !== undefined) return files[entry]
+    return this.repositories.readIndexHtml(designId)
   }
 
   private throwIfCancelled(signal: AbortSignal | undefined): void {

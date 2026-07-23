@@ -62,6 +62,18 @@ interface DesignMessage {
   readonly createdAt: string
 }
 
+interface DesignPage {
+  readonly path: string
+  readonly title: string | null
+  readonly order: number
+  readonly isHome: boolean
+}
+
+interface RevisionPages {
+  readonly pages: readonly DesignPage[]
+  readonly entryPagePath: string | null
+}
+
 interface InvalidCandidate {
   readonly id: string
   readonly prompt: string
@@ -119,6 +131,8 @@ interface OmniDesignDocument {
   readonly queuePaused: boolean
   readonly titlePending: boolean
   readonly adaptationPending: boolean
+  readonly entryPagePath: string | null
+  readonly pages: readonly DesignPage[]
   readonly lastSelection: GenerationSelection
   readonly generationSteps: readonly GenerationStep[]
   readonly layout: { readonly conversationWidth: number; readonly mode: LayoutMode }
@@ -231,6 +245,8 @@ interface Window {
       saveLayout(designId: string, layout: { readonly conversationWidth: number; readonly mode: LayoutMode }): Promise<void>
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
+      revisionPages(designId: string, revisionId: string): Promise<RevisionPages>
+      setEntryPage(designId: string, entryPagePath: string | null): Promise<OmniDesignDocument>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
       onChanged(listener: (event: { readonly designId: string }) => void): () => void
       onCloneActivity(listener: (detail: string) => void): () => void

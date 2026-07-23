@@ -3,7 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync,
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { attachmentSchema, designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
-import type { Attachment, Design, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme, TrashItem } from './contracts.js'
+import type { Attachment, Design, DesignPage, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme, TrashItem } from './contracts.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -39,6 +39,13 @@ interface DesignRow {
   last_effort: string | null
   title_pending: number
   adaptation_pending: number
+  entry_page_path: string | null
+}
+
+interface DesignPageRow {
+  path: string
+  title: string | null
+  sort_order: number
 }
 
 interface ProjectRow {
@@ -385,6 +392,21 @@ const migrationTwentyEight = `
 ALTER TABLE designs ADD COLUMN adaptation_pending INTEGER NOT NULL DEFAULT 0 CHECK (adaptation_pending IN (0, 1));
 `
 
+// Multi-page support. Pages themselves are discovered from Git per revision (no page table with its
+// own history); this stores only lightweight per-design metadata keyed by relative path — a display
+// title and manual order — plus the design's chosen home page. entry_page_path is a preference that
+// resolution falls back from to index.html, then the first discovered page.
+const migrationTwentyNine = `
+ALTER TABLE designs ADD COLUMN entry_page_path TEXT;
+CREATE TABLE design_pages (
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  title TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (design_id, path)
+) STRICT;
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -422,7 +444,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
       ORDER BY d.updated_at DESC
@@ -434,7 +456,7 @@ export class WorkspaceStore {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -471,7 +493,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
       ORDER BY d.updated_at DESC, d.rowid DESC
@@ -795,6 +817,31 @@ export class WorkspaceStore {
     if (result.changes !== 1) throw new Error('Design not found.')
   }
 
+  /** Persisted per-page metadata (display title, manual order); isHome is derived from the entry path. */
+  private listDesignPages(designId: string, entryPagePath: string | null): DesignPage[] {
+    const rows = this.database.prepare('SELECT path, title, sort_order FROM design_pages WHERE design_id = ? ORDER BY sort_order, path')
+      .all(designId) as unknown as DesignPageRow[]
+    return rows.map((row) => ({ path: row.path, title: row.title, order: row.sort_order, isHome: row.path === entryPagePath }))
+  }
+
+  /** Set (or clear) the design's chosen home page. Null falls back to index.html / first page at read time. */
+  public setDesignEntryPage(designId: string, entryPagePath: string | null): Design {
+    const result = this.database.prepare('UPDATE designs SET entry_page_path = ?, updated_at = ? WHERE id = ?')
+      .run(entryPagePath, new Date().toISOString(), designId)
+    if (result.changes !== 1) throw new Error('Design not found.')
+    return this.requireDesign(designId)
+  }
+
+  /** Upsert a page's display title and manual order. */
+  public saveDesignPageMetadata(designId: string, path: string, title: string | null, order: number): Design {
+    this.requireDesign(designId)
+    this.database.prepare(`
+      INSERT INTO design_pages (design_id, path, title, sort_order) VALUES (?, ?, ?, ?)
+      ON CONFLICT(design_id, path) DO UPDATE SET title = excluded.title, sort_order = excluded.sort_order
+    `).run(designId, path, title, order)
+    return this.requireDesign(designId)
+  }
+
   public getTheme(): Theme {
     const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'theme'").get() as { value: string } | undefined
     return themeSchema.catch('dark').parse(setting?.value)
@@ -1041,7 +1088,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1089,6 +1136,8 @@ export class WorkspaceStore {
       queuePaused: row.queue_paused === 1,
       titlePending: row.title_pending === 1,
       adaptationPending: row.adaptation_pending === 1,
+      entryPagePath: row.entry_page_path,
+      pages: this.listDesignPages(row.id, row.entry_page_path),
       lastSelection: {
         providerId: row.last_provider_id,
         modelId: row.last_model_id,

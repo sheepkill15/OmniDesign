@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('omnidesign', {
     saveLayout: (designId: string, layout: Layout) => ipcRenderer.invoke('workspace:save-layout', { designId, layout }),
     saveSelection: (designId: string, selection: GenerationSelection) => ipcRenderer.invoke('workspace:save-design-selection', { designId, selection }),
     exportRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:export', { designId, revisionId }),
+    revisionPages: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:revision-pages', { designId, revisionId }),
+    setEntryPage: (designId: string, entryPagePath: string | null) => ipcRenderer.invoke('workspace:set-entry-page', { designId, entryPagePath }),
     onActivity: (listener: (activity: GenerationActivity) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, activity: GenerationActivity) => listener(activity)
       ipcRenderer.on('workspace:activity', handler)

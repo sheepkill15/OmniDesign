@@ -36,6 +36,18 @@ export const layoutSchema = z.object({
   mode: layoutModeSchema.default('split'),
 })
 
+export const designPageSchema = z.object({
+  path: z.string().min(1).max(1_000),
+  title: z.string().max(200).nullable(),
+  order: z.number().int().nonnegative(),
+  isHome: z.boolean(),
+})
+
+export const revisionPagesSchema = z.object({
+  pages: z.array(designPageSchema),
+  entryPagePath: z.string().min(1).nullable(),
+})
+
 export const projectKindSchema = z.enum(['standalone', 'linked'])
 
 export const attachmentSchema = z.object({
@@ -165,6 +177,8 @@ export const designSchema = z.object({
   queuePaused: z.boolean(),
   titlePending: z.boolean().default(false),
   adaptationPending: z.boolean().default(false),
+  entryPagePath: z.string().min(1).nullable().default(null),
+  pages: z.array(designPageSchema).default([]),
   lastSelection: generationSelectionSchema,
   generationSteps: z.array(generationStepSchema),
   layout: layoutSchema,
@@ -238,6 +252,12 @@ export const previewRequestSchema = selectRevisionRequestSchema.extend({
 
 export const exportRequestSchema = selectRevisionRequestSchema
 
+export const revisionPagesRequestSchema = selectRevisionRequestSchema
+
+export const setEntryPageRequestSchema = designIdRequestSchema.extend({
+  entryPagePath: z.string().min(1).max(1_000).nullable(),
+})
+
 export type ProjectSummary = z.infer<typeof projectSummarySchema>
 export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
 export type RenameProjectRequest = z.infer<typeof renameProjectRequestSchema>
@@ -268,6 +288,10 @@ export type GenerationStep = z.infer<typeof generationStepSchema>
 export type SaveDesignSelectionRequest = z.infer<typeof saveDesignSelectionRequestSchema>
 export type PreviewRequest = z.infer<typeof previewRequestSchema>
 export type ExportRequest = z.infer<typeof exportRequestSchema>
+export type DesignPage = z.infer<typeof designPageSchema>
+export type RevisionPages = z.infer<typeof revisionPagesSchema>
+export type RevisionPagesRequest = z.infer<typeof revisionPagesRequestSchema>
+export type SetEntryPageRequest = z.infer<typeof setEntryPageRequestSchema>
 
 export interface GenerationActivity {
   readonly designId: string

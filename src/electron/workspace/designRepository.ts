@@ -78,6 +78,24 @@ export class DesignRepositoryManager {
     return readFileSync(path.join(this.initialize(designId), ENTRY_HTML_PATH), 'utf8')
   }
 
+  /**
+   * Read the design's current working-tree files (every tracked-or-untracked file the agent authored,
+   * plus the managed build assets), keyed by relative path. Used to compile Tailwind across all pages
+   * before a revision is committed. The .git directory is never included.
+   */
+  public readWorkingTreeFiles(designId: string): RevisionFiles {
+    const repositoryPath = this.initialize(designId)
+    // -c lists tracked+untracked files while honouring .gitignore; -o adds untracked; --exclude-standard
+    // keeps ignored noise out. Together they enumerate exactly the files a commit would capture.
+    const listing = this.run(repositoryPath, ['ls-files', '--cached', '--others', '--exclude-standard'])
+    const files: Record<string, string> = {}
+    for (const relativePath of listing.split('\n').map((line) => line.trim()).filter(Boolean)) {
+      const target = path.join(repositoryPath, relativePath)
+      if (existsSync(target)) files[relativePath] = readFileSync(target, 'utf8')
+    }
+    return files
+  }
+
   /** Check out an earlier revision's commit (detached HEAD) so the working tree reflects it. */
   public checkoutRevision(designId: string, commit: string): void {
     this.run(this.initialize(designId), ['checkout', '--force', commit])
@@ -88,11 +106,16 @@ export class DesignRepositoryManager {
     this.run(this.initialize(designId), ['checkout', '--force', 'main'])
   }
 
-  /** Read the files that make up a revision (entry page + build assets) from its Git commit. */
+  /**
+   * Read every file that makes up a revision from its Git commit — all agent-authored pages, assets,
+   * fonts, and per-page scripts alongside the managed build outputs. This is what feeds both the
+   * preview and the offline export, so multi-file and multi-page designs round-trip in full.
+   */
   public readRevisionFiles(designId: string, commit: string): RevisionFiles {
     const repositoryPath = this.initialize(designId)
+    const listing = this.run(repositoryPath, ['ls-tree', '-r', '--name-only', commit])
     const files: Record<string, string> = {}
-    for (const relativePath of [ENTRY_HTML_PATH, TAILWIND_CSS_PATH, ALPINE_JS_PATH]) {
+    for (const relativePath of listing.split('\n').map((line) => line.trim()).filter(Boolean)) {
       const content = this.showFileAtCommit(repositoryPath, commit, relativePath)
       if (content !== null) files[relativePath] = content
     }

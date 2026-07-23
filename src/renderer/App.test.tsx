@@ -30,6 +30,8 @@ const design: OmniDesignDocument = {
   queuePaused: false,
   titlePending: false,
   adaptationPending: false,
+  entryPagePath: null,
+  pages: [],
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
   layout: { conversationWidth: 43, mode: 'split' },

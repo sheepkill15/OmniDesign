@@ -23,10 +23,12 @@ import {
   renameProjectRequestSchema,
   reconnectProjectRequestSchema,
   registerLinkedProjectRequestSchema,
+  revisionPagesRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
+  setEntryPageRequestSchema,
   themeSchema,
   trashItemRequestSchema,
 } from '../workspace/contracts.js'
@@ -492,8 +494,19 @@ function registerIpc(): void {
       filters: [{ name: 'ZIP archive', extensions: ['zip'] }],
     })
     if (result.canceled || !result.filePath) return { canceled: true }
-    writeOfflineZip(requireWorkspace().getRevisionFiles(request.designId, request.revisionId), result.filePath)
+    const { entryPagePath } = requireWorkspace().getRevisionPages(request.designId, request.revisionId)
+    writeOfflineZip(requireWorkspace().getRevisionFiles(request.designId, request.revisionId), result.filePath, entryPagePath)
     return { canceled: false, filePath: result.filePath }
+  })
+  ipcMain.handle('workspace:revision-pages', (event, value: unknown) => {
+    authorize(event)
+    const request = revisionPagesRequestSchema.parse(value)
+    return requireWorkspace().getRevisionPages(request.designId, request.revisionId)
+  })
+  ipcMain.handle('workspace:set-entry-page', (event, value: unknown) => {
+    authorize(event)
+    const request = setEntryPageRequestSchema.parse(value)
+    return requireWorkspace().setDesignEntryPage(request.designId, request.entryPagePath)
   })
 }
 
