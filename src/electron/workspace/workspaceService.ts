@@ -1,5 +1,5 @@
 import { compileTailwindCss, compileTailwindCssForFiles, validateCompiledDesign, validateDesignFiles } from './compiler.js'
-import type { Attachment, Design, DesignPage, GenerationActivity, GenerationSelection, Layout, ProjectSummary, RevisionPages, Theme, TrashItem } from './contracts.js'
+import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectSummary, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, resolveEntryPage } from './pages.js'
@@ -44,6 +44,17 @@ export class WorkspaceService {
   public setTitlePending(designId: string, pending: boolean): void { this.store.setTitlePending(designId, pending) }
   public setAdaptationPending(designId: string, pending: boolean): void { this.store.setAdaptationPending(designId, pending) }
   public associateDesignWithProject(designId: string, projectId: string): Design { return this.store.associateDesignWithProject(designId, projectId) }
+
+  public listFolders(): Folder[] { return this.store.listFolders() }
+  public createFolder(name: string, parentFolderId: string | null = null): Folder { return this.store.createFolder(name, parentFolderId) }
+  public renameFolder(folderId: string, name: string): Folder { return this.store.renameFolder(folderId, name) }
+  public deleteFolder(folderId: string): void { this.store.deleteFolder(folderId) }
+  public moveProjectToFolder(projectId: string, folderId: string | null): ProjectSummary { return this.store.moveProjectToFolder(projectId, folderId) }
+  public listTags(): Tag[] { return this.store.listTags() }
+  public createTag(name: string, color: TagColor): Tag { return this.store.createTag(name, color) }
+  public deleteTag(tagId: string): void { this.store.deleteTag(tagId) }
+  public setTag(kind: 'project' | 'design', targetId: string, tagId: string): void { this.store.setTag(kind, targetId, tagId) }
+  public removeTag(kind: 'project' | 'design', targetId: string, tagId: string): void { this.store.removeTag(kind, targetId, tagId) }
 
   public listTrash(): TrashItem[] { return this.store.listTrash() }
   public registerLinkedProject(sourceProjectPath: string): ProjectSummary { return this.store.registerLinkedProject(sourceProjectPath) }

@@ -39,6 +39,56 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('organizes projects into nested folders and re-roots them when a folder is deleted', () => {
+    const { store } = createStore()
+    const design = store.createStandaloneDesign('A dashboard', 'Dashboard')
+    const projectId = store.getDesign(design.id)!.projectId
+
+    const parent = store.createFolder('Work')
+    const child = store.createFolder('Client A', parent.id)
+    expect(store.listFolders().map((folder) => folder.name).sort()).toEqual(['Client A', 'Work'])
+    expect(child.parentFolderId).toBe(parent.id)
+
+    store.moveProjectToFolder(projectId, child.id)
+    expect(store.getProjectSummary(projectId)?.folderId).toBe(child.id)
+
+    // Deleting the parent cascades to the child folder but re-roots the project (folder_id SET NULL),
+    // never trashing the design.
+    store.deleteFolder(parent.id)
+    expect(store.listFolders()).toHaveLength(0)
+    expect(store.getProjectSummary(projectId)?.folderId).toBeNull()
+    expect(store.getDesign(design.id)).not.toBeNull()
+    store.close()
+  })
+
+  it('tags projects and designs, de-duplicates names, and cleans links on delete', () => {
+    const { store } = createStore()
+    const design = store.createStandaloneDesign('A dashboard', 'Dashboard')
+    const projectId = store.getDesign(design.id)!.projectId
+
+    const marketing = store.createTag('Marketing', 'blue')
+    // Same name (case-insensitive) returns the same tag and updates its color rather than duplicating.
+    const again = store.createTag('marketing', 'rose')
+    expect(again.id).toBe(marketing.id)
+    expect(store.listTags()).toHaveLength(1)
+    expect(store.listTags()[0].color).toBe('rose')
+
+    store.setTag('design', design.id, marketing.id)
+    store.setTag('project', projectId, marketing.id)
+    store.setTag('design', design.id, marketing.id) // idempotent
+    expect(store.getDesign(design.id)?.tags.map((tag) => tag.name)).toEqual(['Marketing'])
+    expect(store.getProjectSummary(projectId)?.tags.map((tag) => tag.name)).toEqual(['Marketing'])
+
+    store.removeTag('design', design.id, marketing.id)
+    expect(store.getDesign(design.id)?.tags).toHaveLength(0)
+
+    // Deleting a tag cascades its remaining links away.
+    store.deleteTag(marketing.id)
+    expect(store.listTags()).toHaveLength(0)
+    expect(store.getProjectSummary(projectId)?.tags).toHaveLength(0)
+    store.close()
+  })
+
   it('tracks a pending background title and clears it on rename or reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Create a calm')

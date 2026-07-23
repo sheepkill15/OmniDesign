@@ -32,6 +32,7 @@ const design: OmniDesignDocument = {
   adaptationPending: false,
   entryPagePath: null,
   pages: [],
+  tags: [],
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
   layout: { conversationWidth: 43, mode: 'split' },
@@ -54,6 +55,9 @@ function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
     thumbnailDataUrl: candidate.thumbnailDataUrl,
     latestDesignTitle: candidate.title,
     latestPrompt: candidate.messages.find((message) => message.role === 'user')?.text ?? null,
+    lastProviderId: candidate.lastSelection.providerId,
+    folderId: null,
+    tags: [],
   }
 }
 
@@ -656,8 +660,8 @@ describe('Phase 1 walking skeleton UI', () => {
   it('offers only linked projects as reuse targets in the composer selector', async () => {
     const bridge = installBridge()
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([
-      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' },
-      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea' },
+      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] },
+      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea', lastProviderId: 'mock', folderId: null, tags: [] },
     ])
     render(<App />)
 
@@ -679,6 +683,7 @@ describe('Phase 1 walking skeleton UI', () => {
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{
       id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1,
       createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page',
+      lastProviderId: 'mock', folderId: null, tags: [],
     }])
     vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(associatedDesign)
     render(<App />)
@@ -701,7 +706,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', updatedAt: '2026-07-20T10:00:00.000Z', adaptationPending: false, generationJobs: [runningJob] }
     const movedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora', updatedAt: '2026-07-20T10:05:00.000Z', adaptationPending: true }
     const bridge = installBridge([], createdDesign)
-    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' }])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] }])
     vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(movedDesign)
     // A generation refresh that resolves after the move still carries the pre-move snapshot.
     vi.mocked(bridge.workspace.get).mockResolvedValue(createdDesign)
@@ -724,7 +729,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const queuedJob: GenerationJob = { id: '7e3670bd-2f6c-444d-afd0-a26e178399664', designId: 'new-design', prompt: 'Create a dashboard for Aurora', providerId: 'mock', modelId: 'mock-v1', state: 'queued', createdAt: '2026-07-20T10:00:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [] }
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', generationJobs: [queuedJob] }
     const bridge = installBridge([], createdDesign)
-    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' }])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] }])
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })

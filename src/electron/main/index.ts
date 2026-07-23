@@ -11,7 +11,14 @@ import {
   attachmentPickerRequestSchema,
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
+  createFolderRequestSchema,
+  createTagRequestSchema,
   designIdRequestSchema,
+  folderIdRequestSchema,
+  moveProjectToFolderRequestSchema,
+  renameFolderRequestSchema,
+  tagIdRequestSchema,
+  tagTargetRequestSchema,
   exportRequestSchema,
   generateRequestSchema,
   generationJobIdRequestSchema,
@@ -302,6 +309,46 @@ function registerIpc(): void {
     await requireGenerationQueue().cancelAndWait(job.id)
     requireGenerationQueue().retry(job.id)
     return requireWorkspace().getDesign(request.designId)
+  })
+  ipcMain.handle('workspace:list-folders', (event) => { authorize(event); return requireWorkspace().listFolders() })
+  ipcMain.handle('workspace:create-folder', (event, value: unknown) => {
+    authorize(event)
+    const request = createFolderRequestSchema.parse(value)
+    return requireWorkspace().createFolder(request.name, request.parentFolderId ?? null)
+  })
+  ipcMain.handle('workspace:rename-folder', (event, value: unknown) => {
+    authorize(event)
+    const request = renameFolderRequestSchema.parse(value)
+    return requireWorkspace().renameFolder(request.folderId, request.name)
+  })
+  ipcMain.handle('workspace:delete-folder', (event, value: unknown) => {
+    authorize(event)
+    requireWorkspace().deleteFolder(folderIdRequestSchema.parse(value).folderId)
+  })
+  ipcMain.handle('workspace:move-project-to-folder', (event, value: unknown) => {
+    authorize(event)
+    const request = moveProjectToFolderRequestSchema.parse(value)
+    return requireWorkspace().moveProjectToFolder(request.projectId, request.folderId)
+  })
+  ipcMain.handle('workspace:list-tags', (event) => { authorize(event); return requireWorkspace().listTags() })
+  ipcMain.handle('workspace:create-tag', (event, value: unknown) => {
+    authorize(event)
+    const request = createTagRequestSchema.parse(value)
+    return requireWorkspace().createTag(request.name, request.color)
+  })
+  ipcMain.handle('workspace:delete-tag', (event, value: unknown) => {
+    authorize(event)
+    requireWorkspace().deleteTag(tagIdRequestSchema.parse(value).tagId)
+  })
+  ipcMain.handle('workspace:tag', (event, value: unknown) => {
+    authorize(event)
+    const request = tagTargetRequestSchema.parse(value)
+    requireWorkspace().setTag(request.targetKind, request.targetId, request.tagId)
+  })
+  ipcMain.handle('workspace:untag', (event, value: unknown) => {
+    authorize(event)
+    const request = tagTargetRequestSchema.parse(value)
+    requireWorkspace().removeTag(request.targetKind, request.targetId, request.tagId)
   })
   ipcMain.handle('workspace:list-trash', (event) => { authorize(event); return requireWorkspace().listTrash() })
   ipcMain.handle('workspace:clone-project', async (event, value: unknown) => {

@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
-import type { Attachment, Design, DesignPage, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Theme, TrashItem } from './contracts.js'
+import { attachmentSchema, designSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import type { Attachment, Design, DesignPage, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -57,6 +57,23 @@ interface ProjectRow {
   updated_at: string
   design_count: number
   last_design_activity: string | null
+  folder_id: string | null
+}
+
+interface TagRow {
+  id: string
+  name: string
+  color: string
+  created_at: string
+}
+
+interface FolderRow {
+  id: string
+  name: string
+  parent_folder_id: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string
 }
 
 interface TrashRow {
@@ -407,6 +424,46 @@ CREATE TABLE design_pages (
 ) STRICT;
 `
 
+// Folders organize projects and nest. Deleting a folder cascades to its subfolders (parent FK) but
+// re-roots the affected projects rather than trashing design data: projects.folder_id is ON DELETE
+// SET NULL, so a project with NULL sits at the library root.
+const migrationThirty = `
+CREATE TABLE folders (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  parent_folder_id TEXT REFERENCES folders(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+) STRICT;
+ALTER TABLE projects ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL;
+CREATE INDEX folders_by_parent ON folders(parent_folder_id, sort_order);
+CREATE INDEX projects_by_folder ON projects(folder_id);
+`
+
+// Tags are cross-cutting labels applied to both projects and designs. The join tables are primary-keyed
+// on the pair, and every foreign key cascades so removing a tag or its target cleans up the links.
+const migrationThirtyOne = `
+CREATE TABLE tags (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE project_tags (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  PRIMARY KEY (project_id, tag_id)
+) STRICT;
+CREATE TABLE design_tags (
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  PRIMARY KEY (design_id, tag_id)
+) STRICT;
+CREATE INDEX project_tags_by_tag ON project_tags(tag_id);
+CREATE INDEX design_tags_by_tag ON design_tags(tag_id);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -464,7 +521,7 @@ export class WorkspaceStore {
 
   public listProjects(): ProjectSummary[] {
     const rows = this.database.prepare(`
-      SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at,
+      SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at, p.folder_id,
              COUNT(d.id) AS design_count,
              MAX(d.updated_at) AS last_design_activity
       FROM projects p
@@ -478,7 +535,7 @@ export class WorkspaceStore {
 
   public getProjectSummary(projectId: string): ProjectSummary | null {
     const row = this.database.prepare(`
-      SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at,
+      SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at, p.folder_id,
              COUNT(d.id) AS design_count,
              MAX(d.updated_at) AS last_design_activity
       FROM projects p
@@ -842,6 +899,91 @@ export class WorkspaceStore {
     return this.requireDesign(designId)
   }
 
+  public listFolders(): Folder[] {
+    const rows = this.database.prepare('SELECT id, name, parent_folder_id, sort_order, created_at, updated_at FROM folders ORDER BY sort_order, name COLLATE NOCASE')
+      .all() as unknown as FolderRow[]
+    return rows.map((row) => this.hydrateFolder(row))
+  }
+
+  public createFolder(name: string, parentFolderId: string | null = null): Folder {
+    if (parentFolderId && !this.database.prepare('SELECT 1 FROM folders WHERE id = ?').get(parentFolderId)) {
+      throw new Error('Parent folder not found.')
+    }
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    const nextOrder = this.database.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM folders WHERE parent_folder_id IS ?').get(parentFolderId) as { next: number }
+    this.database.prepare('INSERT INTO folders (id, name, parent_folder_id, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, name, parentFolderId, nextOrder.next, now, now)
+    return this.hydrateFolder(this.database.prepare('SELECT id, name, parent_folder_id, sort_order, created_at, updated_at FROM folders WHERE id = ?').get(id) as unknown as FolderRow)
+  }
+
+  public renameFolder(folderId: string, name: string): Folder {
+    const result = this.database.prepare('UPDATE folders SET name = ?, updated_at = ? WHERE id = ?').run(name, new Date().toISOString(), folderId)
+    if (result.changes !== 1) throw new Error('Folder not found.')
+    return this.hydrateFolder(this.database.prepare('SELECT id, name, parent_folder_id, sort_order, created_at, updated_at FROM folders WHERE id = ?').get(folderId) as unknown as FolderRow)
+  }
+
+  // Deleting a folder cascades to its subfolders (parent FK) and re-roots the affected projects
+  // (projects.folder_id ON DELETE SET NULL), never touching design data.
+  public deleteFolder(folderId: string): void {
+    const result = this.database.prepare('DELETE FROM folders WHERE id = ?').run(folderId)
+    if (result.changes !== 1) throw new Error('Folder not found.')
+  }
+
+  public moveProjectToFolder(projectId: string, folderId: string | null): ProjectSummary {
+    if (folderId && !this.database.prepare('SELECT 1 FROM folders WHERE id = ?').get(folderId)) throw new Error('Folder not found.')
+    const result = this.database.prepare('UPDATE projects SET folder_id = ?, updated_at = ? WHERE id = ? AND trashed_at IS NULL')
+      .run(folderId, new Date().toISOString(), projectId)
+    if (result.changes !== 1) throw new Error('Project not found.')
+    return this.getProjectSummary(projectId)!
+  }
+
+  public listTags(): Tag[] {
+    const rows = this.database.prepare('SELECT id, name, color, created_at FROM tags ORDER BY name COLLATE NOCASE').all() as unknown as TagRow[]
+    return rows.map((row) => tagSchema.parse({ id: row.id, name: row.name, color: row.color, createdAt: row.created_at }))
+  }
+
+  // Tag names are unique case-insensitively; creating an existing name returns that tag (and updates
+  // its color) so the same label is never duplicated across the library.
+  public createTag(name: string, color: TagColor): Tag {
+    const existing = this.database.prepare('SELECT id FROM tags WHERE name = ? COLLATE NOCASE').get(name) as { id: string } | undefined
+    if (existing) {
+      this.database.prepare('UPDATE tags SET color = ? WHERE id = ?').run(color, existing.id)
+      return this.requireTag(existing.id)
+    }
+    const id = randomUUID()
+    this.database.prepare('INSERT INTO tags (id, name, color, created_at) VALUES (?, ?, ?, ?)').run(id, name, color, new Date().toISOString())
+    return this.requireTag(id)
+  }
+
+  public deleteTag(tagId: string): void {
+    const result = this.database.prepare('DELETE FROM tags WHERE id = ?').run(tagId)
+    if (result.changes !== 1) throw new Error('Tag not found.')
+  }
+
+  public setTag(kind: 'project' | 'design', targetId: string, tagId: string): void {
+    if (!this.database.prepare('SELECT 1 FROM tags WHERE id = ?').get(tagId)) throw new Error('Tag not found.')
+    const table = kind === 'project' ? 'project_tags' : 'design_tags'
+    const column = kind === 'project' ? 'project_id' : 'design_id'
+    this.database.prepare(`INSERT OR IGNORE INTO ${table} (${column}, tag_id) VALUES (?, ?)`).run(targetId, tagId)
+  }
+
+  public removeTag(kind: 'project' | 'design', targetId: string, tagId: string): void {
+    const table = kind === 'project' ? 'project_tags' : 'design_tags'
+    const column = kind === 'project' ? 'project_id' : 'design_id'
+    this.database.prepare(`DELETE FROM ${table} WHERE ${column} = ? AND tag_id = ?`).run(targetId, tagId)
+  }
+
+  private requireTag(tagId: string): Tag {
+    const row = this.database.prepare('SELECT id, name, color, created_at FROM tags WHERE id = ?').get(tagId) as unknown as TagRow | undefined
+    if (!row) throw new Error('Tag not found.')
+    return tagSchema.parse({ id: row.id, name: row.name, color: row.color, createdAt: row.created_at })
+  }
+
+  private hydrateFolder(row: FolderRow): Folder {
+    return folderSchema.parse({ id: row.id, name: row.name, parentFolderId: row.parent_folder_id, sortOrder: row.sort_order, createdAt: row.created_at, updatedAt: row.updated_at })
+  }
+
   public getTheme(): Theme {
     const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'theme'").get() as { value: string } | undefined
     return themeSchema.catch('dark').parse(setting?.value)
@@ -1088,7 +1230,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1138,6 +1280,7 @@ export class WorkspaceStore {
       adaptationPending: row.adaptation_pending === 1,
       entryPagePath: row.entry_page_path,
       pages: this.listDesignPages(row.id, row.entry_page_path),
+      tags: this.listTagsForTarget('design', row.id),
       lastSelection: {
         providerId: row.last_provider_id,
         modelId: row.last_model_id,
@@ -1176,10 +1319,10 @@ export class WorkspaceStore {
 
   private hydrateProject(row: ProjectRow): ProjectSummary {
     const latest = this.database.prepare(`
-      SELECT d.title, d.thumbnail_path,
+      SELECT d.title, d.thumbnail_path, d.last_provider_id,
              (SELECT m.text FROM messages m WHERE m.design_id = d.id AND m.role = 'user' ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) AS latest_prompt
       FROM designs d WHERE d.project_id = ? ORDER BY d.updated_at DESC, d.rowid DESC LIMIT 1
-    `).get(row.id) as { title: string; thumbnail_path: string | null; latest_prompt: string | null } | undefined
+    `).get(row.id) as { title: string; thumbnail_path: string | null; last_provider_id: string | null; latest_prompt: string | null } | undefined
     return projectSummarySchema.parse({
       id: row.id,
       name: row.name,
@@ -1192,7 +1335,21 @@ export class WorkspaceStore {
       thumbnailDataUrl: latest?.thumbnail_path && existsSync(latest.thumbnail_path) ? `data:image/png;base64,${readFileSync(latest.thumbnail_path).toString('base64')}` : null,
       latestDesignTitle: latest?.title ?? null,
       latestPrompt: latest?.latest_prompt ?? null,
+      lastProviderId: latest?.last_provider_id ?? null,
+      folderId: row.folder_id,
+      tags: this.listTagsForTarget('project', row.id),
     })
+  }
+
+  private listTagsForTarget(kind: 'project' | 'design', targetId: string): Tag[] {
+    const column = kind === 'project' ? 'project_id' : 'design_id'
+    const table = kind === 'project' ? 'project_tags' : 'design_tags'
+    const rows = this.database.prepare(`
+      SELECT t.id, t.name, t.color, t.created_at FROM tags t
+      JOIN ${table} j ON j.tag_id = t.id
+      WHERE j.${column} = ? ORDER BY t.name COLLATE NOCASE
+    `).all(targetId) as unknown as TagRow[]
+    return rows.map((tag) => tagSchema.parse({ id: tag.id, name: tag.name, color: tag.color, createdAt: tag.created_at }))
   }
 
   private requireDesign(designId: string): Design {

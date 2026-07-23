@@ -133,6 +133,7 @@ interface OmniDesignDocument {
   readonly adaptationPending: boolean
   readonly entryPagePath: string | null
   readonly pages: readonly DesignPage[]
+  readonly tags: readonly Tag[]
   readonly lastSelection: GenerationSelection
   readonly generationSteps: readonly GenerationStep[]
   readonly layout: { readonly conversationWidth: number; readonly mode: LayoutMode }
@@ -140,6 +141,24 @@ interface OmniDesignDocument {
   readonly invalidCandidates: readonly InvalidCandidate[]
   readonly generationJobs: readonly GenerationJob[]
   readonly revisions: readonly DesignRevision[]
+}
+
+type TagColor = 'neutral' | 'mauve' | 'sand' | 'olive' | 'lavender' | 'blue' | 'rose' | 'amber'
+
+interface Tag {
+  readonly id: string
+  readonly name: string
+  readonly color: TagColor
+  readonly createdAt: string
+}
+
+interface Folder {
+  readonly id: string
+  readonly name: string
+  readonly parentFolderId: string | null
+  readonly sortOrder: number
+  readonly createdAt: string
+  readonly updatedAt: string
 }
 
 interface ProjectSummary {
@@ -154,6 +173,9 @@ interface ProjectSummary {
   readonly thumbnailDataUrl: string | null
   readonly latestDesignTitle: string | null
   readonly latestPrompt: string | null
+  readonly lastProviderId: string | null
+  readonly folderId: string | null
+  readonly tags: readonly Tag[]
 }
 
 interface ProjectDetail {
@@ -218,6 +240,16 @@ interface Window {
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
       associateAndRestart(designId: string, projectId: string): Promise<OmniDesignDocument | null>
       dismissAdaptation(designId: string): Promise<OmniDesignDocument | null>
+      listFolders(): Promise<Folder[]>
+      createFolder(name: string, parentFolderId?: string | null): Promise<Folder>
+      renameFolder(folderId: string, name: string): Promise<Folder>
+      deleteFolder(folderId: string): Promise<void>
+      moveProjectToFolder(projectId: string, folderId: string | null): Promise<ProjectSummary>
+      listTags(): Promise<Tag[]>
+      createTag(name: string, color: TagColor): Promise<Tag>
+      deleteTag(tagId: string): Promise<void>
+      tag(targetKind: 'project' | 'design', targetId: string, tagId: string): Promise<void>
+      untag(targetKind: 'project' | 'design', targetId: string, tagId: string): Promise<void>
       listTrash(): Promise<TrashItem[]>
       cloneProject(remoteUrl: string, destinationPath: string): Promise<ProjectSummary>
       registerLinkedProject(sourceProjectPath: string): Promise<ProjectSummary>
