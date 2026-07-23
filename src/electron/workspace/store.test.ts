@@ -220,14 +220,15 @@ describe('WorkspaceStore', () => {
     store.close()
 
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id)?.layout).toEqual({ conversationWidth: 57, mode: 'preview' })
+    expect(reopened.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 57, mode: 'preview' })
     reopened.close()
   })
 
   it('defaults the layout mode to split for designs saved before the mode existed', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    expect(store.getDesign(created.id)?.layout).toEqual({ conversationWidth: 43, mode: 'split' })
+    // Preview settings gain sensible defaults for rows saved before Phase 2 added them.
+    expect(store.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop' })
     store.close()
   })
 

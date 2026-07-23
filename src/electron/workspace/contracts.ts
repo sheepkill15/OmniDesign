@@ -31,9 +31,22 @@ export const invalidCandidateSchema = z.object({
 
 export const layoutModeSchema = z.enum(['split', 'conversation', 'preview', 'popped'])
 
+export const previewViewModeSchema = z.enum(['canvas', 'focused'])
+export const previewFitSchema = z.enum(['artboard', 'fixed'])
+export const previewDeviceSchema = z.enum(['phone', 'tablet', 'desktop', 'custom'])
+
+// Preview view mode, device size, and fit are global preview settings honored by both the canvas and
+// focused modes and persisted per design alongside the pane layout. New fields carry defaults so a
+// layout row saved before Phase 2 still parses.
 export const layoutSchema = z.object({
   conversationWidth: z.number().min(35).max(65),
   mode: layoutModeSchema.default('split'),
+  previewViewMode: previewViewModeSchema.default('focused'),
+  previewFit: previewFitSchema.default('artboard'),
+  previewDevice: previewDeviceSchema.default('desktop'),
+  previewCustomWidth: z.number().int().min(240).max(3840).default(1280),
+  previewCustomHeight: z.number().int().min(320).max(4320).default(800),
+  previewPage: z.string().min(1).nullable().default(null),
 })
 
 export const designPageSchema = z.object({
@@ -276,6 +289,32 @@ export const previewRequestSchema = selectRevisionRequestSchema.extend({
 })
 
 export const exportRequestSchema = selectRevisionRequestSchema
+
+const previewRectSchema = z.object({
+  x: z.number().int(),
+  y: z.number().int(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+})
+
+export const previewRegisterRequestSchema = selectRevisionRequestSchema
+
+export const previewPopOutRequestSchema = selectRevisionRequestSchema.extend({
+  page: z.string().min(1).max(1_000).optional(),
+})
+
+export const previewDiagnosticReportSchema = selectRevisionRequestSchema.extend({
+  diagnostic: z.object({
+    level: z.enum(['warning', 'error']),
+    message: z.string().min(1).max(4_000),
+    source: z.string().max(4_000).nullable().default(null),
+    line: z.number().int().nullable().default(null),
+  }),
+})
+
+export const previewCaptureRequestSchema = selectRevisionRequestSchema.extend({
+  rect: previewRectSchema,
+})
 
 export const revisionPagesRequestSchema = selectRevisionRequestSchema
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, protocol, session, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
@@ -16,6 +16,10 @@ import {
   designIdRequestSchema,
   folderIdRequestSchema,
   moveProjectToFolderRequestSchema,
+  previewCaptureRequestSchema,
+  previewDiagnosticReportSchema,
+  previewPopOutRequestSchema,
+  previewRegisterRequestSchema,
   renameFolderRequestSchema,
   tagIdRequestSchema,
   tagTargetRequestSchema,
@@ -24,7 +28,6 @@ import {
   generationJobIdRequestSchema,
   generationSelectionSchema,
   generationStageLabel,
-  previewRequestSchema,
   projectIdRequestSchema,
   renameDesignRequestSchema,
   renameProjectRequestSchema,
@@ -42,7 +45,8 @@ import {
 import type { GenerationActivity } from '../workspace/contracts.js'
 import { writeOfflineZip } from '../workspace/exportService.js'
 import { GenerationQueue } from '../workspace/generationQueue.js'
-import { PreviewController } from '../workspace/previewController.js'
+import { PreviewContentServer } from '../workspace/previewServer.js'
+import { isAllowedPreviewUrl } from '../workspace/previewPolicy.js'
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
 import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
@@ -55,7 +59,9 @@ const developmentProviderEnabled = Boolean(developmentServerUrl || process.env.O
 const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS === '1'
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
-let preview: PreviewController | null = null
+let previewServer: PreviewContentServer | null = null
+let popWindow: BrowserWindow | null = null
+let popWindowDesignId: string | null = null
 let workspace: WorkspaceService | null = null
 let workspaceStore: WorkspaceStore | null = null
 let generationQueue: GenerationQueue | null = null
@@ -124,6 +130,12 @@ function createMainWindow(): BrowserWindow {
 
   window.once('ready-to-show', () => window.show())
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // The trusted renderer's only subframes are preview iframes. Keep a previewed page from navigating a
+  // frame away to any non-preview URL (e.g. an external link click); the sandbox already blocks
+  // top-level navigation and popups, this closes off in-frame navigation as defense in depth.
+  window.webContents.on('will-frame-navigate', (event) => {
+    if (!event.isMainFrame && !isAllowedPreviewUrl(event.url)) event.preventDefault()
+  })
 
   if (developmentServerUrl) {
     void window.loadURL(developmentServerUrl)
@@ -183,29 +195,50 @@ function recordActivity(activity: GenerationActivity): void {
   sendGenerationActivity(activity)
 }
 
-function createPreview(window: BrowserWindow, store: WorkspaceStore): PreviewController {
-  return new PreviewController(
-    window,
-    (designId, revisionId, diagnostic) => {
-      try {
-        store.addPreviewDiagnostic(designId, revisionId, diagnostic)
-      } catch {
-        return
-      }
-      if (!window.isDestroyed()) window.webContents.send('preview:diagnostic', { designId, revisionId })
-    },
-    (designId, revisionId, png) => {
-      try {
-        store.saveThumbnail(designId, revisionId, png)
-      } catch {
-        return
-      }
-      if (!window.isDestroyed()) window.webContents.send('preview:thumbnail', { designId, revisionId })
-    },
-    (designId) => {
-      if (!window.isDestroyed()) window.webContents.send('preview:popped-in', { designId })
-    },
-  )
+function requirePreviewServer(): PreviewContentServer {
+  if (!previewServer) throw new Error('Preview is not ready.')
+  return previewServer
+}
+
+// The trusted renderer embeds preview URLs; frame-ancestors must name the renderer's own origin. In
+// development that is the Vite dev-server origin, and in production the packaged renderer is a file:
+// document.
+function previewFrameAncestors(): string {
+  if (!developmentServerUrl) return 'file:'
+  try {
+    return `${new URL(developmentServerUrl).origin} file:`
+  } catch {
+    return 'file:'
+  }
+}
+
+// Pop the preview into a dedicated sandboxed window that loads the page over the preview scheme. The
+// window shares the default session, so the registered token resolves through the same protocol handler.
+function openPreviewPopOut(token: string, page: string): void {
+  if (popWindow && !popWindow.isDestroyed()) {
+    void popWindow.webContents.loadURL(`omnidesign-preview://revision/${token}/${page}`)
+    popWindow.focus()
+    return
+  }
+  const created = new BrowserWindow({
+    width: 960,
+    height: 720,
+    minWidth: 320,
+    minHeight: 240,
+    title: 'OmniDesign preview',
+    backgroundColor: '#151315',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  popWindow = created
+  created.setMenuBarVisibility(false)
+  created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  created.on('closed', () => {
+    const designId = popWindowDesignId
+    popWindow = null
+    popWindowDesignId = null
+    if (designId && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('preview:popped-in', { designId })
+  })
+  void created.webContents.loadURL(`omnidesign-preview://revision/${token}/${page}`)
 }
 
 function registerIpc(): void {
@@ -406,7 +439,8 @@ function registerIpc(): void {
   ipcMain.handle('workspace:purge-trash', (event, value: unknown) => {
     authorize(event)
     const request = trashItemRequestSchema.parse(value)
-    preview?.discard()
+    if (popWindow && !popWindow.isDestroyed()) popWindow.destroy()
+    popWindow = null
     requireWorkspace().purgeTrashItem(request.kind, request.id)
   })
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
@@ -503,37 +537,53 @@ function registerIpc(): void {
     const request = saveDesignSelectionRequestSchema.parse(value)
     requireWorkspace().saveDesignSelection(request.designId, request.selection)
   })
-  ipcMain.handle('preview:show', (event, value: unknown) => {
+  ipcMain.handle('preview:register', (event, value: unknown) => {
     authorize(event)
-    const request = previewRequestSchema.parse(value)
-    if (!requireWorkspace().getDesign(request.designId)) return
+    const request = previewRegisterRequestSchema.parse(value)
+    if (!requireWorkspace().getDesign(request.designId)) return null
     const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
-    const page = request.page ?? requireWorkspace().getRevisionPages(request.designId, request.revisionId).entryPagePath ?? 'index.html'
-    preview?.show(request.designId, request.revisionId, files, request.bounds, page)
+    const { pages, entryPagePath } = requireWorkspace().getRevisionPages(request.designId, request.revisionId)
+    const token = requirePreviewServer().register(request.designId, request.revisionId, files)
+    return { token, pages, entryPagePath }
   })
-  ipcMain.handle('preview:resize', (event, value: unknown) => {
+  ipcMain.handle('preview:report-diagnostic', (event, value: unknown) => {
     authorize(event)
-    preview?.resize(previewRequestSchema.shape.bounds.parse(value))
+    const request = previewDiagnosticReportSchema.parse(value)
+    try {
+      workspaceStore?.addPreviewDiagnostic(request.designId, request.revisionId, { kind: 'console', ...request.diagnostic })
+    } catch {
+      return
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('preview:diagnostic', { designId: request.designId, revisionId: request.revisionId })
+  })
+  ipcMain.handle('preview:capture', async (event, value: unknown) => {
+    authorize(event)
+    const request = previewCaptureRequestSchema.parse(value)
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    try {
+      const image = await mainWindow.webContents.capturePage(request.rect)
+      if (image.isEmpty()) return
+      workspaceStore?.saveThumbnail(request.designId, request.revisionId, image.resize({ width: 320 }).toPNG())
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
+    } catch {
+      // The design or revision may have been removed while the capture was in flight.
+    }
   })
   ipcMain.handle('preview:pop-out', (event, value: unknown) => {
     authorize(event)
-    const request = selectRevisionRequestSchema.parse(value)
+    const request = previewPopOutRequestSchema.parse(value)
     if (!requireWorkspace().getDesign(request.designId)) return
     const files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
-    const page = requireWorkspace().getRevisionPages(request.designId, request.revisionId).entryPagePath ?? 'index.html'
-    preview?.popOut(request.designId, request.revisionId, files, page)
+    const page = request.page ?? requireWorkspace().getRevisionPages(request.designId, request.revisionId).entryPagePath ?? 'index.html'
+    const token = requirePreviewServer().register(request.designId, request.revisionId, files)
+    popWindowDesignId = request.designId
+    openPreviewPopOut(token, page)
   })
-  ipcMain.handle('preview:hide', (event) => {
+  ipcMain.handle('preview:close-pop-out', (event) => {
     authorize(event)
-    preview?.hide()
-  })
-  ipcMain.handle('preview:set-suspended', (event, value: unknown) => {
-    authorize(event)
-    preview?.setSuspended(value === true)
-  })
-  ipcMain.handle('preview:freeze', (event) => {
-    authorize(event)
-    return preview?.freeze() ?? null
+    popWindowDesignId = null
+    if (popWindow && !popWindow.isDestroyed()) popWindow.destroy()
+    popWindow = null
   })
   ipcMain.handle('workspace:export', async (event, value: unknown) => {
     authorize(event)
@@ -650,13 +700,13 @@ void app.whenReady().then(() => {
     recordActivity,
   )
   generationQueue.recoverAfterRestart()
+  previewServer = new PreviewContentServer(session.defaultSession, previewFrameAncestors())
   mainWindow = createMainWindow()
-  preview = createPreview(mainWindow, store)
   registerIpc()
 
   mainWindow.on('closed', () => {
-    preview?.destroy()
-    preview = null
+    if (popWindow && !popWindow.isDestroyed()) popWindow.destroy()
+    popWindow = null
     mainWindow = null
   })
   ipcMain.handle('settings:get-notifications-enabled', (event) => {
@@ -694,8 +744,8 @@ void app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
+      previewServer ??= new PreviewContentServer(session.defaultSession, previewFrameAncestors())
       mainWindow = createMainWindow()
-      preview = createPreview(mainWindow, store)
     }
   })
 }).catch((error: unknown) => {

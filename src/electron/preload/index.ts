@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ProviderActivity, ProviderPrompt } from '../provider/types.js'
-import type { GenerationActivity, GenerationSelection, Layout, PreviewRequest } from '../workspace/contracts.js'
+import type { GenerationActivity, GenerationSelection, Layout } from '../workspace/contracts.js'
 
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
@@ -87,12 +87,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
     saveGenerationDefaults: (selection: GenerationSelection) => ipcRenderer.invoke('settings:save-generation-defaults', selection),
   },
   preview: {
-    show: (request: PreviewRequest) => ipcRenderer.invoke('preview:show', request),
-    resize: (bounds: PreviewRequest['bounds']) => ipcRenderer.invoke('preview:resize', bounds),
-    hide: () => ipcRenderer.invoke('preview:hide'),
-    popOut: (request: { designId: string; revisionId: string }) => ipcRenderer.invoke('preview:pop-out', request),
-    setSuspended: (suspended: boolean) => ipcRenderer.invoke('preview:set-suspended', suspended),
-    freeze: () => ipcRenderer.invoke('preview:freeze'),
+    register: (designId: string, revisionId: string) => ipcRenderer.invoke('preview:register', { designId, revisionId }),
+    reportDiagnostic: (designId: string, revisionId: string, diagnostic: { level: 'warning' | 'error'; message: string; source: string | null; line: number | null }) => ipcRenderer.invoke('preview:report-diagnostic', { designId, revisionId, diagnostic }),
+    capture: (designId: string, revisionId: string, rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('preview:capture', { designId, revisionId, rect }),
+    popOut: (request: { designId: string; revisionId: string; page?: string }) => ipcRenderer.invoke('preview:pop-out', request),
+    closePopOut: () => ipcRenderer.invoke('preview:close-pop-out'),
     onDiagnostic: (listener: (event: { designId: string; revisionId: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, diagnostic: { designId: string; revisionId: string }) => listener(diagnostic)
       ipcRenderer.on('preview:diagnostic', handler)

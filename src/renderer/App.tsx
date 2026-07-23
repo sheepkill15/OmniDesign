@@ -25,7 +25,7 @@ import {
   WindowIcon,
   InformationCircleIcon,
 } from '@heroicons/react/24/outline'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ComponentType, KeyboardEvent, SVGProps } from 'react'
 import { Button, Header, Input, Menu, MenuItem, MenuSection, Radio, RadioGroup, Slider, SliderThumb, SliderTrack, Switch, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { AppModal } from './components/AppModal'
@@ -33,9 +33,9 @@ import { DropdownButton } from './components/DropdownButton'
 import { Markdown } from './components/Markdown'
 import { promptMentionsProject } from './promptMatch'
 import { GenerationElapsed } from './components/GenerationElapsed'
-import { PreviewOverlayContext } from './components/PreviewOverlayContext'
 import { Library } from './screens/Library'
-import { RectangleStackIcon } from '@heroicons/react/24/outline'
+import { DesignPreview } from './screens/DesignPreview'
+import { RectangleStackIcon, DevicePhoneMobileIcon, DeviceTabletIcon, ComputerDesktopIcon, Squares2X2Icon } from '@heroicons/react/24/outline'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 type AttachmentPickerKind = 'files' | 'folder'
@@ -865,39 +865,6 @@ function ProjectPage({ project, providers, busy, activity, onCreate, onOpenDesig
   )
 }
 
-function PreviewSurface({ design, freezeFrame, page }: { readonly design: OmniDesignDocument; readonly freezeFrame: string | null; readonly page: string | null }) {
-  const surface = useRef<HTMLDivElement>(null)
-  const revisionId = design.selectedRevisionId
-
-  useEffect(() => {
-    const element = surface.current
-    const api = window.omnidesign?.preview
-    if (!element || !api || !revisionId) return
-    const readBounds = () => {
-      const rectangle = element.getBoundingClientRect()
-      return { x: Math.round(rectangle.x), y: Math.round(rectangle.y), width: Math.max(1, Math.round(rectangle.width)), height: Math.max(1, Math.round(rectangle.height)) }
-    }
-    void api.show({ designId: design.id, revisionId, bounds: readBounds(), ...(page ? { page } : {}) })
-    if (typeof ResizeObserver === 'undefined') return () => { void api.hide() }
-    const resize = () => { void api.resize(readBounds()) }
-    const observer = new ResizeObserver(resize)
-    observer.observe(element)
-    window.addEventListener('resize', resize)
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', resize)
-      void api.hide()
-    }
-  }, [design.id, revisionId, page])
-
-  return (
-    <div className="preview-surface" ref={surface}>
-      {!revisionId && <p>Preview appears after the first valid revision.</p>}
-      {freezeFrame && <img className="preview-freeze" src={freezeFrame} alt="" aria-hidden="true" />}
-    </div>
-  )
-}
-
 const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; readonly icon: Icon }[] = [
   { id: 'split', label: 'Split view', icon: ViewColumnsIcon },
   { id: 'conversation', label: 'Conversation only', icon: ChatBubbleLeftRightIcon },
@@ -945,21 +912,22 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
-  const [dropdownOverlayOpen, setDropdownOverlayOpen] = useState(false)
   const [associateCloneOpen, setAssociateCloneOpen] = useState(false)
   const [associateCloneUrl, setAssociateCloneUrl] = useState('')
   const [associateCloneDestination, setAssociateCloneDestination] = useState('')
   const [associateCloneError, setAssociateCloneError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ readonly tone: 'success' | 'error'; readonly message: string; readonly detail?: string } | null>(null)
   const [associatingClone, setAssociatingClone] = useState(false)
-  const [freezeFrame, setFreezeFrame] = useState<string | null>(null)
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
   const [revisionPages, setRevisionPages] = useState<RevisionPages | null>(null)
-  const [previewPage, setPreviewPage] = useState<string | null>(null)
+  const [previewToken, setPreviewToken] = useState<string | null>(null)
+  const [previewPage, setPreviewPage] = useState<string | null>(design.layout.previewPage)
+  const [previewViewMode, setPreviewViewMode] = useState<PreviewViewMode>(design.layout.previewViewMode)
+  const [previewFit, setPreviewFit] = useState<PreviewFit>(design.layout.previewFit)
+  const [previewDevice, setPreviewDevice] = useState<PreviewDevice>(design.layout.previewDevice)
   const split = useRef<HTMLDivElement>(null)
-  const openDropdownCount = useRef(0)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
   const feed = useRef<HTMLDivElement>(null)
@@ -1011,52 +979,30 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
     }
   }
 
-  // The isolated preview is a native layer painted above the DOM. While a header overlay sits over the
-  // docked preview, capture its current frame, show that still image on the preview surface, then hide
-  // the native layer so the overlay paints cleanly over the frozen frame — with no visible gap.
-  const overlayCoversPreview = dropdownOverlayOpen || associateCloneOpen
-  const coverPreviewForOverlay = useCallback(() => {
-    const preview = window.omnidesign?.preview
-    if (!preview) return
-    const frame = preview.freeze()
-    void preview.setSuspended(true)
-    void frame.then((captured) => setFreezeFrame(captured))
-  }, [])
-  const previewOverlay = useMemo(() => ({
-    open: () => {
-      if (openDropdownCount.current === 0) {
-        coverPreviewForOverlay()
-        setDropdownOverlayOpen(true)
-      }
-      openDropdownCount.current += 1
-    },
-    close: () => {
-      openDropdownCount.current = Math.max(0, openDropdownCount.current - 1)
-      if (openDropdownCount.current === 0) setDropdownOverlayOpen(false)
-    },
-  }), [coverPreviewForOverlay])
-  useLayoutEffect(() => {
-    const preview = window.omnidesign?.preview
-    if (!preview) return
-    if (!overlayCoversPreview) {
-      void preview.setSuspended(false)
-      setFreezeFrame(null)
-    }
-  }, [overlayCoversPreview])
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
   useEffect(() => setSelection(design.lastSelection), [design.id])
-  // Discover the selected revision's pages so a multi-page design can be previewed page by page. The
-  // preview defaults to the resolved home page; the switcher below lets the user follow the others.
+  useEffect(() => {
+    setPreviewViewMode(design.layout.previewViewMode)
+    setPreviewFit(design.layout.previewFit)
+    setPreviewDevice(design.layout.previewDevice)
+  }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice])
+  // Register the selected revision's files with the preview server, which returns the opaque token the
+  // iframes load from plus the discovered pages. The preview defaults to the home page.
   useEffect(() => {
     const revisionId = design.selectedRevisionId
-    if (!api || !revisionId) { setRevisionPages(null); setPreviewPage(null); return }
+    if (!api || !revisionId) { setRevisionPages(null); setPreviewToken(null); setPreviewPage(null); return }
     let cancelled = false
-    void api.revisionPages(design.id, revisionId)
-      .then((result) => { if (!cancelled) { setRevisionPages(result); setPreviewPage(result.entryPagePath) } })
-      .catch(() => { if (!cancelled) { setRevisionPages(null); setPreviewPage(null) } })
+    void window.omnidesign?.preview.register(design.id, revisionId)
+      .then((result) => {
+        if (cancelled || !result) { if (!cancelled) { setRevisionPages(null); setPreviewToken(null) } return }
+        setRevisionPages({ pages: result.pages, entryPagePath: result.entryPagePath })
+        setPreviewToken(result.token)
+        setPreviewPage((current) => current && result.pages.some((page) => page.path === current) ? current : result.entryPagePath)
+      })
+      .catch(() => { if (!cancelled) { setRevisionPages(null); setPreviewToken(null); setPreviewPage(null) } })
     return () => { cancelled = true }
   }, [api, design.id, design.selectedRevisionId])
   const applySelection = (next: GenerationSelection) => {
@@ -1071,29 +1017,19 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
   }, [api, design.id, draft, attachments])
   useEffect(() => {
     if (!api) return
-    const timer = window.setTimeout(() => { void api.saveLayout(design.id, { conversationWidth, mode }).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'The workspace layout could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 250)
+    const layout: Layout = { conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth: design.layout.previewCustomWidth, previewCustomHeight: design.layout.previewCustomHeight, previewPage }
+    const timer = window.setTimeout(() => { void api.saveLayout(design.id, layout).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'The workspace layout could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 250)
     return () => window.clearTimeout(timer)
-  }, [api, conversationWidth, mode, design.id])
-  // Hide the docked preview whenever the conversation-only layout is active so a preview from a
-  // previous design or layout does not linger over the workspace.
-  useEffect(() => {
-    if (mode === 'conversation') void window.omnidesign?.preview.hide()
-  }, [mode, design.id])
-  // Close the popped-out preview window when the popped layout is left or the workspace unmounts. Kept
-  // separate from the pop-out effect so a revision change reloads the existing window instead of
-  // recreating it.
-  useEffect(() => {
-    if (mode !== 'popped') return
-    return () => { void window.omnidesign?.preview.hide() }
-  }, [mode])
-  // While the popped-out layout is active, move the shared preview into its own window; a later
-  // revision reuses that window and reloads its content.
+  }, [api, conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewPage, design.id, design.layout.previewCustomWidth, design.layout.previewCustomHeight])
+  // While the popped-out layout is active, open the preview in its own window (a later revision reloads
+  // it); leaving the layout or unmounting closes that window.
   useEffect(() => {
     const preview = window.omnidesign?.preview
     if (!preview || mode !== 'popped' || !design.selectedRevisionId) return
-    void preview.popOut({ designId: design.id, revisionId: design.selectedRevisionId })
-  }, [mode, design.id, design.selectedRevisionId])
-  // If the user closes the popped-out preview window, return to the docked split layout.
+    void preview.popOut({ designId: design.id, revisionId: design.selectedRevisionId, ...(previewPage ? { page: previewPage } : {}) })
+    return () => { void preview.closePopOut() }
+  }, [mode, design.id, design.selectedRevisionId, previewPage])
+  // If the user closes the popped-out preview window, return to the split layout.
   useEffect(() => {
     const preview = window.omnidesign?.preview
     if (!preview) return
@@ -1188,7 +1124,6 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
       return
     }
     if (key === 'clone') {
-      coverPreviewForOverlay()
       setAssociateCloneError(null)
       setAssociateCloneOpen(true)
       return
@@ -1272,31 +1207,50 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
 
   const previewPages = revisionPages?.pages ?? []
   const currentPageLabel = previewPages.find((candidate) => candidate.path === previewPage)?.title ?? previewPage ?? 'Home'
+  const deviceLabels: Record<PreviewDevice, string> = { phone: 'Phone', tablet: 'Tablet', desktop: 'Desktop', custom: 'Custom' }
+  const deviceIcons: Record<PreviewDevice, Icon> = { phone: DevicePhoneMobileIcon, tablet: DeviceTabletIcon, desktop: ComputerDesktopIcon, custom: ComputerDesktopIcon }
+  const CurrentDeviceIcon = deviceIcons[previewDevice]
   const previewPane = (
     <section className="preview-pane" aria-label="Generated design preview">
       <div className="preview-toolbar">
         <span><CheckCircleIcon aria-hidden="true" />Isolated preview</span>
-        {previewPages.length > 1 && (
-          <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<><WindowIcon aria-hidden="true" /><span>{currentPageLabel}</span></>}>
-            <Menu aria-label="Preview page" onAction={(key) => setPreviewPage(String(key))}>
-              {previewPages.map((candidate) => (
-                <MenuItem id={candidate.path} key={candidate.path} textValue={candidate.title ?? candidate.path}>
-                  <span>{candidate.title ?? candidate.path}</span>
-                  {candidate.isHome && <span className="preview-page-home">Home</span>}
-                  {candidate.path === previewPage && <CheckCircleIcon aria-hidden="true" />}
-                </MenuItem>
-              ))}
+        <div className="preview-controls">
+          <div className="preview-view-toggle" role="group" aria-label="Preview layout">
+            <Button className="preview-toggle-option" data-active={previewViewMode === 'focused' || undefined} aria-pressed={previewViewMode === 'focused'} onPress={() => setPreviewViewMode('focused')}><WindowIcon aria-hidden="true" />Focused</Button>
+            <Button className="preview-toggle-option" data-active={previewViewMode === 'canvas' || undefined} aria-pressed={previewViewMode === 'canvas'} onPress={() => setPreviewViewMode('canvas')}><Squares2X2Icon aria-hidden="true" />Canvas</Button>
+          </div>
+          {previewViewMode === 'focused' && previewPages.length > 1 && (
+            <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<span>{currentPageLabel}</span>}>
+              <Menu aria-label="Preview page" onAction={(key) => setPreviewPage(String(key))}>
+                {previewPages.map((candidate) => (
+                  <MenuItem id={candidate.path} key={candidate.path} textValue={candidate.title ?? candidate.path}>
+                    <span>{candidate.title ?? candidate.path}</span>
+                    {candidate.isHome && <span className="preview-page-home">Home</span>}
+                    {candidate.path === previewPage && <CheckCircleIcon aria-hidden="true" />}
+                  </MenuItem>
+                ))}
+              </Menu>
+            </DropdownButton>
+          )}
+          <DropdownButton label="Device size" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<><CurrentDeviceIcon aria-hidden="true" /><span>{deviceLabels[previewDevice]}</span></>}>
+            <Menu aria-label="Device size" onAction={(key) => setPreviewDevice(key as PreviewDevice)}>
+              {(['desktop', 'tablet', 'phone'] as const).map((option) => <MenuItem id={option} key={option} textValue={deviceLabels[option]}><span>{deviceLabels[option]}</span>{previewDevice === option && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
             </Menu>
           </DropdownButton>
-        )}
+          <div className="preview-view-toggle" role="group" aria-label="Preview fit">
+            <Button className="preview-toggle-option" data-active={previewFit === 'artboard' || undefined} aria-pressed={previewFit === 'artboard'} onPress={() => setPreviewFit('artboard')}>Artboard</Button>
+            <Button className="preview-toggle-option" data-active={previewFit === 'fixed' || undefined} aria-pressed={previewFit === 'fixed'} onPress={() => setPreviewFit('fixed')}>Fixed</Button>
+          </div>
+        </div>
         <small>{previewStatus}</small>
       </div>
-      <PreviewSurface design={design} freezeFrame={freezeFrame} page={previewPage} />
+      {previewToken && design.selectedRevisionId
+        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} isHeadRevision={selectedIsHead} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={design.layout.previewCustomWidth} customHeight={design.layout.previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} />
+        : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
     </section>
   )
 
   return (
-    <PreviewOverlayContext.Provider value={previewOverlay}>
     <main className="workspace-main">
       <header className="workspace-toolbar">
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
@@ -1372,7 +1326,6 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
             {conversationPane}
           </div>}
     </main>
-    </PreviewOverlayContext.Provider>
   )
 }
 
@@ -1529,14 +1482,14 @@ export function App() {
     }
   }
   const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false); setLibraryOpen(false) }
-  const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
-  const openLibrary = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
+  const home = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
+  const openLibrary = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
-  const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
-  const openSettings = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
-  const openProviders = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
-  const openGenerations = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
-  const openTrash = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
+  const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
+  const openSettings = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
+  const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
+  const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
+  const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
   const openDesign = (design: OmniDesignDocument) => {
     closePanels()
     const project = projects.find((candidate) => candidate.id === design.projectId)
@@ -1551,7 +1504,7 @@ export function App() {
     try {
       const detail = await workspaceApi?.getProject(project.id)
       setWorkspaceError(null)
-      void window.omnidesign?.preview.hide()
+      void window.omnidesign?.preview.closePopOut()
       closePanels()
       setActiveProject(detail?.project ?? project)
       setActiveDesign(detail && detail.designs.length === 1 ? detail.designs[0] : null)
@@ -1560,7 +1513,7 @@ export function App() {
     }
   }
   const backFromDesign = () => {
-    void window.omnidesign?.preview.hide()
+    void window.omnidesign?.preview.closePopOut()
     if (activeProject && activeProject.designCount > 1) { setActiveDesign(null); void refresh() }
     else home()
   }
@@ -1632,7 +1585,7 @@ export function App() {
   const trashDesign = async (design: OmniDesignDocument) => {
     const result = await workspaceApi?.trash('design', design.id)
     if (!result || result.cancelled) return
-    await window.omnidesign?.preview.hide()
+    await window.omnidesign?.preview.closePopOut()
     home()
   }
   const trashProject = async (project: ProjectSummary) => {

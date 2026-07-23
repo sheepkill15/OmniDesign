@@ -22,10 +22,15 @@ export function isAllowedPreviewResourceUrl(url: string): boolean {
   }
 }
 
-export function previewContentSecurityPolicy(): string {
+// `frameAncestors` controls who may embed a preview document. Phase 1 served the preview in a native
+// view and set 'none'. From Phase 2 the preview renders inside sandboxed iframes in the trusted
+// renderer, so the renderer's own origin must be allowed to embed it — the packaged renderer is a
+// file: document, and the dev renderer is its localhost origin. The preview scheme is not web-reachable
+// and the frames are opaque-origin (sandbox without allow-same-origin), so this stays contained.
+export function previewContentSecurityPolicy(frameAncestors = "'none'"): string {
   return [
     "default-src 'none'",
-    // omnidesign-preview: lets the entry page load its .build/tailwind.css and .build/alpine.js.
+    // omnidesign-preview: lets each page load its .build/tailwind.css and .build/alpine.js.
     "style-src 'unsafe-inline' https: omnidesign-preview:",
     "img-src data: https: omnidesign-preview:",
     "font-src data: https: omnidesign-preview:",
@@ -41,6 +46,6 @@ export function previewContentSecurityPolicy(): string {
     "connect-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${frameAncestors}`,
   ].join('; ')
 }

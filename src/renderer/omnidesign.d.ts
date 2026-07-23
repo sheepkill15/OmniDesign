@@ -83,6 +83,20 @@ interface InvalidCandidate {
 }
 
 type LayoutMode = 'split' | 'conversation' | 'preview' | 'popped'
+type PreviewViewMode = 'canvas' | 'focused'
+type PreviewFit = 'artboard' | 'fixed'
+type PreviewDevice = 'phone' | 'tablet' | 'desktop' | 'custom'
+
+interface Layout {
+  readonly conversationWidth: number
+  readonly mode: LayoutMode
+  readonly previewViewMode: PreviewViewMode
+  readonly previewFit: PreviewFit
+  readonly previewDevice: PreviewDevice
+  readonly previewCustomWidth: number
+  readonly previewCustomHeight: number
+  readonly previewPage: string | null
+}
 
 interface GenerationSelection {
   readonly providerId: 'mock' | 'codex' | 'claude'
@@ -136,7 +150,7 @@ interface OmniDesignDocument {
   readonly tags: readonly Tag[]
   readonly lastSelection: GenerationSelection
   readonly generationSteps: readonly GenerationStep[]
-  readonly layout: { readonly conversationWidth: number; readonly mode: LayoutMode }
+  readonly layout: Layout
   readonly messages: readonly DesignMessage[]
   readonly invalidCandidates: readonly InvalidCandidate[]
   readonly generationJobs: readonly GenerationJob[]
@@ -275,7 +289,7 @@ interface Window {
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
-      saveLayout(designId: string, layout: { readonly conversationWidth: number; readonly mode: LayoutMode }): Promise<void>
+      saveLayout(designId: string, layout: Layout): Promise<void>
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
       revisionPages(designId: string, revisionId: string): Promise<RevisionPages>
@@ -295,12 +309,11 @@ interface Window {
       saveGenerationDefaults(selection: GenerationSelection): Promise<void>
     }
     readonly preview: {
-      show(request: { readonly designId: string; readonly revisionId: string; readonly bounds: PreviewBounds; readonly page?: string }): Promise<void>
-      resize(bounds: PreviewBounds): Promise<void>
-      hide(): Promise<void>
-      popOut(request: { readonly designId: string; readonly revisionId: string }): Promise<void>
-      setSuspended(suspended: boolean): Promise<void>
-      freeze(): Promise<string | null>
+      register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>
+      reportDiagnostic(designId: string, revisionId: string, diagnostic: { readonly level: 'warning' | 'error'; readonly message: string; readonly source: string | null; readonly line: number | null }): Promise<void>
+      capture(designId: string, revisionId: string, rect: PreviewBounds): Promise<void>
+      popOut(request: { readonly designId: string; readonly revisionId: string; readonly page?: string }): Promise<void>
+      closePopOut(): Promise<void>
       onDiagnostic(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
       onThumbnail(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
       onPoppedIn(listener: (event: { readonly designId: string }) => void): () => void

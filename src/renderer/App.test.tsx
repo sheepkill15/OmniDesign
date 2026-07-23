@@ -35,7 +35,7 @@ const design: OmniDesignDocument = {
   tags: [],
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
-  layout: { conversationWidth: 43, mode: 'split' },
+  layout: { conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewCustomWidth: 1280, previewCustomHeight: 800, previewPage: null },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
@@ -135,12 +135,11 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       onCloneActivity: vi.fn().mockReturnValue(() => undefined),
     },
     preview: {
-      show: vi.fn().mockResolvedValue(undefined),
-      resize: vi.fn().mockResolvedValue(undefined),
-      hide: vi.fn().mockResolvedValue(undefined),
+      register: vi.fn().mockResolvedValue({ token: 'token-1', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' }),
+      reportDiagnostic: vi.fn().mockResolvedValue(undefined),
+      capture: vi.fn().mockResolvedValue(undefined),
       popOut: vi.fn().mockResolvedValue(undefined),
-      setSuspended: vi.fn().mockResolvedValue(undefined),
-      freeze: vi.fn().mockResolvedValue('data:image/png;base64,iVBORw=='),
+      closePopOut: vi.fn().mockResolvedValue(undefined),
       onDiagnostic: vi.fn().mockReturnValue(() => undefined),
       onThumbnail: vi.fn().mockReturnValue(() => undefined),
       onPoppedIn: vi.fn().mockReturnValue(() => undefined),
@@ -557,7 +556,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
     await waitFor(() => expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-1'))
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
-    expect(bridge.preview.hide).not.toHaveBeenCalled()
+    expect(bridge.preview.closePopOut).not.toHaveBeenCalled()
   })
 
   it('restores a follow-up draft and explains when submission fails', async () => {
@@ -769,7 +768,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('Another screen', 'mock', 'mock-v1', undefined, { projectId: 'project-1' }))
   })
 
-  it('keeps the native preview visible while revision history stays in the conversation-side toolbar', async () => {
+  it('registers the preview and keeps it mounted while revision history opens in the toolbar', async () => {
     const bridge = installBridge()
     render(<App />)
 
@@ -780,8 +779,8 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
     expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
-    expect(bridge.preview.show).toHaveBeenCalled()
-    expect(bridge.preview.hide).not.toHaveBeenCalled()
+    await waitFor(() => expect(bridge.preview.register).toHaveBeenCalled())
+    expect(bridge.preview.closePopOut).not.toHaveBeenCalled()
   })
 
   it('attaches references to the first generation', async () => {
@@ -937,7 +936,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const divider = await screen.findByRole('separator', { name: 'Resize conversation and preview panels' })
     fireEvent.keyDown(divider, { key: 'ArrowRight' })
     expect(divider).toHaveAttribute('aria-valuenow', '45')
-    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', { conversationWidth: 45, mode: 'split' }))
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({ conversationWidth: 45, mode: 'split' })))
   })
 
   it('switches to a conversation-only layout and hides the preview', async () => {
@@ -954,7 +953,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
-    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', { conversationWidth: 43, mode: 'conversation' }))
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({ conversationWidth: 43, mode: 'conversation' })))
   })
 
   it('switches to a preview-only layout and hides the conversation', async () => {
@@ -985,14 +984,14 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
 
-    await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith({ designId: 'design-1', revisionId: 'revision-1' }))
+    await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith(expect.objectContaining({ designId: 'design-1', revisionId: 'revision-1' })))
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dock preview' }))
     expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
   })
 
-  it('freezes and suspends the native preview layer while a header overlay covers it', async () => {
-    const bridge = installBridge()
+  it('offers canvas and focused preview modes in the preview toolbar', async () => {
+    installBridge()
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -1000,26 +999,10 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
 
-    fireEvent.click(screen.getByRole('button', { name: /History/ }))
-    await waitFor(() => expect(bridge.preview.freeze).toHaveBeenCalled())
-    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenCalledWith(true))
-    // Selecting a revision closes the React Aria menu, which restores the live preview layer.
-    fireEvent.click(screen.getByRole('menuitem', { name: /Current head/ }))
-    expect(bridge.workspace.selectRevision).not.toHaveBeenCalled()
-    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenLastCalledWith(false))
-  })
-
-  it('suspends the native preview through the shared dropdown behavior for generation settings', async () => {
-    const bridge = installBridge()
-    render(<App />)
-
-    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
-    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
-    fireEvent.keyDown(prompt, { key: 'Enter' })
-    await screen.findByRole('region', { name: 'Generated design preview' })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Generation settings' }))
-    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenCalledWith(true))
+    expect(screen.getByRole('group', { name: 'Preview layout' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Canvas' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Focused' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
   })
 
   it('recovers saved designs into the home list', async () => {
@@ -1146,9 +1129,9 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
 
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
-    vi.mocked(bridge.preview.hide).mockClear()
+    vi.mocked(bridge.preview.closePopOut).mockClear()
     fireEvent.click(within(sidebar).getByRole('button', { name: 'Calm dashboard' }))
-    expect(bridge.preview.hide).not.toHaveBeenCalled()
+    expect(bridge.preview.closePopOut).not.toHaveBeenCalled()
   })
 
   it('lets the user disable system notifications', async () => {

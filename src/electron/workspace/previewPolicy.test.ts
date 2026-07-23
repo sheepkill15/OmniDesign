@@ -17,13 +17,20 @@ describe('preview security policy', () => {
     expect(isAllowedPreviewResourceUrl('http://insecure.example.com/a.js')).toBe(false)
   })
 
-  it('permits external styles and scripts while still preventing embedding and form submission', () => {
+  it('permits external styles and scripts while still preventing form submission', () => {
     const policy = previewContentSecurityPolicy()
     expect(policy).toContain("script-src 'unsafe-inline' 'unsafe-eval' https:")
     expect(policy).toContain("style-src 'unsafe-inline' https:")
     expect(policy).toContain("base-uri 'none'")
     expect(policy).toContain("form-action 'none'")
-    expect(policy).toContain("frame-ancestors 'none'")
+  })
+
+  it('defaults frame-ancestors to none but allows the trusted renderer origin to embed the preview', () => {
+    // Phase 1 native view: no embedding at all.
+    expect(previewContentSecurityPolicy()).toContain("frame-ancestors 'none'")
+    // Phase 2 in-DOM iframes: the packaged renderer (file:) or dev origin may embed it.
+    expect(previewContentSecurityPolicy('file:')).toContain('frame-ancestors file:')
+    expect(previewContentSecurityPolicy('http://127.0.0.1:5173 file:')).toContain('frame-ancestors http://127.0.0.1:5173 file:')
   })
 
   it('denies programmatic network egress (fetch/XHR/WebSocket) from the untrusted preview', () => {
