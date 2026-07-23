@@ -164,6 +164,7 @@ export const designSchema = z.object({
   thumbnailDataUrl: z.string().nullable(),
   queuePaused: z.boolean(),
   titlePending: z.boolean().default(false),
+  adaptationPending: z.boolean().default(false),
   lastSelection: generationSelectionSchema,
   generationSteps: z.array(generationStepSchema),
   layout: layoutSchema,

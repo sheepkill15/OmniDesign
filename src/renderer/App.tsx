@@ -1577,8 +1577,15 @@ export function App() {
   }
   const associateDesign = async (design: OmniDesignDocument, projectId: string) => {
     const associated = await workspaceApi?.associateDesign(design.id, projectId)
-    if (associated) { updateDesign(associated); setAssociationNotice({ designId: associated.id, projectId: associated.projectId, projectName: associated.projectName, mode: 'associated' }) }
+    // The move persists an "adapt to project?" decision on the design itself, so the notice is driven
+    // by associated.adaptationPending — no ephemeral state to set here. Clear any suggested hint.
+    if (associated) updateDesign(associated)
+    setAssociationNotice(null)
     await refresh()
+  }
+  const dismissAdaptation = async (design: OmniDesignDocument) => {
+    const updated = await workspaceApi?.dismissAdaptation(design.id)
+    if (updated) updateDesign(updated)
   }
   const associateAndRestart = async (design: OmniDesignDocument, projectId: string) => {
     const restarted = await workspaceApi?.associateAndRestart(design.id, projectId)
@@ -1600,7 +1607,7 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} initialError={settingsError} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => setAssociationNotice(null)} onOpenProviders={openProviders} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} />
         : activeProject
         ? <ProjectPage project={activeProject} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onOpenProviders={openProviders} />
         : <Home projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}

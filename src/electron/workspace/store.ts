@@ -38,6 +38,7 @@ interface DesignRow {
   last_model_id: string
   last_effort: string | null
   title_pending: number
+  adaptation_pending: number
 }
 
 interface ProjectRow {
@@ -377,6 +378,13 @@ ALTER TABLE designs ADD COLUMN provider_session_id TEXT;
 ALTER TABLE designs ADD COLUMN provider_session_provider TEXT;
 `
 
+// Persists that a design was moved into a project and the user has not yet decided whether to adapt it
+// to that project's design language. The notice stays until the user adapts, keeps the current design,
+// or sends any new prompt — so the pending decision survives navigation and app restarts.
+const migrationTwentyEight = `
+ALTER TABLE designs ADD COLUMN adaptation_pending INTEGER NOT NULL DEFAULT 0 CHECK (adaptation_pending IN (0, 1));
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -414,7 +422,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
       ORDER BY d.updated_at DESC
@@ -426,7 +434,7 @@ export class WorkspaceStore {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -463,7 +471,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
       ORDER BY d.updated_at DESC, d.rowid DESC
@@ -501,6 +509,11 @@ export class WorkspaceStore {
   /** Flag (or clear) that a background title request is in flight for a design. */
   public setTitlePending(designId: string, pending: boolean): void {
     this.database.prepare('UPDATE designs SET title_pending = ? WHERE id = ?').run(pending ? 1 : 0, designId)
+  }
+
+  /** Flag (or clear) that a moved design is awaiting the user's "adapt to project" decision. */
+  public setAdaptationPending(designId: string, pending: boolean): void {
+    this.database.prepare('UPDATE designs SET adaptation_pending = ? WHERE id = ?').run(pending ? 1 : 0, designId)
   }
 
   private findTrashedProjectBySourcePath(sourcePath: string): string | null {
@@ -582,7 +595,9 @@ export class WorkspaceStore {
     this.transaction(() => {
       const target = this.database.prepare("SELECT id, kind FROM projects WHERE id = ? AND trashed_at IS NULL").get(projectId) as { id: string; kind: string } | undefined
       if (!target || target.kind !== 'linked') throw new Error('Choose an available linked project.')
-      this.database.prepare('UPDATE designs SET project_id = ?, updated_at = ? WHERE id = ?').run(projectId, new Date().toISOString(), designId)
+      // Moving into a project raises the "adapt to this project's design language?" decision. Persist it
+      // so the notice survives navigation and restarts; it clears on adapt, keep, or the next prompt.
+      this.database.prepare('UPDATE designs SET project_id = ?, adaptation_pending = 1, updated_at = ? WHERE id = ?').run(projectId, new Date().toISOString(), designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), projectId)
       const sourceCount = this.database.prepare('SELECT COUNT(*) AS count FROM designs WHERE project_id = ? AND trashed_at IS NULL').get(design.projectId) as { count: number }
       const source = this.database.prepare('SELECT kind FROM projects WHERE id = ?').get(design.projectId) as { kind: string } | undefined
@@ -830,7 +845,8 @@ export class WorkspaceStore {
       `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, now)
       this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), id, now)
-      this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
+      // Sending any new prompt resolves a pending "adapt to project" decision.
+      this.database.prepare('UPDATE designs SET updated_at = ?, adaptation_pending = 0 WHERE id = ?').run(now, designId)
     })
     return this.requireGenerationJob(id)
   }
@@ -1025,7 +1041,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1072,6 +1088,7 @@ export class WorkspaceStore {
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
       queuePaused: row.queue_paused === 1,
       titlePending: row.title_pending === 1,
+      adaptationPending: row.adaptation_pending === 1,
       lastSelection: {
         providerId: row.last_provider_id,
         modelId: row.last_model_id,

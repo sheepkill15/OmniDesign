@@ -118,6 +118,7 @@ interface OmniDesignDocument {
   readonly thumbnailDataUrl: string | null
   readonly queuePaused: boolean
   readonly titlePending: boolean
+  readonly adaptationPending: boolean
   readonly lastSelection: GenerationSelection
   readonly generationSteps: readonly GenerationStep[]
   readonly layout: { readonly conversationWidth: number; readonly mode: LayoutMode }
@@ -202,6 +203,7 @@ interface Window {
       getProject(projectId: string): Promise<ProjectDetail | null>
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
       associateAndRestart(designId: string, projectId: string): Promise<OmniDesignDocument | null>
+      dismissAdaptation(designId: string): Promise<OmniDesignDocument | null>
       listTrash(): Promise<TrashItem[]>
       cloneProject(remoteUrl: string, destinationPath: string): Promise<ProjectSummary>
       registerLinkedProject(sourceProjectPath: string): Promise<ProjectSummary>

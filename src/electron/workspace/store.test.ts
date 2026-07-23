@@ -460,4 +460,33 @@ describe('WorkspaceStore', () => {
     expect(store.getProjectSummary(standalone.projectId)).toBeNull()
     store.close()
   })
+
+  it('persists an adapt-to-project decision on move until it is resolved', () => {
+    const { directory, store } = createStore()
+    const standalone = store.createStandaloneDesign('First', 'Standalone')
+    const linked = store.createLinkedDesign('Linked', 'Linked design', 'C:\\projects\\linked-app')
+
+    // Moving into a project raises the pending "adapt to project?" decision, and it survives a restart.
+    expect(store.associateDesignWithProject(standalone.id, linked.projectId).adaptationPending).toBe(true)
+    store.close()
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(standalone.id)?.adaptationPending).toBe(true)
+
+    // Sending any new prompt resolves the decision.
+    reopened.enqueueGenerationJob(standalone.id, 'Warm the palette', 'mock', 'mock-v1')
+    expect(reopened.getDesign(standalone.id)?.adaptationPending).toBe(false)
+    reopened.close()
+  })
+
+  it('clears a pending adapt decision when the user keeps the current design', () => {
+    const { store } = createStore()
+    const standalone = store.createStandaloneDesign('First', 'Standalone')
+    const linked = store.createLinkedDesign('Linked', 'Linked design', 'C:\\projects\\linked-app')
+    store.associateDesignWithProject(standalone.id, linked.projectId)
+
+    store.setAdaptationPending(standalone.id, false)
+
+    expect(store.getDesign(standalone.id)?.adaptationPending).toBe(false)
+    store.close()
+  })
 })

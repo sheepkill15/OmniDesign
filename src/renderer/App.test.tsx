@@ -29,6 +29,7 @@ const design: OmniDesignDocument = {
   thumbnailDataUrl: null,
   queuePaused: false,
   titlePending: false,
+  adaptationPending: false,
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
   layout: { conversationWidth: 43, mode: 'split' },
@@ -671,7 +672,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('suggests a linked project when a standalone prompt names it', async () => {
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design' }
-    const associatedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora' }
+    const associatedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora', adaptationPending: true }
     const bridge = installBridge([], createdDesign)
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{
       id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1,
