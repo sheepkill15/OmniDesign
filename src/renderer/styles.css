@@ -95,6 +95,9 @@ body,
 body {
   overflow: hidden;
   background: var(--background);
+  /* The app's primary reading size. Kept explicit so any element that omits its own font-size
+     falls back to this rather than the browser's 16px default (which reads oversized here). */
+  font-size: 14px;
 }
 
 .fatal-error {
@@ -1714,6 +1717,7 @@ button:not(:disabled):active {
 .toolbar-button,
 .secondary-action {
   height: 32px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1723,6 +1727,7 @@ button:not(:disabled):active {
   background: var(--surface-2);
   color: var(--text-subtle);
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -2102,6 +2107,8 @@ button[aria-expanded="true"] .dropdown-caret {
   padding: 12px;
   border: 1px solid var(--border);
   background: var(--surface-2);
+  /* Match .generation-progress: 13px body with an 11px uppercase label (set on `strong` below). */
+  font-size: 13px;
 }
 
 .generation-recovery span {
