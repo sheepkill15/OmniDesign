@@ -87,6 +87,17 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
         return project ? { project, designs: initialDesigns.filter((candidate) => candidate.projectId === projectId) } : null
       }),
       listTrash: vi.fn().mockResolvedValue([]),
+      listFolders: vi.fn().mockResolvedValue([]),
+      listTags: vi.fn().mockResolvedValue([]),
+      createFolder: vi.fn().mockResolvedValue({ id: 'folder-1', name: 'Folder', parentFolderId: null, sortOrder: 0, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z' }),
+      renameFolder: vi.fn().mockResolvedValue(undefined),
+      deleteFolder: vi.fn().mockResolvedValue(undefined),
+      moveProjectToFolder: vi.fn().mockResolvedValue(undefined),
+      createTag: vi.fn().mockResolvedValue({ id: 'tag-1', name: 'Tag', color: 'neutral', createdAt: '2026-07-20T10:00:00.000Z' }),
+      deleteTag: vi.fn().mockResolvedValue(undefined),
+      tag: vi.fn().mockResolvedValue(undefined),
+      untag: vi.fn().mockResolvedValue(undefined),
+      duplicateDesign: vi.fn().mockResolvedValue(createdDesign),
       cloneProject: vi.fn(),
       registerLinkedProject: vi.fn(),
       reconnectProject: vi.fn(),
@@ -1276,5 +1287,37 @@ describe('Phase 1 walking skeleton UI', () => {
     await within(sidebar).findByRole('button', { name: 'Calm dashboard' })
     expect(within(sidebar).queryByRole('button', { name: 'Expand Calm dashboard' })).not.toBeInTheDocument()
     expect(within(sidebar).queryByRole('button', { name: 'New design in Calm dashboard' })).not.toBeInTheDocument()
+  })
+
+  it('opens the Library from the sidebar and lists projects and designs', async () => {
+    installBridge([design])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Library' }))
+
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Designs' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Folders' })).toBeInTheDocument()
+    // The existing design appears in the browse grid.
+    const grid = screen.getByRole('group', { name: 'Designs' })
+    expect(within(grid).getByRole('button', { name: 'Open Calm dashboard' })).toBeInTheDocument()
+  })
+
+  it('creates a folder from the Library rail through the folder dialog', async () => {
+    const bridge = installBridge([design])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Library' }))
+    await screen.findByRole('heading', { name: 'Library' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+    const nameField = await screen.findByRole('textbox', { name: 'Folder name' })
+    fireEvent.change(nameField, { target: { value: 'Client work' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create folder' }))
+
+    await waitFor(() => expect(bridge.workspace.createFolder).toHaveBeenCalledWith('Client work', null))
   })
 })

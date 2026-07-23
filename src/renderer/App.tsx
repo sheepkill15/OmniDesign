@@ -34,6 +34,8 @@ import { Markdown } from './components/Markdown'
 import { promptMentionsProject } from './promptMatch'
 import { GenerationElapsed } from './components/GenerationElapsed'
 import { PreviewOverlayContext } from './components/PreviewOverlayContext'
+import { Library } from './screens/Library'
+import { RectangleStackIcon } from '@heroicons/react/24/outline'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 type AttachmentPickerKind = 'files' | 'folder'
@@ -121,18 +123,20 @@ function ProjectNavItem({ project, activeProjectId, activeDesignId, onOpen, onOp
   )
 }
 
-function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, workspaceError, homeActive, settingsOpen, providersOpen, generationsOpen, trashOpen, onHome, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onTrash, onRetryWorkspace }: {
+function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCount, workspaceError, homeActive, libraryOpen, settingsOpen, providersOpen, generationsOpen, trashOpen, onHome, onLibrary, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onTrash, onRetryWorkspace }: {
   readonly projects: readonly ProjectSummary[]
   readonly activeProjectId: string | null
   readonly activeDesignId: string | null
   readonly activeGenerationCount: number
   readonly workspaceError: string | null
   readonly homeActive: boolean
+  readonly libraryOpen: boolean
   readonly settingsOpen: boolean
   readonly providersOpen: boolean
   readonly generationsOpen: boolean
   readonly trashOpen: boolean
   readonly onHome: () => void
+  readonly onLibrary: () => void
   readonly onOpen: (project: ProjectSummary) => void
   readonly onOpenDesign: (project: ProjectSummary, design: OmniDesignDocument) => void
   readonly onAddDesign: (project: ProjectSummary) => void
@@ -152,6 +156,7 @@ function Sidebar({ projects, activeProjectId, activeDesignId, activeGenerationCo
       {workspaceError && <div className="sidebar-workspace-error" role="alert"><strong>Workspace refresh failed</strong><small>{workspaceError}</small><Button className="text-button" onPress={onRetryWorkspace}>Retry</Button></div>}
       <nav className="global-navigation" aria-label="Application">
         <NavigationItem icon={HomeIcon} label="Home" active={homeActive} onPress={onHome} />
+        <NavigationItem icon={RectangleStackIcon} label="Library" active={libraryOpen} onPress={onLibrary} />
         <NavigationItem icon={BoltIcon} label="Generations" badge={activeGenerationCount ? String(activeGenerationCount) : undefined} active={generationsOpen} onPress={onGenerations} />
       </nav>
       <div className="sidebar-section">
@@ -1379,6 +1384,8 @@ function useProviders(): { readonly label: string; readonly providers: readonly 
 export function App() {
   const [designs, setDesigns] = useState<OmniDesignDocument[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
   const [trashItems, setTrashItems] = useState<TrashItem[]>([])
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null)
@@ -1390,6 +1397,7 @@ export function App() {
   const [providersOpen, setProvidersOpen] = useState(false)
   const [generationsOpen, setGenerationsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [generationDetail, setGenerationDetail] = useState<'full' | 'concise'>('full')
@@ -1410,10 +1418,12 @@ export function App() {
   const refresh = useCallback(async () => {
     if (!workspaceApi) return false
     try {
-      const [nextDesigns, nextProjects, nextTrash] = await Promise.all([workspaceApi.list(), workspaceApi.listProjects(), workspaceApi.listTrash()])
+      const [nextDesigns, nextProjects, nextTrash, nextFolders, nextTags] = await Promise.all([workspaceApi.list(), workspaceApi.listProjects(), workspaceApi.listTrash(), workspaceApi.listFolders(), workspaceApi.listTags()])
       setDesigns(nextDesigns)
       setProjects(nextProjects)
       setTrashItems(nextTrash)
+      setFolders(nextFolders)
+      setTags(nextTags)
       setWorkspaceError(null)
       return true
     } catch (reason) {
@@ -1487,8 +1497,9 @@ export function App() {
       throw reason
     }
   }
-  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false) }
+  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false); setLibraryOpen(false) }
   const home = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
+  const openLibrary = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
   const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.hide(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
@@ -1616,12 +1627,39 @@ export function App() {
     setAssociationNotice(null)
     await refresh()
   }
+  const createFolder = async (name: string, parentFolderId: string | null) => { await workspaceApi?.createFolder(name, parentFolderId); await refresh() }
+  const renameFolder = async (folderId: string, name: string) => { await workspaceApi?.renameFolder(folderId, name); await refresh() }
+  const deleteFolder = async (folderId: string) => { await workspaceApi?.deleteFolder(folderId); await refresh() }
+  const moveProjectToFolder = async (projectId: string, folderId: string | null) => { await workspaceApi?.moveProjectToFolder(projectId, folderId); await refresh() }
+  const createLibraryTag = async (name: string): Promise<Tag | null> => {
+    const tag = await workspaceApi?.createTag(name, 'neutral') ?? null
+    await refresh()
+    return tag
+  }
+  const deleteLibraryTag = async (tagId: string) => { await workspaceApi?.deleteTag(tagId); await refresh() }
+  const toggleLibraryTag = async (targetKind: 'project' | 'design', targetId: string, tag: Tag, next: boolean) => {
+    if (next) await workspaceApi?.tag(targetKind, targetId, tag.id)
+    else await workspaceApi?.untag(targetKind, targetId, tag.id)
+    await refresh()
+  }
+  const duplicateDesign = async (design: OmniDesignDocument) => {
+    const created = await workspaceApi?.duplicateDesign(design.id)
+    await refresh()
+    if (created) openDesign(created)
+  }
+  const moveDesign = async (design: OmniDesignDocument, projectId: string) => {
+    const moved = await workspaceApi?.associateDesign(design.id, projectId)
+    if (moved) updateDesign(moved)
+    await refresh()
+  }
   const activeGenerationCount = designs.flatMap((design) => design.generationJobs).filter((job) => job.state === 'running').length
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
-      {generationsOpen
+      <Sidebar projects={projects} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen && !libraryOpen} libraryOpen={libraryOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onLibrary={openLibrary} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
+      {libraryOpen
+        ? <Library projects={projects} designs={designs} folders={folders} tags={tags} onOpenProject={openProject} onOpenDesign={openDesign} onCreateFolder={createFolder} onRenameFolder={renameFolder} onDeleteFolder={deleteFolder} onMoveProjectToFolder={moveProjectToFolder} onCreateTag={createLibraryTag} onDeleteTag={deleteLibraryTag} onToggleTag={toggleLibraryTag} onDuplicateDesign={duplicateDesign} onMoveDesign={moveDesign} onTrashDesign={trashDesign} />
+        : generationsOpen
         ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} onResume={resumeGenerationQueue} />
         : trashOpen
         ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} onEmpty={emptyTrash} />
