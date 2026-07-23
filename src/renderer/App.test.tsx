@@ -225,7 +225,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Remove project' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The project could not be moved to Trash. Trash is temporarily locked.')
-    expect(screen.getByRole('heading', { level: 1, name: 'Calm dashboard' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Rename project' })).toHaveValue('Calm dashboard')
   })
 
   it('preserves a follow-up draft when its previous provider is unavailable', async () => {
@@ -579,13 +579,13 @@ describe('Phase 1 walking skeleton UI', () => {
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
-    fireEvent.click(await screen.findByRole('button', { name: 'Rename design' }))
-    const title = screen.getByRole('textbox', { name: 'Rename design' })
+    const title = await screen.findByRole('textbox', { name: 'Rename design' })
+    fireEvent.focus(title)
     fireEvent.change(title, { target: { value: 'Clear signals' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.blur(title)
 
     await waitFor(() => expect(bridge.workspace.renameDesign).toHaveBeenCalledWith('design-1', 'Clear signals'))
-    expect(await screen.findByRole('heading', { name: 'Clear signals' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Rename design' })).toHaveValue('Clear signals'))
   })
 
   it('refreshes an open workspace when its background-generated title arrives', async () => {
@@ -598,7 +598,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
     await act(async () => bridge.emitWorkspaceChanged(design.id))
 
-    expect(await screen.findByRole('heading', { name: 'Quiet metrics' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Rename design' })).toHaveValue('Quiet metrics'))
   })
 
   it('selects the provider, model, and effort from the composer settings menu', async () => {
@@ -1035,7 +1035,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await within(main).findByRole('button', { name: /Calm dashboard/ }))
 
     expect(await screen.findByRole('status', { name: 'Generating title…' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Rename design' })).not.toBeInTheDocument()
+    expect((screen.getByRole('textbox', { name: 'Rename design' }) as HTMLInputElement).readOnly).toBe(true)
   })
 
   it('lets the user choose and persist the trusted application theme', async () => {
@@ -1252,13 +1252,12 @@ describe('Phase 1 walking skeleton UI', () => {
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
     const grid = await screen.findByRole('group', { name: 'Designs in this project' })
-    fireEvent.click(within(grid).getByRole('button', { name: 'Rename Settings screen design' }))
     const title = within(grid).getByRole('textbox', { name: 'Rename Settings screen design' })
+    fireEvent.focus(title)
     fireEvent.change(title, { target: { value: 'Preferences' } })
-    fireEvent.submit(title.closest('form')!)
+    fireEvent.blur(title)
 
     await waitFor(() => expect(bridge.workspace.renameDesign).toHaveBeenCalledWith('design-2', 'Preferences'))
-    expect(await screen.findByRole('heading', { name: 'Preferences' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
   })
 

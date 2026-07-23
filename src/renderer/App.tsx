@@ -15,7 +15,6 @@ import {
   FolderIcon,
   HomeIcon,
   PaperClipIcon,
-  PencilSquareIcon,
   PlusIcon,
   SparklesIcon,
   StopIcon,
@@ -377,6 +376,10 @@ function describeStoppedGeneration(job: GenerationJob): { readonly title: string
   return { title: 'Generation failed', message: 'Review the technical details, then continue partial work or retry from the last revision.', openProviders: false }
 }
 
+// One inline editor for every renamable title (project name, design title). It reads as plain heading
+// text, and on focus becomes a calm bordered field with an animated ring — same font, size, and position
+// in both states, so entering edit doesn't shift the layout. It auto-saves on blur (clicking outside) or
+// Enter, reverts on Escape, and never shows Save/Cancel controls.
 function EditableTitle({ value, label, variant, pending = false, onSave }: {
   readonly value: string
   readonly label: string
@@ -384,34 +387,50 @@ function EditableTitle({ value, label, variant, pending = false, onSave }: {
   readonly pending?: boolean
   readonly onSave: (value: string) => Promise<void>
 }) {
-  const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
-  const [saving, setSaving] = useState(false)
+  const [focused, setFocused] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  useEffect(() => { if (!editing) setDraft(value) }, [editing, value])
-  const save = async () => {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const cancelling = useRef(false)
+  // Follow external changes (e.g. a generated title landing) except while the user is actively editing.
+  useEffect(() => { if (!focused) setDraft(value) }, [focused, value])
+  const commit = async () => {
+    setFocused(false)
+    if (cancelling.current) { cancelling.current = false; setDraft(value); setError(null); return }
     const next = draft.trim()
-    if (!next || next === value || saving) { if (next === value) setEditing(false); return }
-    setSaving(true)
+    if (!next || next === value) { setDraft(value); setError(null); return }
     setError(null)
-    if (variant === 'card') setEditing(false)
     try {
       await onSave(next)
-      setEditing(false)
     } catch (reason) {
-      if (variant === 'card') setEditing(true)
+      setDraft(value)
       setError(reason instanceof Error ? reason.message : `${label} could not be renamed.`)
-    } finally {
-      setSaving(false)
     }
   }
-  if (editing) {
-    return <div className={`editable-title editable-title-${variant}`}><form onSubmit={(event) => { event.preventDefault(); void save() }}><Input aria-label={`Rename ${label}`} autoFocus maxLength={200} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setEditing(false); setError(null) } }} /><Button className="secondary-action" isDisabled={!draft.trim() || saving} type="submit">{saving ? 'Saving…' : 'Save'}</Button><Button className="text-button" isDisabled={saving} onPress={() => { setEditing(false); setError(null) }}>Cancel</Button></form>{error && <small role="alert">{error}</small>}</div>
-  }
-  const TitleElement: 'h1' | 'h3' = variant === 'card' ? 'h3' : 'h1'
-  return <div className={`editable-title editable-title-${variant}`}><span><TitleElement>{value}</TitleElement>{pending
-    ? <span className="title-pending" role="status" aria-label="Generating title…"><ArrowPathIcon className="spin" aria-hidden="true" /></span>
-    : <IconButton label={`Rename ${label}`} icon={PencilSquareIcon} onPress={() => setEditing(true)} />}</span>{error && <small role="alert">{error}</small>}</div>
+  return (
+    <div className={`editable-title editable-title-${variant}`}>
+      <div className="editable-title-field">
+        <input
+          ref={inputRef}
+          className="inline-edit"
+          aria-label={`Rename ${label}`}
+          value={draft}
+          maxLength={200}
+          readOnly={pending}
+          spellCheck={false}
+          onFocus={() => { if (!pending) setFocused(true) }}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => void commit()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') { event.preventDefault(); inputRef.current?.blur() }
+            else if (event.key === 'Escape') { event.preventDefault(); cancelling.current = true; inputRef.current?.blur() }
+          }}
+        />
+        {pending && <span className="title-pending" role="status" aria-label="Generating title…"><ArrowPathIcon className="spin" aria-hidden="true" /></span>}
+      </div>
+      {error && <small role="alert">{error}</small>}
+    </div>
+  )
 }
 
 function AttachmentPicker({ onChoose, placement = 'top' }: { readonly onChoose: (kind: AttachmentPickerKind) => void; readonly placement?: 'top' | 'bottom' }) {
