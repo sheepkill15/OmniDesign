@@ -576,6 +576,53 @@ Verify current documentation again before implementation because APIs and platfo
 - [Tauri](https://v2.tauri.app/start/)
 - [Capacitor](https://capacitorjs.com/docs)
 
+## Phase 2 Architecture Decisions
+
+### ADR 2026-07-24: Pages are discovered from Git (accepted, implemented)
+
+A design is one Git repository that may contain multiple pages. Every `*.html`
+file committed outside the managed `.build/` directory is a page; there is no
+page manifest and the agent never declares pages or an entry point. `index.html`
+is the home page when present, otherwise the first discovered page; a per-design
+`entry_page_path` preference can override it. A revision remains a single
+whole-design commit.
+
+This reverses the Phase 1 working assumption that a design was effectively a
+single `index.html` (see the deferred multi-file note in the Phase 1 audit).
+`readRevisionFiles` now reads every committed file via `git ls-tree`, so
+agent-authored assets, fonts, and per-page scripts flow through both the preview
+and the offline export. Tailwind compiles once across all pages into one shared
+`.build/tailwind.css`. Lightweight per-path page metadata (display title, order)
+lives in `design_pages`. Implemented in `designRepository.ts`, `compiler.ts`,
+`pages.ts`, `exportService.ts`, and store migration 29.
+
+### ADR 2026-07-24: Canvas preview via sandboxed iframes (proposed, spiked, deferred)
+
+Phase 1 renders the preview in an isolated native `WebContentsView`. A canvas
+mode that lays every page out on one pan/zoom board needs an in-DOM surface, so
+the proposed direction (Option A) is one sandboxed `<iframe sandbox="allow-scripts">`
+per page (opaque origin, no `allow-same-origin`) served over the existing
+`omnidesign-preview://` scheme with the current restrictive CSP, plus an
+OmniDesign-injected shim for content height, diagnostics forwarding, and
+current-page reporting.
+
+A standalone Electron 43 harness validated the load-bearing assumptions
+(opaque-origin iframe loads relative `.build/*` subresources because the CSP uses
+the scheme source `omnidesign-preview:`, the height shim round-trips, and
+`connect-src 'none'` is enforced inside the frame). The one required change is
+relaxing the preview CSP's `frame-ancestors 'none'` — with a `file://` parent,
+`frame-ancestors file:` works (or migrate the trusted renderer to an `app://`
+scheme).
+
+This is **not yet implemented.** Relative to the Phase 1 native view it gives up
+the OS-level process sandbox and dedicated session partition while keeping
+opaque-origin isolation, denied network egress, and the custom-protocol
+boundary. Per "do not weaken preview isolation for convenience," the isolation
+downgrade must be signed off by the product owner before the rewrite merges. In
+the interim, multi-page designs are previewable in the existing native view:
+relative `<a href>` links navigate between pages, and a page switcher in the
+preview toolbar loads any discovered page.
+
 ## Rules for Changing This Architecture
 
 - Distinguish accepted decisions from proposals and experiments.

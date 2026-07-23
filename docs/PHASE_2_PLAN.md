@@ -13,6 +13,41 @@ taken with the product owner in planning (July 2026) and the concrete engineerin
 approach that follows from them. Future agents should keep it aligned as
 implementation resolves the open items in the last section.
 
+## Implementation Status (2026-07-24)
+
+Landed on `feature/phase-2` (each slice test-gated; unit suite green at 202 tests):
+
+- **Track C1 — pages discovered from Git.** Complete. Multi-file `readRevisionFiles`,
+  multi-page Tailwind compile into one shared stylesheet, entry-page export,
+  `pages.ts` discovery/resolution, migration 29 (`entry_page_path` + `design_pages`),
+  `designSchema.pages`/`entryPagePath`, and `workspace:revision-pages` / `set-entry-page`.
+- **Track A — library with folders and tags.** Complete. Migrations 30/31, full store
+  CRUD, contracts + IPC, and the Library screen (`screens/Library.tsx`): folder tree
+  rail, tag chips + inline tag management, client-side search/filter/sort, and the
+  sidebar Library entry.
+- **Track B — mature multiple designs.** Complete. `duplicateDesign` (repo clone +
+  metadata), generalized move between any projects, migration 32 (`sort_order`), and
+  Library duplicate/move actions.
+- **Track C4 — agent contract.** Complete. Design-agent instructions rewritten for
+  multi-page authoring; contract assertions and multi-page service round-trip tested.
+- **Track C3 (partial) — preview page switcher.** The native preview loads any
+  discovered page and the workspace toolbar has a page switcher. This is the interim
+  in place of the full canvas rewrite.
+
+Remaining / deferred:
+
+- **Track C2/C3 — the full iframe/canvas preview rewrite** (canvas board, focused
+  mode, device size/fit persistence, injected shim). Spikes validated (C5); the
+  isolation-downgrade ADR is recorded in `ARCHITECTURE.md` as proposed and needs owner
+  sign-off before merging. Deferred deliberately rather than done blind.
+- **Track 0 — full `App.tsx` split.** Partially advanced (Library extracted to its own
+  module; folders/tags lifted into shared `refresh()` state). The remaining per-screen
+  extraction of Home/ProjectPage/DesignWorkspace/Sidebar is still pending, as is
+  consolidating the `ProjectNavItem`/`ProjectPage` per-project design fetches.
+- **Page metadata editing UI** (rename/reorder pages, set home) on top of the
+  `design_pages` table and `set-entry-page` IPC, which exist but have no UI yet.
+- **Project grid multi-select and bulk trash/move** (Track B polish).
+
 ## Phase 2 Goals (from `AGENTS.md`)
 
 1. Add a project and design library.
