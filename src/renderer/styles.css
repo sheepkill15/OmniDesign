@@ -308,7 +308,9 @@ button:not(:disabled):active {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  padding-left: 10px;
+  /* Left room for the disclosure caret, which sits in an absolute gutter to the left of the
+     folder. Wide enough that the caret clears the sidebar's own edge instead of bleeding past it. */
+  padding-left: 14px;
   border-radius: var(--radius-control);
   color: var(--text-subtle);
 }
@@ -325,8 +327,8 @@ button:not(:disabled):active {
 
 .project-disclosure {
   position: absolute;
-  left: -14px;
-  width: 20px;
+  left: -8px;
+  width: 18px;
   height: 34px;
   display: grid;
   place-items: center;
