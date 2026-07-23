@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -36,6 +36,71 @@ describe('WorkspaceStore', () => {
     expect(recovered?.revisions[1].gitCommit).toBeNull()
     expect(recovered?.activeRevisionId).toBe(second.activeRevisionId)
     expect(first.revisions[0].id).not.toBe(second.revisions[1].id)
+    reopened.close()
+  })
+
+  it('tracks a pending background title and clears it on rename or reopen', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('Create a calm dashboard', 'Create a calm')
+    expect(store.getDesign(created.id)?.titlePending).toBe(false)
+
+    store.setTitlePending(created.id, true)
+    expect(store.getDesign(created.id)?.titlePending).toBe(true)
+
+    // Renaming resolves the pending state (a title landed or the user edited it).
+    store.renameDesign(created.id, 'Calm dashboard')
+    expect(store.getDesign(created.id)?.titlePending).toBe(false)
+
+    // A pending title never survives a restart, so reopening always clears it.
+    store.setTitlePending(created.id, true)
+    store.close()
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.titlePending).toBe(false)
+    reopened.close()
+  })
+
+  it('permanently deletes a design whose artifacts contain read-only files', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    // Mimic a Git repository with a read-only pack/object file (Windows marks these read-only, which
+    // is what previously made permanent deletion fail with EPERM).
+    const gitObjects = path.join(store.getDesignArtifactsDirectory(), created.id, 'repository', '.git', 'objects')
+    mkdirSync(gitObjects, { recursive: true })
+    const readOnlyObject = path.join(gitObjects, 'pack-object')
+    writeFileSync(readOnlyObject, 'packed')
+    chmodSync(readOnlyObject, 0o444)
+
+    store.moveDesignToTrash(created.id)
+    expect(() => store.purgeTrashItem('design', created.id)).not.toThrow()
+    expect(existsSync(path.join(store.getDesignArtifactsDirectory(), created.id))).toBe(false)
+    store.close()
+  })
+
+  it('does not repeat an assistant message identical to the current last one', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    store.addAssistantResponse(created.id, 'Here is your design.')
+    // A streamed message and the final reply can arrive with the same text; the duplicate is dropped.
+    const after = store.addAssistantResponse(created.id, 'Here is your design.')
+    expect(after.messages.filter((message) => message.role === 'assistant' && message.text === 'Here is your design.')).toHaveLength(1)
+    // A genuinely different reply is still appended.
+    const next = store.addAssistantResponse(created.id, 'Updated the header.')
+    expect(next.messages.filter((message) => message.role === 'assistant')).toHaveLength(2)
+    store.close()
+  })
+
+  it('persists a design provider session across reopen', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    expect(store.getDesignProviderSession(created.id)).toBeNull()
+    store.saveDesignProviderSession(created.id, 'codex', 'thread-123')
+    expect(store.getDesignProviderSession(created.id)).toEqual({ providerId: 'codex', sessionId: 'thread-123' })
+    // A later turn on a different provider overwrites the stored session.
+    store.saveDesignProviderSession(created.id, 'claude', 'session-abc')
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesignProviderSession(created.id)).toEqual({ providerId: 'claude', sessionId: 'session-abc' })
     reopened.close()
   })
 
@@ -147,13 +212,17 @@ describe('WorkspaceStore', () => {
   it('persists invalid candidates outside completed revisions', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    store.addInvalidCandidate(created.id, 'Unsafe change', '<html><body><script>bad()</script></body></html>', 'Unsafe script.')
+    // Intermediate candidates are recorded silently; a final failure passes a user-facing system message.
+    store.addInvalidCandidate(created.id, 'Silent repair attempt', '<html><body></body></html>', 'Needs repair.')
+    store.addInvalidCandidate(created.id, 'Unsafe change', '<html><body><script>bad()</script></body></html>', 'Unsafe script.', 'OmniDesign couldn’t finish this design.')
     store.close()
 
     const reopened = new WorkspaceStore(directory)
     const recovered = reopened.getDesign(created.id)
     expect(recovered?.revisions).toHaveLength(0)
-    expect(recovered?.invalidCandidates).toMatchObject([{ prompt: 'Unsafe change', diagnostic: 'Unsafe script.' }])
+    expect(recovered?.invalidCandidates).toMatchObject([{ prompt: 'Silent repair attempt' }, { prompt: 'Unsafe change', diagnostic: 'Unsafe script.' }])
+    // Only the announced (final) candidate posts a system message.
+    expect(recovered?.messages.filter((message) => message.role === 'system')).toHaveLength(1)
     expect(recovered?.messages.at(-1)?.role).toBe('system')
     reopened.close()
   })
@@ -389,6 +458,35 @@ describe('WorkspaceStore', () => {
     expect(associated.revisions).toHaveLength(1)
     expect(associated.activeRevisionId).toBe(revision.activeRevisionId)
     expect(store.getProjectSummary(standalone.projectId)).toBeNull()
+    store.close()
+  })
+
+  it('persists an adapt-to-project decision on move until it is resolved', () => {
+    const { directory, store } = createStore()
+    const standalone = store.createStandaloneDesign('First', 'Standalone')
+    const linked = store.createLinkedDesign('Linked', 'Linked design', 'C:\\projects\\linked-app')
+
+    // Moving into a project raises the pending "adapt to project?" decision, and it survives a restart.
+    expect(store.associateDesignWithProject(standalone.id, linked.projectId).adaptationPending).toBe(true)
+    store.close()
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(standalone.id)?.adaptationPending).toBe(true)
+
+    // Sending any new prompt resolves the decision.
+    reopened.enqueueGenerationJob(standalone.id, 'Warm the palette', 'mock', 'mock-v1')
+    expect(reopened.getDesign(standalone.id)?.adaptationPending).toBe(false)
+    reopened.close()
+  })
+
+  it('clears a pending adapt decision when the user keeps the current design', () => {
+    const { store } = createStore()
+    const standalone = store.createStandaloneDesign('First', 'Standalone')
+    const linked = store.createLinkedDesign('Linked', 'Linked design', 'C:\\projects\\linked-app')
+    store.associateDesignWithProject(standalone.id, linked.projectId)
+
+    store.setAdaptationPending(standalone.id, false)
+
+    expect(store.getDesign(standalone.id)?.adaptationPending).toBe(false)
     store.close()
   })
 })

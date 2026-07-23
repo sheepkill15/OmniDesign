@@ -8,7 +8,7 @@ import type {
   ProviderAdapterStatus,
 } from './providerAdapter.js'
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
-import { formatTokenCount, isObject, providerFailure, readFiniteNumber, titleCase } from './providerUtils.js'
+import { formatTokenCount, friendlyToolAction, isObject, providerFailure, readFiniteNumber, titleCase } from './providerUtils.js'
 
 const COMMAND_TIMEOUT_MS = 12_000
 
@@ -66,44 +66,54 @@ export class ClaudeAdapter implements ProviderAdapter {
   public async prompt(request: ProviderAdapterPrompt, onActivity: ProviderAdapterActivityListener): Promise<ProviderAdapterReply> {
     this.emit(onActivity, 'status', 'Starting Claude Code')
     const command = await resolveProviderCommand('claude')
-    let finalText = ''
-    let sessionId = request.resumeSessionId
-    const args = [
-      '-p',
-      '--output-format', 'stream-json',
-      '--verbose',
-      '--include-partial-messages',
-      '--model', request.modelId,
-      ...(request.effort ? ['--effort', request.effort] : []),
-      '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
-      ...(request.referencePaths ?? []).flatMap((referencePath) => ['--add-dir', referencePath]),
-      ...(request.resumeSessionId ? ['--resume', request.resumeSessionId] : []),
-      ...(!request.workspacePath ? ['--no-session-persistence'] : []),
-      ...(request.instructions ? ['--append-system-prompt', request.instructions] : []),
-      ...(request.outputSchema ? ['--json-schema', JSON.stringify(request.outputSchema)] : []),
-    ]
-    const result = await runCommand(command, args, {
-      ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
-      input: request.prompt,
-      // No prompt timeout: the agent runs until it finishes or the user cancels via the abort signal.
-      ...(request.signal ? { signal: request.signal } : {}),
-      onStdoutLine: (line) => {
-        const parsed = this.readEvent(line)
-        if (!parsed) {
-          this.emit(onActivity, 'diagnostic', 'Unparsed Claude output', line)
-          return
-        }
-        const view = this.describeEvent(parsed)
-        if (!view) return
-        if (view.finalText) finalText = view.finalText
-        if (view.sessionId) sessionId = view.sessionId
-        this.emit(onActivity, view.kind, view.label, view.detail, view.sessionId)
-      },
-      onStderrLine: (line) => this.emit(onActivity, 'diagnostic', 'Claude stderr', line),
-    })
+
+    const runOnce = async (resume: boolean): Promise<{ code: number | null; stdout: string; stderr: string; finalText: string; sessionId: string | undefined }> => {
+      let finalText = ''
+      let sessionId = resume ? request.resumeSessionId : undefined
+      const args = [
+        '-p',
+        '--output-format', 'stream-json',
+        '--verbose',
+        '--model', request.modelId,
+        ...(request.effort ? ['--effort', request.effort] : []),
+        '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
+        ...(request.referencePaths ?? []).flatMap((referencePath) => ['--add-dir', referencePath]),
+        ...(resume && request.resumeSessionId ? ['--resume', request.resumeSessionId] : []),
+        ...(!request.workspacePath ? ['--no-session-persistence'] : []),
+        ...(request.instructions ? ['--append-system-prompt', request.instructions] : []),
+        ...(request.outputSchema ? ['--json-schema', JSON.stringify(request.outputSchema)] : []),
+      ]
+      const result = await runCommand(command, args, {
+        ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
+        input: request.prompt,
+        // No prompt timeout: the agent runs until it finishes or the user cancels via the abort signal.
+        ...(request.signal ? { signal: request.signal } : {}),
+        onStdoutLine: (line) => {
+          const parsed = this.readEvent(line)
+          if (!parsed) {
+            this.emit(onActivity, 'diagnostic', 'Unparsed Claude output', line)
+            return
+          }
+          const view = this.describeEvent(parsed)
+          if (!view) return
+          if (view.finalText) finalText = view.finalText
+          if (view.sessionId) sessionId = view.sessionId
+          this.emit(onActivity, view.kind, view.label, view.detail, view.sessionId)
+        },
+        onStderrLine: (line) => this.emit(onActivity, 'diagnostic', 'Claude stderr', line),
+      })
+      return { code: result.code, stdout: result.stdout, stderr: result.stderr, finalText, sessionId }
+    }
+
+    let result = await runOnce(Boolean(request.resumeSessionId))
+    // A stale/missing session id must not fail the whole turn: retry once from a fresh session.
+    if (result.code !== 0 && request.resumeSessionId && isRecoverableSessionResumeError(`${result.stderr} ${result.stdout}`) && !request.signal?.aborted) {
+      this.emit(onActivity, 'status', 'Previous Claude session was unavailable; starting a fresh one')
+      result = await runOnce(false)
+    }
     if (result.code !== 0) throw providerFailure('Claude', result.stdout, result.stderr)
-    if (!finalText) throw new Error('Claude completed without a final text response.')
-    return { modelId: request.modelId, text: finalText, ...(sessionId ? { sessionId } : {}) }
+    if (!result.finalText) throw new Error('Claude completed without a final text response.')
+    return { modelId: request.modelId, text: result.finalText, ...(result.sessionId ? { sessionId: result.sessionId } : {}) }
   }
 
   private readEvent(line: string): Record<string, unknown> | undefined {
@@ -132,19 +142,14 @@ export class ClaudeAdapter implements ProviderAdapter {
       const sessionId = typeof event.session_id === 'string' ? event.session_id : undefined
       return { kind: 'status', label: 'Provider status', detail: typeof event.subtype === 'string' ? event.subtype : 'system', ...(sessionId ? { sessionId } : {}) }
     }
-    if (type === 'stream_event' && isObject(event.event)) {
-      const streamEvent = event.event
-      const delta = isObject(streamEvent.delta) && typeof streamEvent.delta.text === 'string'
-        ? streamEvent.delta.text
-        : undefined
-      return delta ? { kind: 'text', label: 'Response update', detail: delta } : undefined
-    }
-    if ((type === 'assistant' || type === 'user') && isObject(event.message) && Array.isArray(event.message.content)) {
+    // Only assistant events are the agent's own conversation. `user` events are tool results and
+    // CLI-injected reminders (e.g. structured-output enforcement) that must never bleed into the reply.
+    if (type === 'assistant' && isObject(event.message) && Array.isArray(event.message.content)) {
       const blocks = event.message.content.filter(isObject)
-      const tool = blocks.find((block) => block.type === 'tool_use' || block.type === 'tool_result')
+      const tool = blocks.find((block) => block.type === 'tool_use')
       if (tool) {
-        const toolName = typeof tool.name === 'string' ? tool.name : typeof tool.type === 'string' ? tool.type : 'tool'
-        return { kind: 'tool', label: 'Agent action', detail: `${toolName}: ${JSON.stringify(tool.input ?? tool.content ?? {})}` }
+        const toolName = typeof tool.name === 'string' ? tool.name : 'tool'
+        return { kind: 'tool', label: 'Agent action', detail: friendlyToolAction(toolName) }
       }
       const text = blocks.find((block) => block.type === 'text' && typeof block.text === 'string')?.text
       return typeof text === 'string' ? { kind: 'text', label: 'Response update', detail: text } : undefined
@@ -166,6 +171,12 @@ export class ClaudeAdapter implements ProviderAdapter {
       ...(sessionId ? { sessionId } : {}),
     })
   }
+}
+
+// A --resume failure we can recover from by running a fresh session (the session id is stale, missing,
+// or was never persisted) rather than surfacing an error to the user.
+export function isRecoverableSessionResumeError(output: string): boolean {
+  return /(session|conversation).*(not found|does not exist|no such|unknown|invalid|expired)|no conversation found|--resume/i.test(output)
 }
 
 export function describeClaudeResult(event: Record<string, unknown>): string | undefined {

@@ -163,6 +163,8 @@ export const designSchema = z.object({
   draftAttachments: z.array(attachmentSchema),
   thumbnailDataUrl: z.string().nullable(),
   queuePaused: z.boolean(),
+  titlePending: z.boolean().default(false),
+  adaptationPending: z.boolean().default(false),
   lastSelection: generationSelectionSchema,
   generationSteps: z.array(generationStepSchema),
   layout: layoutSchema,
@@ -275,15 +277,15 @@ export interface GenerationActivity {
 
 const generationStageLabels: Record<GenerationActivity['stage'], string> = {
   queued: 'Queued',
-  generating: 'Generating design',
-  compiling: 'Compiling styles',
-  validating: 'Validating output',
-  repairing: 'Repairing candidate',
-  saving: 'Saving revision',
-  complete: 'Revision ready',
-  failed: 'Generation failed',
-  cancelled: 'Generation cancelled',
-  interrupted: 'Generation interrupted',
+  generating: 'Designing',
+  compiling: 'Preparing styles',
+  validating: 'Checking the design',
+  repairing: 'Making improvements',
+  saving: 'Saving',
+  complete: 'Design ready',
+  failed: 'Didn’t finish',
+  cancelled: 'Stopped',
+  interrupted: 'Interrupted',
 }
 
 export function generationStageLabel(stage: string): string {

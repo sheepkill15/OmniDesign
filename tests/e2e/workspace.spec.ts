@@ -16,7 +16,7 @@ async function launchWorkspace(userDataDirectory: string) {
     executablePath: electronExecutable,
     args: ['.'],
     cwd: projectDirectory,
-    env: { ...process.env, OMNIDESIGN_USER_DATA_DIR: userDataDirectory, OMNIDESIGN_ENABLE_MOCK_PROVIDER: '1' },
+    env: { ...process.env, OMNIDESIGN_USER_DATA_DIR: userDataDirectory, OMNIDESIGN_ENABLE_MOCK_PROVIDER: '1', OMNIDESIGN_DISABLE_NOTIFICATIONS: '1' },
   })
   return { app, window: await app.firstWindow() }
 }
@@ -106,9 +106,6 @@ test('creates and recovers a standalone design in the built Electron app', async
       compact: { horizontalOverflow: false, lang: 'en', viewport: 'width=device-width, initial-scale=1', mainCount: 1, headingCount: 1, unnamedInteractiveCount: 0 },
       wide: { horizontalOverflow: false, lang: 'en', viewport: 'width=device-width, initial-scale=1', mainCount: 1, headingCount: 1, unnamedInteractiveCount: 0 },
     })
-    await firstRun.window.getByRole('button', { name: 'Diagnostics' }).click()
-    await expect(firstRun.window.getByRole('heading', { name: 'Diagnostics' })).toBeVisible()
-    await expect(firstRun.window.getByText('No diagnostics recorded')).toBeVisible()
     await firstRun.app.close()
     activeApp = null
 
@@ -173,7 +170,7 @@ test('applies and persists the trusted application theme across primary screens'
     })
 
     const visitPrimaryScreens = async (theme: 'dark' | 'light') => {
-      for (const screen of ['Generations', 'Providers', 'Diagnostics', 'Trash', 'Settings'] as const) {
+      for (const screen of ['Generations', 'Providers', 'Trash', 'Settings'] as const) {
         await firstRun.window.getByRole('button', { name: screen, exact: true }).click()
         await expect(firstRun.window.getByRole('heading', { name: screen, exact: true })).toBeVisible()
         await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', theme)

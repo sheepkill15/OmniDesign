@@ -13,6 +13,9 @@ export interface DesignAgentRequest extends ProviderPrompt {
   readonly workspacePath: string
   readonly attachments?: readonly Attachment[]
   readonly sourceProjectPath?: string | null
+  // A recap of the prior conversation, injected into the agent instructions for a fresh session (when
+  // the provider's own thread cannot be resumed). Omitted when resuming, since the provider has context.
+  readonly conversationRecap?: string
 }
 
 export interface DesignAgentReply extends Omit<ProviderReply, 'text'> {
@@ -29,6 +32,14 @@ export class ProviderService {
 
   public async discover(): Promise<ProviderStatus[]> {
     return Promise.all([...this.adapters.values()].map(async (adapter) => ({ id: adapter.id, ...await adapter.discover() })))
+  }
+
+  // Discover a single provider without contacting the others. Metadata work (e.g. title generation)
+  // must only ever spin up the provider the user selected, never fan out to every installed CLI.
+  public async discoverProvider(providerId: ProviderId): Promise<ProviderStatus | undefined> {
+    const adapter = this.adapters.get(providerId)
+    if (!adapter) return undefined
+    return { id: adapter.id, ...await adapter.discover() }
   }
 
   public async prompt(request: ProviderPrompt, onActivity: ActivityListener = () => undefined): Promise<ProviderReply> {
@@ -65,7 +76,7 @@ export class ProviderService {
       workspacePath: request.workspacePath,
       ...(request.sourceProjectPath ? { referencePaths: [request.sourceProjectPath] } : {}),
       ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
-      instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath),
+      instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath, request.conversationRecap),
       outputSchema: agentCompletionOutputSchema,
     }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
     const completion = parseAgentCompletionPayload(reply.text)

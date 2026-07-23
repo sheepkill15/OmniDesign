@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
-import { describeCodexTool } from './codexAdapter.js'
+import { isRecoverableSessionResumeError, parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
+import { describeCodexTool, isRecoverableThreadResumeError } from './codexAdapter.js'
 import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
 import { isProviderId, ProviderService } from './providerService.js'
 import { providerFailure } from './providerUtils.js'
@@ -47,6 +47,17 @@ describe('ProviderService', () => {
     ])
     expect(codex.discover).toHaveBeenCalledOnce()
     expect(claude.discover).toHaveBeenCalledOnce()
+  })
+
+  it('discovers a single provider without contacting the others', async () => {
+    const codex = createAdapter('codex')
+    const claude = createAdapter('claude')
+    const service = new ProviderService([codex, claude])
+
+    await expect(service.discoverProvider('claude')).resolves.toMatchObject({ id: 'claude', installed: true })
+    expect(claude.discover).toHaveBeenCalledOnce()
+    expect(codex.discover).not.toHaveBeenCalled()
+    await expect(service.discoverProvider('mock' as 'codex')).resolves.toBeUndefined()
   })
 
   it('routes prompts without leaking provider differences to the caller', async () => {
@@ -177,9 +188,25 @@ describe('providerFailure', () => {
 
 describe('describeCodexTool', () => {
   it('normalizes common tool actions and excludes provider-only item types', () => {
-    expect(describeCodexTool({ item: { type: 'commandExecution', command: 'pnpm test' } })).toBe('Command: pnpm test')
-    expect(describeCodexTool({ item: { type: 'webSearch', query: 'accessible dialogs' } })).toBe('Web search: accessible dialogs')
+    // Tool activities are normalized to short, non-technical phrases (no command text or query).
+    expect(describeCodexTool({ item: { type: 'commandExecution', command: 'pnpm test' } })).toBe('Running a command')
+    expect(describeCodexTool({ item: { type: 'fileChange' } })).toBe('Editing the design')
+    expect(describeCodexTool({ item: { type: 'webSearch', query: 'accessible dialogs' } })).toBe('Looking something up')
     expect(describeCodexTool({ item: { type: 'reasoning', summary: ['Thinking'] } })).toBeUndefined()
     expect(describeCodexTool({ item: { type: 'agentMessage', text: 'Done' } })).toBeUndefined()
+  })
+})
+
+describe('recoverable resume errors', () => {
+  it('recognizes stale Codex thread failures (fall back to a fresh thread) but not real errors', () => {
+    expect(isRecoverableThreadResumeError(new Error('thread not found'))).toBe(true)
+    expect(isRecoverableThreadResumeError(new Error('missing rollout path for thread'))).toBe(true)
+    expect(isRecoverableThreadResumeError(new Error('rate limit exceeded'))).toBe(false)
+  })
+
+  it('recognizes stale Claude session failures but not real errors', () => {
+    expect(isRecoverableSessionResumeError('No conversation found with session id abc')).toBe(true)
+    expect(isRecoverableSessionResumeError('session does not exist')).toBe(true)
+    expect(isRecoverableSessionResumeError('network timeout')).toBe(false)
   })
 })

@@ -23,7 +23,7 @@ export class GenerationQueue {
 
   public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = []): GenerationJob {
     const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments)
-    this.onActivity({ designId, stage: 'queued', detail: 'Generation is queued.' })
+    this.onActivity({ designId, stage: 'queued', detail: 'Waiting to start…' })
     void this.drain()
     return job
   }
@@ -116,7 +116,8 @@ export class GenerationQueue {
     try {
       this.store.setGenerationJobState(job.id, 'running')
       let failed = false
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      // One initial attempt (attempt 0) plus up to three automatic retries for transient failures.
+      for (let attempt = 0; attempt < 4; attempt += 1) {
         try {
           await this.runJob(job, signal, (activity) => {
             failed ||= activity.stage === 'failed'
@@ -124,8 +125,8 @@ export class GenerationQueue {
           })
           break
         } catch (error) {
-          if (signal.aborted || !isTransientProviderError(error) || attempt === 2) throw error
-          this.onActivity({ designId: job.designId, stage: 'generating', detail: `Provider connection failed. Retrying (${attempt + 2} of 3)…` })
+          if (signal.aborted || !isTransientProviderError(error) || attempt === 3) throw error
+          this.onActivity({ designId: job.designId, stage: 'generating', detail: `Connection issue — trying again (${attempt + 1} of 3)…` })
         }
       }
       pauseQueue = signal.aborted || failed

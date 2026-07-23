@@ -1,4 +1,4 @@
-import { compileTailwindCss, findDesignQualityWarnings, validateCompiledDesign } from './compiler.js'
+import { compileTailwindCss, validateCompiledDesign } from './compiler.js'
 import type { Attachment, Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
@@ -40,6 +40,8 @@ export class WorkspaceService {
   }
   public renameProject(projectId: string, name: string): ProjectSummary { return this.store.renameProject(projectId, name) }
   public renameDesign(designId: string, title: string): Design { return this.store.renameDesign(designId, title) }
+  public setTitlePending(designId: string, pending: boolean): void { this.store.setTitlePending(designId, pending) }
+  public setAdaptationPending(designId: string, pending: boolean): void { this.store.setAdaptationPending(designId, pending) }
   public associateDesignWithProject(designId: string, projectId: string): Design { return this.store.associateDesignWithProject(designId, projectId) }
 
   public listTrash(): TrashItem[] { return this.store.listTrash() }
@@ -69,14 +71,14 @@ export class WorkspaceService {
   public async createDesign(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget, attachments: readonly Attachment[] = []): Promise<Design> {
     const generated = generateMockDesign(prompt)
     const design = this.createDesignRecord(prompt, generated.title, target, attachments)
-    onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up design repository…' })
+    onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up your design…' })
     this.repositories.initialize(design.id)
     return this.generate(design.id, prompt, onActivity, generated.html, false)
   }
 
   public createAgentDesignShell(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget, title = generateMockDesign(prompt).title): Design {
     const design = this.createDesignRecord('', title, target)
-    onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up design repository…' })
+    onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up your design…' })
     this.repositories.initialize(design.id)
     return design
   }
@@ -96,26 +98,22 @@ export class WorkspaceService {
         onActivity({ designId, stage: 'compiling', detail: 'Compiling the generated Tailwind classes.' })
         const tailwindCss = await compileTailwindCss(candidate)
         this.throwIfCancelled(signal)
-        onActivity({ designId, stage: 'validating', detail: 'Checking document structure and preview security.' })
+        onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
         validateCompiledDesign(candidate)
-        const qualityWarnings = findDesignQualityWarnings(candidate)
-        if (qualityWarnings.length && repairAttempt < maxRepairAttempts) throw new Error(`Design quality checks need repair: ${qualityWarnings.join(' ')}`)
         onActivity({ designId, stage: 'saving', detail: 'Committing the revision to the design repository.' })
         const gitCommit = this.repositories.commitRevision(designId, candidate, tailwindCss, `Apply design revision: ${prompt}`)
-        let saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
-        for (const warning of qualityWarnings) this.store.addPreviewDiagnostic(designId, saved.activeRevisionId!, { kind: 'quality', level: 'warning', message: warning, source: null, line: null })
-        if (qualityWarnings.length) saved = this.store.getDesign(designId) ?? saved
+        const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved
       } catch (error) {
         if (signal?.aborted) return this.cancelledDesign(designId, onActivity)
         const diagnostic = error instanceof Error ? error.message : 'Generation failed.'
         if (repairAttempt === maxRepairAttempts) {
-          const rejected = this.store.addInvalidCandidate(designId, prompt, candidate, diagnostic)
-          onActivity({ designId, stage: 'failed', detail: diagnostic })
+          const rejected = this.store.addInvalidCandidate(designId, prompt, candidate, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
+          onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
           return rejected
         }
-        onActivity({ designId, stage: 'repairing', detail: `Repairing the candidate (${repairAttempt + 1} of ${maxRepairAttempts}).` })
+        onActivity({ designId, stage: 'repairing', detail: 'Making a few improvements…' })
         candidate = generateMockDesign(`Repair this design without unsafe code or external resources: ${diagnostic}`, isIteration).html
       }
     }
@@ -171,28 +169,32 @@ export class WorkspaceService {
 
     try {
       const indexHtml = this.repositories.readIndexHtml(designId)
-      onActivity({ designId, stage: 'compiling', detail: 'Compiling the agent workspace entry page.' })
+      onActivity({ designId, stage: 'compiling', detail: 'Preparing the design’s styles.' })
       const tailwindCss = await compileTailwindCss(indexHtml)
-      onActivity({ designId, stage: 'validating', detail: 'Checking the agent workspace result.' })
+      onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
       validateCompiledDesign(indexHtml)
-      const qualityWarnings = findDesignQualityWarnings(indexHtml)
-      if (qualityWarnings.length && allowRepair) throw new Error(`Design quality checks need repair: ${qualityWarnings.join(' ')}`)
-      onActivity({ designId, stage: 'saving', detail: 'Committing the agent revision to the design repository.' })
+      onActivity({ designId, stage: 'saving', detail: 'Saving your design.' })
       const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`)
       if (gitCommit === null) {
-        onActivity({ designId, stage: 'complete', detail: 'No changes to save; recorded the response.' })
+        onActivity({ designId, stage: 'complete', detail: 'No changes were needed.' })
         return this.store.addAssistantResponse(designId, response)
       }
-      let saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response)
-      for (const warning of qualityWarnings) this.store.addPreviewDiagnostic(designId, saved.activeRevisionId!, { kind: 'quality', level: 'warning', message: warning, source: null, line: null })
-      if (qualityWarnings.length) saved = this.store.getDesign(designId) ?? saved
-      onActivity({ designId, stage: 'complete', detail: 'Agent result is ready to preview.' })
+      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response)
+      onActivity({ designId, stage: 'complete', detail: 'Your design is ready.' })
       return saved
     } catch (error) {
       const diagnostic = error instanceof Error ? error.message : 'Agent result validation failed.'
-      const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic)
+      // Intermediate failures inside a repair loop are recorded for diagnostics but stay out of the
+      // conversation: only a final, unrecoverable failure posts a system message and the agent's reply,
+      // so a design that is fixed on a later attempt shows no leftover rejection.
+      if (allowRepair) {
+        const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic)
+        onActivity({ designId, stage: 'repairing', detail: 'Making a few improvements…' })
+        return rejected
+      }
+      const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
       this.store.addAssistantResponse(designId, response)
-      onActivity({ designId, stage: allowRepair ? 'repairing' : 'failed', detail: allowRepair ? `The candidate needs repair: ${diagnostic}` : diagnostic })
+      onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
       return rejected
     }
   }

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
+import { buildConversationRecap, parseAgentCompletionPayload } from '../provider/agentHarness.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
@@ -40,6 +41,9 @@ import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
 const developmentProviderEnabled = Boolean(developmentServerUrl || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1')
+// Lets automated (e2e) runs suppress OS notifications so completing generations do not fire real
+// Windows toasts during the test suite.
+const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS === '1'
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let preview: PreviewController | null = null
@@ -76,7 +80,9 @@ function isProviderPrompt(value: unknown): value is ProviderPrompt {
 async function generateDesignTitle(prompt: string, providerId: 'codex' | 'claude', modelId: string, effort: string | null, attachments: readonly import('../workspace/contracts.js').Attachment[]): Promise<string> {
   const fallback = fallbackDesignTitle(prompt)
   try {
-    const selection = selectLightweightMetadataSelection(await providers.discover(), providerId, { modelId, effort })
+    // Only ever contact the selected provider — never fan out to every installed CLI just to name a design.
+    const status = await providers.discoverProvider(providerId)
+    const selection = selectLightweightMetadataSelection(status ? [status] : [], providerId, { modelId, effort })
     const reply = await providers.prompt({
       requestId: randomUUID(),
       providerId,
@@ -157,7 +163,11 @@ function recordActivity(activity: GenerationActivity): void {
       // The design may have been removed while a late activity arrived; the live event below is enough.
     }
   }
-  if (workspaceStore?.getNotificationsEnabled() && ['complete', 'failed', 'cancelled', 'interrupted'].includes(activity.stage)) {
+  // Notify only for background outcomes worth surfacing: completion, failure, and restart interruption.
+  // A user-initiated cancel needs no toast, and nothing is announced while the window is focused (the
+  // user is already watching this generation).
+  const windowFocused = mainWindow != null && !mainWindow.isDestroyed() && mainWindow.isFocused()
+  if (!notificationsSuppressed && workspaceStore?.getNotificationsEnabled() && Notification.isSupported() && !windowFocused && ['complete', 'failed', 'interrupted'].includes(activity.stage)) {
     const title = workspaceStore.getDesign(activity.designId)?.title ?? 'Design generation'
     new Notification({ title: 'OmniDesign', body: `${title}: ${activity.detail}` }).show()
   }
@@ -238,14 +248,20 @@ function registerIpc(): void {
     const fallbackTitle = fallbackDesignTitle(request.prompt)
     const design = requireWorkspace().createAgentDesignShell(request.prompt, recordActivity, target, fallbackTitle)
     requireWorkspace().rememberSelection(design.id, selection)
+    // The title is generated in the background, concurrently with the first generation. Flag it pending
+    // so the workspace shows a spinner in place of the rename control until the generated title lands.
+    requireWorkspace().setTitlePending(design.id, true)
     requireGenerationQueue().enqueue(design.id, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
     void generateDesignTitle(request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments).then((title) => {
       const current = workspace?.getDesign(design.id)
-      if (!current || !shouldReplaceFallbackTitle(current.title, fallbackTitle, title)) return
-      if (!current.sourceProjectPath && current.projectName !== fallbackTitle) return
-      workspace?.renameDesign(design.id, title)
+      if (current && shouldReplaceFallbackTitle(current.title, fallbackTitle, title) && (current.sourceProjectPath || current.projectName === fallbackTitle)) {
+        workspace?.renameDesign(design.id, title)
+      }
+    }).catch(() => undefined).finally(() => {
+      // Whether the title landed, failed, or was superseded by a user edit, the pending state is over.
+      workspace?.setTitlePending(design.id, false)
       sendWorkspaceChanged(design.id)
-    }).catch(() => undefined)
+    })
     return requireWorkspace().getDesign(design.id) ?? design
   })
   ipcMain.handle('workspace:list-projects', (event) => {
@@ -266,10 +282,19 @@ function registerIpc(): void {
     const request = associateDesignRequestSchema.parse(value)
     return requireWorkspace().associateDesignWithProject(request.designId, request.projectId)
   })
+  ipcMain.handle('workspace:dismiss-adaptation', (event, value: unknown) => {
+    authorize(event)
+    const request = designIdRequestSchema.parse(value)
+    requireWorkspace().setAdaptationPending(request.designId, false)
+    return requireWorkspace().getDesign(request.designId)
+  })
   ipcMain.handle('workspace:associate-and-restart', async (event, value: unknown) => {
     authorize(event)
     const request = associateDesignRequestSchema.parse(value)
     requireWorkspace().associateDesignWithProject(request.designId, request.projectId)
+    // Restarting immediately regenerates in the new project's context, so there is no separate
+    // "adapt to project?" decision left to make — clear the pending flag the move just raised.
+    requireWorkspace().setAdaptationPending(request.designId, false)
     const job = requireWorkspace().getDesign(request.designId)?.generationJobs.find((candidate) => ['queued', 'running'].includes(candidate.state))
     if (!job) return requireWorkspace().getDesign(request.designId)
     await requireGenerationQueue().cancelAndWait(job.id)
@@ -490,9 +515,40 @@ void app.whenReady().then(() => {
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
       let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
-      let providerSessionId = job.providerSessionId ?? undefined
+      // Resume the design's own provider conversation when the selected provider matches the stored
+      // session; otherwise this is a fresh session (first prompt, a provider switch, or a stale session).
+      const storedSession = store.getDesignProviderSession(job.designId)
+      let providerSessionId = job.providerSessionId ?? (storedSession && storedSession.providerId === job.providerId ? storedSession.sessionId : undefined)
+      // When starting fresh, give the agent a recap of the conversation so far so it is not blind to it.
+      // The last message is the current prompt (added at enqueue), so it is excluded from the recap.
+      const conversationRecap = providerSessionId ? '' : buildConversationRecap((store.getDesign(job.designId)?.messages ?? []).slice(0, -1))
+      const rememberSession = (sessionId: string) => {
+        if (!sessionId || sessionId === providerSessionId) return
+        providerSessionId = sessionId
+        store.saveGenerationJobSession(job.id, sessionId)
+        store.saveDesignProviderSession(job.designId, job.providerId, sessionId)
+      }
       for (let attempt = 0; attempt < 4; attempt += 1) {
-        onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? `Starting ${job.providerId} in the design's Git repository.` : `Starting repair ${attempt} of 3.` })
+        onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? 'Starting the design agent.' : `Making improvements (round ${attempt} of 3).` })
+        // Build the agent's conversation from the stream: accumulate consecutive text, and when any
+        // other kind of event arrives (a tool action, a result, etc.) push the connected text as one
+        // message and move on. This keeps each thing the agent says as a readable message instead of a
+        // flood of per-token entries. The store de-dupes so the final reply is not repeated.
+        let agentText = ''
+        let lastFlushed = ''
+        const flushAgentMessage = () => {
+          const buffered = agentText.trim()
+          agentText = ''
+          if (!buffered) return
+          let message: string
+          try { message = parseAgentCompletionPayload(buffered).response } catch { message = buffered }
+          if (!message || message === lastFlushed) return
+          lastFlushed = message
+          try {
+            store.addAssistantResponse(job.designId, message)
+            sendWorkspaceChanged(job.designId)
+          } catch { /* the design may have been removed mid-stream */ }
+        }
         const reply = await providers.runDesignAgent({
           requestId: `${job.id}-${attempt}`,
           providerId: job.providerId,
@@ -504,17 +560,19 @@ void app.whenReady().then(() => {
           attachments: job.attachments,
           sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
           ...(providerSessionId ? { resumeSessionId: providerSessionId } : {}),
+          ...(conversationRecap ? { conversationRecap } : {}),
         }, (activity) => {
-          if (activity.sessionId && activity.sessionId !== providerSessionId) {
-            providerSessionId = activity.sessionId
-            store.saveGenerationJobSession(job.id, activity.sessionId)
-          }
+          if (activity.sessionId) rememberSession(activity.sessionId)
+          if (activity.kind === 'text') { agentText += activity.detail ?? ''; return }
+          // A different kind of event closes the current message: flush it, then log the milestone.
+          flushAgentMessage()
+          // Provider lifecycle chatter ('status': init/hooks/thinking) is internal noise; tool actions,
+          // results, and diagnostics remain as milestones.
+          if (activity.kind === 'status') return
           onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: activity.detail ?? activity.label })
         })
-        if (reply.sessionId && reply.sessionId !== providerSessionId) {
-          providerSessionId = reply.sessionId
-          store.saveGenerationJobSession(job.id, reply.sessionId)
-        }
+        flushAgentMessage()
+        if (reply.sessionId) rememberSession(reply.sessionId)
         if (signal.aborted) throw new Error('Generation was cancelled.')
         const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
         const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3)

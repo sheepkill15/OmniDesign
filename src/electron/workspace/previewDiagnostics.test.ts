@@ -10,6 +10,15 @@ describe('preview diagnostics', () => {
     expect(captureConsoleDiagnostic(2, '%cElectron Security Warning (Insecure Content-Security-Policy)', 2, 'node:electron/js2c/renderer_init')).toBeNull()
   })
 
+  it('strips the volatile preview token so the same error dedupes across reloads', () => {
+    const first = captureConsoleDiagnostic(3, 'Uncaught Error: boom', 5, 'omnidesign-preview://revision/aaa-111/index.html')
+    const second = captureConsoleDiagnostic(3, 'Uncaught Error: boom', 5, 'omnidesign-preview://revision/bbb-222/index.html')
+    expect(first?.source).toBe('omnidesign-preview://revision/index.html')
+    expect(first?.source).toBe(second?.source)
+    // Non-preview sources (e.g. an external script) are left untouched.
+    expect(captureConsoleDiagnostic(3, 'Uncaught Error', 5, 'https://cdn.example.com/lib.js')?.source).toBe('https://cdn.example.com/lib.js')
+  })
+
   it('normalizes main-frame load failures for persistence', () => {
     expect(captureLoadDiagnostic(-2, 'ERR_FAILED', 'omnidesign-preview://revision/token')).toEqual({
       kind: 'load', level: 'error', message: 'Preview failed to load (-2): ERR_FAILED', source: 'omnidesign-preview://revision/token', line: null,

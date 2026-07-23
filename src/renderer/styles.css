@@ -95,6 +95,9 @@ body,
 body {
   overflow: hidden;
   background: var(--background);
+  /* The app's primary reading size. Kept explicit so any element that omits its own font-size
+     falls back to this rather than the browser's 16px default (which reads oversized here). */
+  font-size: 14px;
 }
 
 .fatal-error {
@@ -158,6 +161,21 @@ button:disabled,
   cursor: not-allowed;
   opacity: .42;
 }
+
+/* A calm, universal pressed state (React Aria exposes [data-pressed]; plain controls use :active). */
+button:not(:disabled)[data-pressed],
+[role='button']:not([data-disabled])[data-pressed],
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.submit-prompt[data-pressed],
+.clone-confirm-action[data-pressed] { background: var(--accent-strong); }
+
+.secondary-action[data-pressed],
+.toolbar-button[data-pressed],
+.icon-button[data-pressed],
+.navigation-item[data-pressed] { background: var(--surface-selected); }
 
 .app-frame {
   height: 100%;
@@ -290,7 +308,9 @@ button:disabled,
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  padding-left: 10px;
+  /* Left room for the disclosure caret, which sits in an absolute gutter to the left of the
+     folder. Wide enough that the caret clears the sidebar's own edge instead of bleeding past it. */
+  padding-left: 14px;
   border-radius: var(--radius-control);
   color: var(--text-subtle);
 }
@@ -307,8 +327,8 @@ button:disabled,
 
 .project-disclosure {
   position: absolute;
-  left: -14px;
-  width: 20px;
+  left: -8px;
+  width: 18px;
   height: 34px;
   display: grid;
   place-items: center;
@@ -406,7 +426,7 @@ button:disabled,
 .project-add[data-focus-visible] {
   opacity: 1;
   pointer-events: auto;
-  box-shadow: 0 0 0 2px var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus);
 }
 
 .project-nav-row:hover .project-count,
@@ -615,6 +635,22 @@ button:disabled,
   background: var(--surface-1);
 }
 
+/* The focus ring lives on the whole composer, not the inner textarea, so it draws cleanly around the
+   rounded box instead of being clipped by the container's overflow. It fades in for a calm transition. */
+.new-design-composer,
+.workspace-composer {
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.new-design-composer:focus-within,
+.workspace-composer:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 26%, transparent);
+}
+.new-design-composer textarea:focus-visible,
+.workspace-composer textarea:focus-visible {
+  box-shadow: none;
+}
+
 .prompt-field textarea {
   width: 100%;
   min-height: 126px;
@@ -807,7 +843,7 @@ button:disabled,
 .effort-node { width: 12px; height: 12px; box-sizing: border-box; border: 2px solid var(--text-faint); border-radius: 50%; background: var(--surface-1); }
 .effort-node[data-active] { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
 .effort-slider-thumb { width: 1px; height: 1px; opacity: 0; outline: none; pointer-events: none; }
-.effort-slider-thumb[data-focus-visible] { opacity: 1; box-shadow: 0 0 0 3px var(--focus-ring); }
+.effort-slider-thumb[data-focus-visible] { opacity: 1; box-shadow: 0 0 0 3px var(--focus); }
 .effort-labels { display: flex; flex-direction: column; justify-content: space-between; min-height: 158px; }
 .effort-labels span:last-child { text-align: left; }
 .effort-control[data-disabled] { opacity: .55; }
@@ -1013,36 +1049,68 @@ button:disabled,
   margin-top: 42px;
 }
 
-.editable-title > span {
+.editable-title { min-width: 0; }
+.editable-title-field { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.editable-title > small { display: block; margin-top: 6px; color: var(--danger); font-size: 11px; }
+
+.title-pending { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: var(--text-subtle); flex: none; }
+.title-pending svg { width: 15px; height: 15px; }
+
+/* The editable field itself: invisible chrome until focused, so it reads as the heading it replaces.
+   Padding is paired with an equal negative margin so the text stays put; only the chrome fades in. */
+.inline-edit {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
+  max-width: 100%;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-overflow: ellipsis;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+.inline-edit::selection { background: color-mix(in srgb, var(--focus) 35%, transparent); }
+.inline-edit:hover:not(:read-only):not(:focus) { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.inline-edit:read-only { cursor: default; }
+.inline-edit:focus {
+  outline: none;
+  border-color: var(--focus);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 26%, transparent);
 }
 
-.editable-title h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.editable-title .icon-button { width: 28px; height: 28px; opacity: 0; }
-.editable-title:hover .icon-button,
-.editable-title:focus-within .icon-button { opacity: 1; }
-.editable-title form { display: flex; align-items: center; gap: 7px; }
-.editable-title input { min-width: 0; height: 34px; padding: 0 9px; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--surface-2); color: var(--text); font: inherit; }
-.editable-title input:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
-.editable-title > small { display: block; margin-top: 6px; color: var(--danger); font-size: 11px; }
-.editable-title-page form { margin-bottom: 4px; }
-.editable-title-page input { width: min(520px, 60vw); font-size: 20px; }
+.editable-title-page .inline-edit {
+  field-sizing: content;
+  width: auto;
+  min-width: 4ch;
+  padding: 6px 10px;
+  margin: -6px -10px;
+  font-size: clamp(30px, 3.1vw, 42px);
+  font-weight: 500;
+  letter-spacing: -.035em;
+  line-height: 1.08;
+}
 .editable-title-workspace { min-width: 0; }
-.editable-title-workspace h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; line-height: 1.2; }
-.editable-title-workspace form { max-width: 360px; }
-.editable-title-workspace input { width: min(220px, 24vw); font-size: 12px; }
-.editable-title-workspace .secondary-action { height: 28px; }
-.editable-title-workspace .text-button { height: 28px; padding: 0 6px; }
+.editable-title-workspace .inline-edit {
+  field-sizing: content;
+  width: auto;
+  min-width: 3ch;
+  max-width: min(260px, 30vw);
+  padding: 3px 8px;
+  margin: -3px -8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
 .editable-title-card { min-width: 0; }
-.editable-title-card h3 { min-width: 0; margin: 0; overflow: hidden; color: var(--text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.editable-title-card .icon-button { width: 26px; height: 26px; }
-.editable-title-card form { align-items: stretch; flex-wrap: wrap; }
-.editable-title-card input { width: 100%; flex: 1 0 100%; font-size: 12px; }
-.editable-title-card .secondary-action,
-.editable-title-card .text-button { height: 28px; }
+.editable-title-card .inline-edit {
+  width: calc(100% + 16px);
+  padding: 3px 8px;
+  margin: -3px -8px;
+  font-size: 13px;
+  font-weight: 600;
+}
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; }
 .settings-row > span { display: grid; gap: 4px; }
 .settings-row small { color: var(--text-subtle); }
@@ -1102,6 +1170,12 @@ button:disabled,
   border-color: var(--text-subtle);
 }
 
+/* React Aria surfaces keyboard focus as [data-focus-visible] on the styled label, not :focus-visible. */
+.settings-switch[data-focus-visible] .settings-switch-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .section-heading-actions {
   display: flex;
   align-items: center;
@@ -1137,15 +1211,17 @@ button:disabled,
   margin: 10px 0;
   padding: 0 12px;
   color: var(--text);
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .settings-section input:focus {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 26%, transparent);
 }
 
 .clone-destination {
@@ -1177,8 +1253,8 @@ button:disabled,
 .app-modal h2 { margin: 0; font-size: 18px; }
 .app-modal p { margin: 0; color: var(--text-subtle); line-height: 1.5; }
 .clone-modal-fields { display: grid; gap: 10px; }
-.clone-modal input { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
-.clone-modal input:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.clone-modal input { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 8px; transition: border-color 160ms ease, box-shadow 160ms ease; }
+.clone-modal input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 26%, transparent); }
 .clone-modal-note { font-size: 12px; }
 .clone-modal-note code { color: var(--text); }
 .clone-modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
@@ -1198,7 +1274,7 @@ button:disabled,
 .clone-confirm-action[data-disabled] { opacity: .42; cursor: not-allowed; }
 
 .attachment-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
-.attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); font-size: 12px; }
+.attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-subtle); font-size: 12px; }
 .attachment-chip[data-status="changed"], .attachment-chip[data-status="missing"] { color: var(--warning, #c58a2a); border-color: currentColor; }
 .attachment-chip button { color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
@@ -1228,7 +1304,7 @@ button:disabled,
   background: var(--surface-accent);
 }
 
-.theme-option:focus-visible {
+.theme-option[data-focus-visible] {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -1304,72 +1380,6 @@ button:disabled,
   background: var(--surface-1);
   color: var(--text-subtle);
 }
-
-.diagnostics-list {
-  display: grid;
-  gap: 1px;
-  margin-top: 14px;
-  border: 1px solid var(--border);
-  background: var(--border);
-}
-
-.diagnostic-row {
-  width: 100%;
-  min-height: 84px;
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border: 0;
-  background: var(--surface-1);
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.diagnostic-row:hover,
-.diagnostic-row[data-hovered] {
-  background: var(--surface-2);
-}
-
-.diagnostic-indicator {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--warning) 12%, transparent);
-  color: var(--warning);
-}
-
-.diagnostic-row[data-level='error'] .diagnostic-indicator {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--danger);
-}
-
-.diagnostic-indicator svg { width: 16px; }
-.diagnostic-copy { min-width: 0; display: grid; gap: 4px; }
-.diagnostic-copy strong { color: var(--text); font-size: 13px; }
-.diagnostic-copy small { overflow: hidden; color: var(--text-subtle); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.diagnostic-copy em { overflow: hidden; color: var(--text-faint); font-size: 11px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
-.diagnostic-row time { color: var(--text-faint); font-size: 11px; white-space: nowrap; }
-
-.diagnostics-empty {
-  min-height: 170px;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 7px;
-  padding: 24px;
-  background: var(--surface-1);
-  color: var(--text-subtle);
-  text-align: center;
-}
-
-.diagnostics-empty svg { width: 24px; color: var(--success); }
-.diagnostics-empty strong { color: var(--text); font-size: 14px; }
-.diagnostics-empty p { max-width: 420px; margin: 0; font-size: 12px; line-height: 1.5; }
 
 .generation-list {
   display: grid;
@@ -1502,15 +1512,10 @@ button:disabled,
   color: var(--text-faint);
 }
 
-.invalid-candidate-notice pre {
-  max-height: 160px;
-  overflow: auto;
+.invalid-candidate-notice details p {
   margin: 8px 0 0;
-  padding: 10px;
-  background: var(--background);
-  color: var(--text-subtle);
-  font: 11px/1.45 var(--font-mono, ui-monospace, monospace);
-  white-space: pre-wrap;
+  color: var(--text-faint);
+  line-height: 1.5;
 }
 
 .generation-notice {
@@ -1762,6 +1767,7 @@ button:disabled,
 .toolbar-button,
 .secondary-action {
   height: 32px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1771,6 +1777,7 @@ button:disabled,
   background: var(--surface-2);
   color: var(--text-subtle);
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1800,6 +1807,8 @@ button[aria-expanded="true"] .dropdown-caret {
    menu-item styling. Rows highlight via React Aria's data-focused (pointer hover and keyboard). */
 .history-popover {
   min-width: 320px;
+  /* Cap the width so a long prompt truncates with an ellipsis instead of stretching the row. */
+  max-width: min(440px, 92vw);
   max-height: min(70vh, 520px);
   overflow-y: auto;
   border: 1px solid var(--border-strong);
@@ -1959,10 +1968,53 @@ button[aria-expanded="true"] .dropdown-caret {
 }
 
 .conversation-message {
-  margin: 0 0 26px;
+  margin: 0 0 24px;
+  display: flex;
+  gap: 12px;
 }
 
-.conversation-message > span {
+/* The user's turn is pushed to the trailing edge; OmniDesign's reply stays leading with its avatar. */
+.message-user {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--accent);
+}
+
+/* The user's avatar mirrors the sidebar account badge so "You" reads as this local workspace. */
+.message-avatar-you {
+  background: var(--palette-mauve-shadow);
+  color: #f4edf2;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.message-avatar svg {
+  width: 16px;
+  height: 16px;
+}
+
+.message-body {
+  min-width: 0;
+  max-width: 88%;
+  display: grid;
+  gap: 6px;
+}
+
+.message-user .message-body {
+  justify-items: end;
+  text-align: right;
+}
+
+.message-role {
   color: var(--text-faint);
   font-size: 11px;
   font-weight: 600;
@@ -1970,16 +2022,91 @@ button[aria-expanded="true"] .dropdown-caret {
   text-transform: uppercase;
 }
 
-.conversation-message p {
-  margin: 8px 0 0;
+.message-bubble {
+  min-width: 0;
+}
+
+.message-bubble p {
+  margin: 0;
   color: var(--text-subtle);
   font-size: 14px;
   line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.message-user p {
+/* The prompt reads as a discrete, solid bubble — a bounded element that communicates "your turn". */
+.message-user .message-bubble {
+  padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--surface-3);
+  text-align: left;
+}
+
+.message-user .message-bubble p {
   color: var(--text);
-  font-size: 16px;
+  /* Match the agent reply's body size (14px) so both sides of the conversation read the same. */
+  line-height: 1.65;
+}
+
+/* The agent's reply gets its own bubble too (a different tone and mirrored corner) so it is easy to
+   pick out from surrounding activity, while staying distinct from the user's bubble. */
+.message-assistant .message-bubble {
+  padding: 10px 14px;
+  border-radius: 4px 14px 14px 14px;
+  background: var(--surface-2);
+}
+
+.message-assistant .message-bubble p {
+  color: var(--text);
+}
+
+/* Rendered Markdown inside an agent reply. The container fixes size/line-height/color so every block
+   (paragraphs, lists, quotes) matches — otherwise only <p> picked up the .message-bubble p size. */
+.markdown { font-size: 14px; line-height: 1.65; color: var(--text); }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown .md-paragraph { margin: 0 0 10px; font-size: inherit; }
+.markdown .md-heading { margin: 12px 0 6px; color: var(--text); font-weight: 600; }
+.markdown .md-heading[data-level='1'], .markdown .md-heading[data-level='2'] { font-size: 15px; }
+.markdown .md-heading[data-level='3'] { font-size: 14px; }
+.markdown .md-list { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 3px; }
+.markdown .md-list li { line-height: inherit; }
+.markdown .md-code { padding: 1px 5px; border-radius: 5px; background: var(--surface-3); font: 0.92em/1.5 var(--font-mono, ui-monospace, monospace); }
+.markdown .md-pre { margin: 0 0 10px; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-3); }
+.markdown .md-pre code { font: 12px/1.55 var(--font-mono, ui-monospace, monospace); color: var(--text); white-space: pre; }
+.markdown .md-quote { margin: 0 0 10px; padding: 2px 0 2px 12px; border-left: 2px solid var(--border-strong); color: var(--text-subtle); }
+.markdown .md-hr { margin: 12px 0; border: 0; border-top: 1px solid var(--border); }
+.markdown .md-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+:root[data-theme='light'] .markdown .md-code,
+:root[data-theme='light'] .markdown .md-pre { background: var(--surface-2); }
+
+/* A system notice from OmniDesign: a quiet, full-width note that is neither a prompt bubble nor an
+   agent reply. */
+.conversation-system {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 0 24px;
+  padding: 10px 13px;
+  border-left: 2px solid var(--border-strong);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface-2);
+}
+
+.conversation-system svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-faint);
+}
+
+.conversation-system p {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .conversation-step {
@@ -2030,6 +2157,8 @@ button[aria-expanded="true"] .dropdown-caret {
   padding: 12px;
   border: 1px solid var(--border);
   background: var(--surface-2);
+  /* Match .generation-progress: 13px body with an 11px uppercase label (set on `strong` below). */
+  font-size: 13px;
 }
 
 .generation-recovery span {

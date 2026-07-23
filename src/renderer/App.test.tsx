@@ -2,6 +2,17 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
+import { promptMentionsProject } from './promptMatch'
+
+describe('promptMentionsProject', () => {
+  it('matches a linked project only as a word-bounded, non-trivial phrase', () => {
+    expect(promptMentionsProject('Add a settings page to Acme Portal', 'Acme Portal')).toBe(true)
+    expect(promptMentionsProject('redesign the acme portal header', 'Acme Portal')).toBe(true)
+    // No substring false positives, and very short names are ignored.
+    expect(promptMentionsProject('scaffold a new app shell', 'app')).toBe(false)
+    expect(promptMentionsProject('a portalgun for the demo', 'Portal')).toBe(false)
+  })
+})
 
 const design: OmniDesignDocument = {
   id: 'design-1',
@@ -17,6 +28,8 @@ const design: OmniDesignDocument = {
   draftAttachments: [],
   thumbnailDataUrl: null,
   queuePaused: false,
+  titlePending: false,
+  adaptationPending: false,
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
   layout: { conversationWidth: 43, mode: 'split' },
@@ -212,7 +225,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Remove project' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The project could not be moved to Trash. Trash is temporarily locked.')
-    expect(screen.getByRole('heading', { level: 1, name: 'Calm dashboard' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Rename project' })).toHaveValue('Calm dashboard')
   })
 
   it('preserves a follow-up draft when its previous provider is unavailable', async () => {
@@ -566,13 +579,13 @@ describe('Phase 1 walking skeleton UI', () => {
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
-    fireEvent.click(await screen.findByRole('button', { name: 'Rename design' }))
-    const title = screen.getByRole('textbox', { name: 'Rename design' })
+    const title = await screen.findByRole('textbox', { name: 'Rename design' })
+    fireEvent.focus(title)
     fireEvent.change(title, { target: { value: 'Clear signals' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.blur(title)
 
     await waitFor(() => expect(bridge.workspace.renameDesign).toHaveBeenCalledWith('design-1', 'Clear signals'))
-    expect(await screen.findByRole('heading', { name: 'Clear signals' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Rename design' })).toHaveValue('Clear signals'))
   })
 
   it('refreshes an open workspace when its background-generated title arrives', async () => {
@@ -585,7 +598,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
     await act(async () => bridge.emitWorkspaceChanged(design.id))
 
-    expect(await screen.findByRole('heading', { name: 'Quiet metrics' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Rename design' })).toHaveValue('Quiet metrics'))
   })
 
   it('selects the provider, model, and effort from the composer settings menu', async () => {
@@ -659,7 +672,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('suggests a linked project when a standalone prompt names it', async () => {
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design' }
-    const associatedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora' }
+    const associatedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora', adaptationPending: true }
     const bridge = installBridge([], createdDesign)
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{
       id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1,
@@ -675,6 +688,33 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText('Possible project match: Aurora.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Associate project' }))
     await waitFor(() => expect(bridge.workspace.associateDesign).toHaveBeenCalledWith('new-design', 'aurora'))
+    expect(await screen.findByText('Design associated with Aurora.')).toBeInTheDocument()
+  })
+
+  it('keeps the adapt notice after a move even when a stale generation refresh arrives', async () => {
+    // Reproduces moving a design into a project while it is still generating, without leaving it: the
+    // move sets adaptationPending, but an in-flight generation refresh (get) that read the design before
+    // the move must not clobber the fresher moved state back to "not pending".
+    const runningJob: GenerationJob = { id: '7e3670bd-2f6c-444d-afd0-a26e178399664', designId: 'new-design', prompt: 'Create a dashboard for Aurora', providerId: 'mock', modelId: 'mock-v1', state: 'running', createdAt: '2026-07-20T10:00:00.000Z', startedAt: '2026-07-20T10:00:01.000Z', completedAt: null, error: null, attachments: [] }
+    const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', updatedAt: '2026-07-20T10:00:00.000Z', adaptationPending: false, generationJobs: [runningJob] }
+    const movedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora', updatedAt: '2026-07-20T10:05:00.000Z', adaptationPending: true }
+    const bridge = installBridge([], createdDesign)
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' }])
+    vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(movedDesign)
+    // A generation refresh that resolves after the move still carries the pre-move snapshot.
+    vi.mocked(bridge.workspace.get).mockResolvedValue(createdDesign)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'Create a dashboard for Aurora' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Associate project' }))
+    await waitFor(() => expect(bridge.workspace.associateDesign).toHaveBeenCalledWith('new-design', 'aurora'))
+    expect(await screen.findByText('Design associated with Aurora.')).toBeInTheDocument()
+
+    act(() => bridge.emitWorkspaceChanged('new-design'))
+
     expect(await screen.findByText('Design associated with Aurora.')).toBeInTheDocument()
   })
 
@@ -812,44 +852,6 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText('codex · gpt-5.6 · Saved locally')).toBeInTheDocument()
   })
 
-  it('shows the selected revision diagnostic count in the preview status', async () => {
-    const diagnosticDesign: OmniDesignDocument = {
-      ...design,
-      revisions: [{ ...design.revisions[0], diagnostics: [{
-        id: 'diagnostic-1', kind: 'runtime', level: 'error', message: 'Uncaught TypeError', source: null, line: 8, createdAt: '2026-07-20T10:01:00.000Z',
-      }] }],
-    }
-    installBridge([], diagnosticDesign)
-    render(<App />)
-
-    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
-    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
-    fireEvent.keyDown(prompt, { key: 'Enter' })
-
-    expect(await screen.findByText('1 diagnostic captured')).toBeInTheDocument()
-  })
-
-  it('lists retained issues in global diagnostics and opens their revision', async () => {
-    const diagnosticDesign: OmniDesignDocument = {
-      ...design,
-      revisions: [{ ...design.revisions[0], diagnostics: [{
-        id: 'diagnostic-1', kind: 'runtime', level: 'error', message: 'Uncaught TypeError', source: 'index.html', line: 8, createdAt: '2026-07-20T10:01:00.000Z',
-      }] }],
-    }
-    const bridge = installBridge([diagnosticDesign], diagnosticDesign)
-    render(<App />)
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Diagnostics' }))
-    expect(await screen.findByRole('heading', { name: 'Diagnostics' })).toBeInTheDocument()
-    expect(screen.getByText('Preview runtime issue')).toBeInTheDocument()
-    expect(screen.getByText('Uncaught TypeError')).toBeInTheDocument()
-    expect(screen.getByText(/index\.html:8/)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /Preview runtime issue/ }))
-    await screen.findByRole('region', { name: 'Design conversation' })
-    expect(bridge.workspace.get).toHaveBeenCalledWith('design-1')
-  })
-
   it('keeps an invalid candidate inspectable in the conversation', async () => {
     const failedDesign: OmniDesignDocument = {
       ...design,
@@ -862,8 +864,46 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Latest candidate was not activated')
-    expect(screen.getByText('Technical details')).toBeInTheDocument()
+    expect(await screen.findByText(/wasn.t applied/)).toBeInTheDocument()
+    expect(screen.getByText('What went wrong')).toBeInTheDocument()
+  })
+
+  it('hides the rejected-version notice once a newer revision supersedes it', async () => {
+    const repaired: OmniDesignDocument = {
+      ...design,
+      invalidCandidates: [{ id: 'candidate-1', prompt: 'x', html: '<p>', diagnostic: 'Needs repair.', createdAt: '2026-07-20T10:00:30.000Z' }],
+      revisions: [{ ...design.revisions[0], createdAt: '2026-07-20T10:01:00.000Z' }],
+    }
+    installBridge([], repaired)
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    await screen.findByRole('region', { name: 'Design conversation' })
+    expect(screen.queryByText(/wasn.t applied/)).not.toBeInTheDocument()
+  })
+
+  it('renders an OmniDesign system notice distinctly from the agent reply', async () => {
+    const withSystem: OmniDesignDocument = {
+      ...design,
+      messages: [
+        { id: 'm1', role: 'user', text: 'make it', createdAt: '2026-07-20T10:00:00.000Z' },
+        { id: 'm2', role: 'assistant', text: 'Here is your design.', createdAt: '2026-07-20T10:00:01.000Z' },
+        { id: 'm3', role: 'system', text: 'OmniDesign kept your last working design.', createdAt: '2026-07-20T10:00:02.000Z' },
+      ],
+    }
+    installBridge([], withSystem)
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    const note = await screen.findByRole('note')
+    expect(note).toHaveTextContent('OmniDesign kept your last working design.')
+    // The system note is not attributed to the agent, unlike the assistant reply.
+    expect(within(note).queryByText('OmniDesign', { exact: true })).not.toBeInTheDocument()
+    expect(screen.getByText('Here is your design.')).toBeInTheDocument()
   })
 
   it('resizes the workspace with its keyboard-operable divider', async () => {
@@ -975,6 +1015,27 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     expect(await screen.findByRole('img', { name: 'Preview of Calm dashboard' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
+  })
+
+  it('opens a design directly from the recent list instead of a project page', async () => {
+    installBridge([design])
+    render(<App />)
+
+    const main = await screen.findByRole('main')
+    fireEvent.click(await within(main).findByRole('button', { name: /Calm dashboard/ }))
+
+    expect(await screen.findByRole('textbox', { name: 'Request a design change' })).toBeInTheDocument()
+  })
+
+  it('shows a title-pending indicator instead of the rename control while a title generates', async () => {
+    installBridge([{ ...design, titlePending: true }])
+    render(<App />)
+
+    const main = await screen.findByRole('main')
+    fireEvent.click(await within(main).findByRole('button', { name: /Calm dashboard/ }))
+
+    expect(await screen.findByRole('status', { name: 'Generating title…' })).toBeInTheDocument()
+    expect((screen.getByRole('textbox', { name: 'Rename design' }) as HTMLInputElement).readOnly).toBe(true)
   })
 
   it('lets the user choose and persist the trusted application theme', async () => {
@@ -1191,13 +1252,12 @@ describe('Phase 1 walking skeleton UI', () => {
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
     const grid = await screen.findByRole('group', { name: 'Designs in this project' })
-    fireEvent.click(within(grid).getByRole('button', { name: 'Rename Settings screen design' }))
     const title = within(grid).getByRole('textbox', { name: 'Rename Settings screen design' })
+    fireEvent.focus(title)
     fireEvent.change(title, { target: { value: 'Preferences' } })
-    fireEvent.submit(title.closest('form')!)
+    fireEvent.blur(title)
 
     await waitFor(() => expect(bridge.workspace.renameDesign).toHaveBeenCalledWith('design-2', 'Preferences'))
-    expect(await screen.findByRole('heading', { name: 'Preferences' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
   })
 

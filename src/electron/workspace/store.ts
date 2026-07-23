@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { attachmentSchema, designSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, themeSchema } from './contracts.js'
@@ -37,6 +37,8 @@ interface DesignRow {
   last_provider_id: string
   last_model_id: string
   last_effort: string | null
+  title_pending: number
+  adaptation_pending: number
 }
 
 interface ProjectRow {
@@ -362,9 +364,35 @@ const migrationTwentyFive = `
 ALTER TABLE generation_jobs ADD COLUMN provider_session_id TEXT;
 `
 
+// Tracks whether a background design-title request is still in flight, so the trusted UI can show a
+// pending indicator instead of the rename affordance until the generated title arrives.
+const migrationTwentySix = `
+ALTER TABLE designs ADD COLUMN title_pending INTEGER NOT NULL DEFAULT 0 CHECK (title_pending IN (0, 1));
+`
+
+// One persisted provider conversation session per design so follow-up prompts can resume the provider's
+// own thread (real conversation continuity) instead of starting fresh each turn. The provider is
+// recorded alongside the id because a session can only be resumed by the provider that created it.
+const migrationTwentySeven = `
+ALTER TABLE designs ADD COLUMN provider_session_id TEXT;
+ALTER TABLE designs ADD COLUMN provider_session_provider TEXT;
+`
+
+// Persists that a design was moved into a project and the user has not yet decided whether to adapt it
+// to that project's design language. The notice stays until the user adapts, keeps the current design,
+// or sends any new prompt — so the pending decision survives navigation and app restarts.
+const migrationTwentyEight = `
+ALTER TABLE designs ADD COLUMN adaptation_pending INTEGER NOT NULL DEFAULT 0 CHECK (adaptation_pending IN (0, 1));
+`
+
+// Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
+// without waiting for the next restart.
+const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
+
 export class WorkspaceStore {
   private readonly database: DatabaseSync
   private readonly artifactsDirectory: string
+  private readonly purgeTimer: ReturnType<typeof setInterval>
 
   public constructor(storageDirectory: string) {
     mkdirSync(storageDirectory, { recursive: true })
@@ -374,9 +402,15 @@ export class WorkspaceStore {
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;')
     this.migrate()
     this.purgeExpiredTrash()
+    // A background title request never survives a process exit, so no design can still be pending on open.
+    this.database.exec('UPDATE designs SET title_pending = 0 WHERE title_pending = 1')
+    this.purgeTimer = setInterval(() => { try { this.purgeExpiredTrash() } catch { /* a transient DB error should not crash the sweep */ } }, TRASH_PURGE_INTERVAL_MS)
+    // Do not keep the process alive solely for the sweep.
+    this.purgeTimer.unref?.()
   }
 
   public close(): void {
+    clearInterval(this.purgeTimer)
     this.database.close()
   }
 
@@ -388,7 +422,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
       ORDER BY d.updated_at DESC
@@ -400,7 +434,7 @@ export class WorkspaceStore {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -437,7 +471,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
       ORDER BY d.updated_at DESC, d.rowid DESC
@@ -465,10 +499,21 @@ export class WorkspaceStore {
         WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
       `).get(designId) as { project_id: string; kind: 'linked' | 'standalone' } | undefined
       if (!row) throw new Error('Design not found.')
-      this.database.prepare('UPDATE designs SET title = ?, updated_at = ? WHERE id = ?').run(title, now, designId)
+      // Any rename resolves the pending title: a background title landed, or the user took ownership.
+      this.database.prepare('UPDATE designs SET title = ?, title_pending = 0, updated_at = ? WHERE id = ?').run(title, now, designId)
       if (row.kind === 'standalone') this.database.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ?').run(title, now, row.project_id)
     })
     return this.requireDesign(designId)
+  }
+
+  /** Flag (or clear) that a background title request is in flight for a design. */
+  public setTitlePending(designId: string, pending: boolean): void {
+    this.database.prepare('UPDATE designs SET title_pending = ? WHERE id = ?').run(pending ? 1 : 0, designId)
+  }
+
+  /** Flag (or clear) that a moved design is awaiting the user's "adapt to project" decision. */
+  public setAdaptationPending(designId: string, pending: boolean): void {
+    this.database.prepare('UPDATE designs SET adaptation_pending = ? WHERE id = ?').run(pending ? 1 : 0, designId)
   }
 
   private findTrashedProjectBySourcePath(sourcePath: string): string | null {
@@ -550,7 +595,9 @@ export class WorkspaceStore {
     this.transaction(() => {
       const target = this.database.prepare("SELECT id, kind FROM projects WHERE id = ? AND trashed_at IS NULL").get(projectId) as { id: string; kind: string } | undefined
       if (!target || target.kind !== 'linked') throw new Error('Choose an available linked project.')
-      this.database.prepare('UPDATE designs SET project_id = ?, updated_at = ? WHERE id = ?').run(projectId, new Date().toISOString(), designId)
+      // Moving into a project raises the "adapt to this project's design language?" decision. Persist it
+      // so the notice survives navigation and restarts; it clears on adapt, keep, or the next prompt.
+      this.database.prepare('UPDATE designs SET project_id = ?, adaptation_pending = 1, updated_at = ? WHERE id = ?').run(projectId, new Date().toISOString(), designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), projectId)
       const sourceCount = this.database.prepare('SELECT COUNT(*) AS count FROM designs WHERE project_id = ? AND trashed_at IS NULL').get(design.projectId) as { count: number }
       const source = this.database.prepare('SELECT kind FROM projects WHERE id = ?').get(design.projectId) as { kind: string } | undefined
@@ -681,11 +728,20 @@ export class WorkspaceStore {
     const now = new Date().toISOString()
     this.transaction(() => {
       this.requireDesign(designId)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'assistant', response, now)
+      // Skip a message identical to the current last one so a streamed message and the final reply do
+      // not appear twice.
+      if (!this.isLastMessageText(designId, response)) {
+        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(randomUUID(), designId, 'assistant', response, now)
+      }
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
     return this.requireDesign(designId)
+  }
+
+  private isLastMessageText(designId: string, text: string): boolean {
+    const last = this.database.prepare('SELECT text FROM messages WHERE design_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(designId) as { text: string } | undefined
+    return last?.text === text
   }
 
   public addRevision(
@@ -705,8 +761,10 @@ export class WorkspaceStore {
         INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'assistant', assistantResponse, now)
+      if (!this.isLastMessageText(designId, assistantResponse)) {
+        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(randomUUID(), designId, 'assistant', assistantResponse, now)
+      }
       this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, updated_at = ?, draft = ? WHERE id = ?')
         .run(revisionId, revisionId, now, '', designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, design.projectId)
@@ -787,7 +845,8 @@ export class WorkspaceStore {
       `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, now)
       this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), id, now)
-      this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
+      // Sending any new prompt resolves a pending "adapt to project" decision.
+      this.database.prepare('UPDATE designs SET updated_at = ?, adaptation_pending = 0 WHERE id = ?').run(now, designId)
     })
     return this.requireGenerationJob(id)
   }
@@ -831,6 +890,19 @@ export class WorkspaceStore {
     if (!providerSessionId) throw new Error('Provider session identifier is required.')
     const result = this.database.prepare('UPDATE generation_jobs SET provider_session_id = ? WHERE id = ?').run(providerSessionId, id)
     if (result.changes !== 1) throw new Error('Generation job not found.')
+  }
+
+  /** Remember the provider conversation session for a design so later prompts can resume it. */
+  public saveDesignProviderSession(designId: string, providerId: string, providerSessionId: string): void {
+    if (!providerSessionId) throw new Error('Provider session identifier is required.')
+    this.database.prepare('UPDATE designs SET provider_session_id = ?, provider_session_provider = ? WHERE id = ?').run(providerSessionId, providerId, designId)
+  }
+
+  /** The design's resumable provider session, or null when none exists yet. */
+  public getDesignProviderSession(designId: string): { readonly providerId: string; readonly sessionId: string } | null {
+    const row = this.database.prepare('SELECT provider_session_id, provider_session_provider FROM designs WHERE id = ?').get(designId) as { provider_session_id: string | null; provider_session_provider: string | null } | undefined
+    if (!row?.provider_session_id || !row.provider_session_provider) return null
+    return { providerId: row.provider_session_provider, sessionId: row.provider_session_id }
   }
 
   public removeQueuedGenerationJob(id: string): GenerationJob {
@@ -940,7 +1012,10 @@ export class WorkspaceStore {
     }
   }
 
-  public addInvalidCandidate(designId: string, prompt: string, html: string, diagnostic: string): Design {
+  // Records a rejected candidate for diagnostics. A user-facing system message is posted only when
+  // `systemMessage` is provided — intermediate candidates in a repair loop that later succeeds are
+  // recorded silently so they do not clutter the conversation.
+  public addInvalidCandidate(designId: string, prompt: string, html: string, diagnostic: string, systemMessage: string | null = null): Design {
     this.requireDesign(designId)
     const candidateId = randomUUID()
     const now = new Date().toISOString()
@@ -954,8 +1029,10 @@ export class WorkspaceStore {
         INSERT INTO invalid_candidates (id, design_id, prompt, candidate_path, diagnostic, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(candidateId, designId, prompt, candidatePath, diagnostic, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'system', `Candidate rejected: ${diagnostic}`, now)
+      if (systemMessage) {
+        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run(randomUUID(), designId, 'system', systemMessage, now)
+      }
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
 
@@ -964,7 +1041,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1010,6 +1087,8 @@ export class WorkspaceStore {
       draftAttachments: this.hydrateAttachments(row.draft_attachments_json),
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
       queuePaused: row.queue_paused === 1,
+      titlePending: row.title_pending === 1,
+      adaptationPending: row.adaptation_pending === 1,
       lastSelection: {
         providerId: row.last_provider_id,
         modelId: row.last_model_id,
@@ -1158,7 +1237,16 @@ export class WorkspaceStore {
     const target = path.resolve(this.artifactsDirectory, designId)
     const root = path.resolve(this.artifactsDirectory)
     if (path.dirname(target) !== root) throw new Error('Refusing to remove an unexpected design artifact path.')
-    rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 })
+    if (!existsSync(target)) return
+    try {
+      rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 })
+    } catch {
+      // Windows marks Git's pack/object files read-only, which makes rmSync fail with EPERM even with
+      // `force`. Clear the read-only attribute across the tree, then delete again.
+      if (!existsSync(target)) return
+      clearReadOnlyRecursive(target)
+      rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 })
+    }
   }
 
   private transaction(work: () => void): void {
@@ -1170,5 +1258,24 @@ export class WorkspaceStore {
       this.database.exec('ROLLBACK')
       throw error
     }
+  }
+}
+
+// Recursively give owner write permission across a tree. On Windows this clears the read-only
+// attribute (which Git sets on its pack/object files) so a subsequent recursive delete can succeed.
+function clearReadOnlyRecursive(target: string): void {
+  let stats
+  try {
+    stats = lstatSync(target)
+  } catch {
+    return
+  }
+  try {
+    chmodSync(target, 0o700)
+  } catch {
+    // A best-effort attribute reset; if it fails, the retry delete will surface the original error.
+  }
+  if (stats.isDirectory()) {
+    for (const entry of readdirSync(target)) clearReadOnlyRecursive(path.join(target, entry))
   }
 }
