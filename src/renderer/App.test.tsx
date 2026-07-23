@@ -691,6 +691,33 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText('Design associated with Aurora.')).toBeInTheDocument()
   })
 
+  it('keeps the adapt notice after a move even when a stale generation refresh arrives', async () => {
+    // Reproduces moving a design into a project while it is still generating, without leaving it: the
+    // move sets adaptationPending, but an in-flight generation refresh (get) that read the design before
+    // the move must not clobber the fresher moved state back to "not pending".
+    const runningJob: GenerationJob = { id: '7e3670bd-2f6c-444d-afd0-a26e178399664', designId: 'new-design', prompt: 'Create a dashboard for Aurora', providerId: 'mock', modelId: 'mock-v1', state: 'running', createdAt: '2026-07-20T10:00:00.000Z', startedAt: '2026-07-20T10:00:01.000Z', completedAt: null, error: null, attachments: [] }
+    const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', updatedAt: '2026-07-20T10:00:00.000Z', adaptationPending: false, generationJobs: [runningJob] }
+    const movedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora', updatedAt: '2026-07-20T10:05:00.000Z', adaptationPending: true }
+    const bridge = installBridge([], createdDesign)
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' }])
+    vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(movedDesign)
+    // A generation refresh that resolves after the move still carries the pre-move snapshot.
+    vi.mocked(bridge.workspace.get).mockResolvedValue(createdDesign)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'Create a dashboard for Aurora' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Associate project' }))
+    await waitFor(() => expect(bridge.workspace.associateDesign).toHaveBeenCalledWith('new-design', 'aurora'))
+    expect(await screen.findByText('Design associated with Aurora.')).toBeInTheDocument()
+
+    act(() => bridge.emitWorkspaceChanged('new-design'))
+
+    expect(await screen.findByText('Design associated with Aurora.')).toBeInTheDocument()
+  })
+
   it('can associate a suggested project and restart queued work with its context', async () => {
     const queuedJob: GenerationJob = { id: '7e3670bd-2f6c-444d-afd0-a26e178399664', designId: 'new-design', prompt: 'Create a dashboard for Aurora', providerId: 'mock', modelId: 'mock-v1', state: 'queued', createdAt: '2026-07-20T10:00:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [] }
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', generationJobs: [queuedJob] }

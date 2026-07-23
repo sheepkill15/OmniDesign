@@ -1380,8 +1380,12 @@ export function App() {
   const workspaceApi = window.omnidesign?.workspace
 
   const updateDesign = useCallback((design: OmniDesignDocument) => {
-    setActiveDesign((current) => current?.id === design.id ? design : current)
-    setDesigns((current) => current.map((candidate) => candidate.id === design.id ? design : candidate))
+    // Ignore a snapshot older than what we already hold. Async refreshes (e.g. a generation `get` that
+    // read the design just before a project move) can resolve out of order and would otherwise clobber
+    // fresher state — such as a just-applied move's pending "adapt to project" decision — back to stale.
+    const freshest = (current: OmniDesignDocument | null) => current?.id === design.id && current.updatedAt > design.updatedAt ? current : design
+    setActiveDesign((current) => current?.id === design.id ? freshest(current) : current)
+    setDesigns((current) => current.map((candidate) => candidate.id === design.id ? freshest(candidate) : candidate))
   }, [])
 
   const refresh = useCallback(async () => {
