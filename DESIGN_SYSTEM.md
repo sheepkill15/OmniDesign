@@ -193,7 +193,7 @@ All selection primitives must implement the applicable WAI-ARIA pattern and be t
 - Pointer, keyboard, screen-reader, high-contrast, zoom, and reduced-motion behavior.
 - Popup collision handling and visibility in small or resized windows.
 
-Do not create feature-local dropdown implementations. Provider, model, project, history, and other selectors must share the same tested primitives, with modes or composition used for legitimate differences.
+Do not create feature-local dropdown implementations. Provider, model, project, history, and other selectors must share the same tested primitives, with modes or composition used for legitimate differences. The shared `DropdownButton` (a React Aria `MenuTrigger`/`Popover`) backs every trusted-UI dropdown. It is modal by default: while a menu is open the rest of the workspace is inert, which is accepted. Dropdowns that open over the isolated generated-design preview must freeze and detach the native preview layer while open (via `onOpenChange`) so the menu is not occluded and does not contend with the preview for focus.
 
 ### Buttons
 
@@ -267,6 +267,18 @@ Custom styling is never a reason to reimplement native text editing, remove focu
 - The new-design composer is the visual anchor and should feel embedded in the page composition.
 - Recent projects use rows or a low-chrome list where practical.
 - The required multi-design grid may use bounded design tiles because each thumbnail is a discrete manipulable artifact. Avoid extra nested cards inside each tile.
+
+### Accepted Home Composition
+
+The product owner accepted the Quiet Studio home direction on 2026-07-20. It is now the composition baseline for subsequent Phase 1 screens rather than a provisional concept. `docs/HOME_DESIGN_BASELINE.md` records its implementation-facing details.
+
+- Use the full labeled project sidebar; do not substitute the rejected icon-only workbench rail or the rejected two-level gallery navigator.
+- Keep the main home content in a spacious, narrower readable column rather than stretching it across the workspace.
+- Lead with a concise greeting and make the substantial multiline composer the primary visual anchor.
+- Keep project context, attachments, provider, model, and submit actions inside the composer boundary.
+- Present recent designs as low-chrome rows with restrained preview thumbnails. Large gallery tiles are not the default home treatment.
+- Preserve the calm hierarchy, solid surfaces, subtle separators, limited radii, visible labels, and generous working space when composing the project view, conversation workspace, settings, and supporting screens.
+- Reuse the accepted sidebar organization and density across Phase 1 unless a screen has a documented reason to adapt it.
 
 ### Design Workspace
 

@@ -89,7 +89,7 @@ This is the preparation required to begin Phase 1 responsibly; it does not repla
 
 - Make Codex integration work.
 - Make Claude integration work.
-- Support the relevant user-owned subscriptions and/or API keys.
+- Support the relevant user-owned subscriptions through the installed-CLI discovery pilot. API-key configuration, the provider setup UI, and multiple configurations per provider are deferred to Phase 3 (product-owner decision, 2026-07-21).
 - Make design generation work for an already established project.
 - Make standalone design generation work for a new project.
 - Produce minimally interactive HTML designs.
@@ -105,6 +105,7 @@ This is the preparation required to begin Phase 1 responsibly; it does not repla
 ### Phase 3: Focused Editing and Project-Level Design Definitions
 
 - Make focused edits through AI work reliably.
+- Provide full provider configuration and setup: API-key configuration with operating-system credential storage, multiple configurations per provider, and automatic configuration testing (moved here from Phase 1 on 2026-07-21).
 - Support project-level definitions such as:
   - Color palette
   - Fonts

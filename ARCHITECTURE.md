@@ -21,6 +21,12 @@ The following decisions are accepted:
 - Application selection controls use shared, accessible custom combobox or listbox primitives; the trusted UI does not use the built-in HTML `<select>` element.
 - The trusted UI is dark-first with a complete user-selectable light theme and bundles Oak Sans v2.0 from `Walven/OakSans` as its primary interface family.
 - Phase 1 retains Electron's standard platform window frame and title bar; custom window chrome is deferred.
+- Phase 1 structured persistence uses the `node:sqlite` API embedded in Electron's Node.js runtime, with numbered SQL migrations owned by the persistence layer.
+- Zod validates privileged IPC request payloads and persisted JSON boundaries at runtime.
+- The walking skeleton uses React-owned feature state and explicit service calls; a global state-management dependency will be introduced only when cross-screen background-job coordination demonstrates the need.
+- The generated-design preview uses `WebContentsView` in a non-persistent, dedicated session partition and a session-scoped `omnidesign-preview://` protocol handler.
+- Phase 1 offline ZIP assembly uses `fflate`, while Tailwind compilation uses the pinned `tailwindcss` and `@tailwindcss/node` packages.
+- Completed design history uses immutable file snapshots plus SQLite metadata and pointers; hidden per-design Git repositories are not used in the Phase 1 walking skeleton.
 
 The following generation decision is provisional and must be benchmarked before it becomes final:
 
@@ -286,6 +292,38 @@ Use a hybrid persistence model:
 
 Do not store secrets in project files or the ordinary SQLite database.
 
+### Phase 1 Persistence Implementation
+
+The initial implementation uses Electron 43's embedded Node 24 runtime and its built-in `node:sqlite` module. This avoids a separately compiled native SQLite addon while preserving the accepted SQLite data model. The persistence package owns explicit, forward-only migrations and opens databases with foreign-key enforcement and WAL journaling. Tests use temporary directories and isolated databases.
+
+Immutable revision artifacts remain ordinary files beneath OmniDesign-managed application storage. SQLite stores their metadata and paths, active and selected revision pointers, conversations, drafts, layout state, and project/design relationships. The source-project directory is never used as the design working directory.
+
+The walking skeleton makes this concrete beneath Electron's application data directory:
+
+```text
+workspace/
+  omnidesign.sqlite
+  designs/
+    <design-id>/
+      revisions/
+        <revision-id>/
+          index.html
+```
+
+Revision directories are append-only. Restoration copies the selected snapshot into a new revision whose parent is the previous head. SQLite retains the active and selected pointers, so later history is never deleted or rewritten. This describes the completed walking skeleton's snapshot store; agent-backed design workspaces use the additional Git-backed model below.
+
+### Agent Harness Design Workspaces
+
+Each agent-backed design has a self-contained Git repository in OmniDesign-managed storage. It is a normal working repository for the provider harness, not a repository the user is required to manage. Before an agent starts, OmniDesign creates the repository and prepares its `index.html` entry page.
+
+The provider harness starts the agent in that design repository. The agent may inspect and edit the design as it would any other project. When the design is associated with an existing project, the original project is supplied separately as an explicit read-only reference; it is never the agent's working directory and the harness grants it no write authority.
+
+Git, not an agent-authored file inventory, determines whether the working tree changed and records the resulting design revision. The prepared `index.html` is the fixed preview/export entry page, so the agent does not choose or report an entry point. Completed revisions continue to be represented by immutable application metadata and non-destructive restoration; implementation may create a new commit from a restored state rather than rewriting history.
+
+After execution, the agent returns a validated JSON completion payload. It includes a `response` field containing the agent's conversational reply to the user. A response does not imply that the design changed or that a new revision exists. OmniDesign then builds the persisted completion record from independent evidence: Git state for change detection, harness and validation tooling for validation results and diagnostics, and the provider adapter for usage and cost when available. The remaining agent-payload schema is intentionally pending product definition. Neither the payload nor the persisted record may use agent claims to declare changed files or select the entry page.
+
+If Electron moves to a Node release where `node:sqlite` compatibility or support changes materially, re-evaluate this choice before upgrading Electron rather than silently replacing the persistence layer.
+
 ### History Model
 
 History should be append-only or revision-based from the beginning:
@@ -497,6 +535,8 @@ Every architectural layer must be testable:
 - Visual regression and accessibility tests for the OmniDesign UI and representative generated designs.
 
 Use Vitest and React Testing Library as the initial unit and component-testing direction. Evaluate Playwright for Electron end-to-end flows while accounting for the maturity of its Electron automation support at implementation time.
+
+Vitest owns domain, persistence, IPC-schema, export, provider-contract, and React component tests in the walking skeleton. Electron security policies are expressed as testable pure functions wherever practical, then covered by an Electron integration test before the walking skeleton is declared complete. React feature code does not import Electron modules; it consumes the typed preload surface.
 
 ## Mobile and Web Path
 

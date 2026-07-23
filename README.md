@@ -1,6 +1,6 @@
 # OmniDesign
 
-The first desktop skeleton opens a secure Electron window and renders a React placeholder through Vite.
+The desktop application currently implements the accepted Phase 1 home design baseline. See `docs/HOME_DESIGN_BASELINE.md` for the composition and interaction rules that subsequent screens must follow.
 
 ## Development
 

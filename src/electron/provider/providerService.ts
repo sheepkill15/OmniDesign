@@ -1,11 +1,26 @@
 import { ClaudeAdapter } from './claudeAdapter.js'
 import { CodexAdapter } from './codexAdapter.js'
+import { agentCompletionOutputSchema, createDesignAgentInstructions, parseAgentCompletionPayload } from './agentHarness.js'
 import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
 import type { ProviderActivity, ProviderId, ProviderPrompt, ProviderReply, ProviderStatus } from './types.js'
+import type { Attachment } from '../workspace/contracts.js'
 
 const SAFE_CAPABILITY_ID = /^[a-zA-Z0-9._:-]+$/
 const BUILT_IN_PROVIDER_IDS: readonly ProviderId[] = ['codex', 'claude']
 type ActivityListener = (activity: ProviderActivity) => void
+
+export interface DesignAgentRequest extends ProviderPrompt {
+  readonly workspacePath: string
+  readonly attachments?: readonly Attachment[]
+  readonly sourceProjectPath?: string | null
+  // A recap of the prior conversation, injected into the agent instructions for a fresh session (when
+  // the provider's own thread cannot be resumed). Omitted when resuming, since the provider has context.
+  readonly conversationRecap?: string
+}
+
+export interface DesignAgentReply extends Omit<ProviderReply, 'text'> {
+  readonly response: string
+}
 
 export class ProviderService {
   private readonly adapters: ReadonlyMap<ProviderId, ProviderAdapter>
@@ -19,6 +34,14 @@ export class ProviderService {
     return Promise.all([...this.adapters.values()].map(async (adapter) => ({ id: adapter.id, ...await adapter.discover() })))
   }
 
+  // Discover a single provider without contacting the others. Metadata work (e.g. title generation)
+  // must only ever spin up the provider the user selected, never fan out to every installed CLI.
+  public async discoverProvider(providerId: ProviderId): Promise<ProviderStatus | undefined> {
+    const adapter = this.adapters.get(providerId)
+    if (!adapter) return undefined
+    return { id: adapter.id, ...await adapter.discover() }
+  }
+
   public async prompt(request: ProviderPrompt, onActivity: ActivityListener = () => undefined): Promise<ProviderReply> {
     this.validatePrompt(request)
     const adapter = this.adapters.get(request.providerId)
@@ -27,12 +50,37 @@ export class ProviderService {
     const adapterRequest: ProviderAdapterPrompt = {
       modelId: request.modelId,
       prompt: request.prompt,
+      ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
+      ...(request.referencePaths?.length ? { referencePaths: request.referencePaths } : {}),
+      ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
     }
     const reply = await adapter.prompt(adapterRequest, (activity) => {
       onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity })
     })
     return { providerId: adapter.id, ...reply }
+  }
+
+  public async runDesignAgent(request: DesignAgentRequest, onActivity: ActivityListener = () => undefined): Promise<DesignAgentReply> {
+    if (!request.workspacePath || !/^(?:[A-Za-z]:\\|\/)/.test(request.workspacePath)) {
+      throw new Error('The design workspace path must be absolute.')
+    }
+    this.validatePrompt(request)
+    const adapter = this.adapters.get(request.providerId)
+    if (!adapter) throw new Error(`Provider adapter "${request.providerId}" is not registered.`)
+    const reply = await adapter.prompt({
+      modelId: request.modelId,
+      prompt: request.prompt,
+      ...(request.signal ? { signal: request.signal } : {}),
+      ...(request.effort ? { effort: request.effort } : {}),
+      workspacePath: request.workspacePath,
+      ...(request.sourceProjectPath ? { referencePaths: [request.sourceProjectPath] } : {}),
+      ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
+      instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath, request.conversationRecap),
+      outputSchema: agentCompletionOutputSchema,
+    }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
+    const completion = parseAgentCompletionPayload(reply.text)
+    return { providerId: adapter.id, modelId: reply.modelId, response: completion.response, ...(reply.sessionId ? { sessionId: reply.sessionId } : {}) }
   }
 
   private validatePrompt(request: ProviderPrompt): void {

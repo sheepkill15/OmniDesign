@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
-import { describeCodexTool } from './codexAdapter.js'
+import { isRecoverableSessionResumeError, parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
+import { describeCodexTool, isRecoverableThreadResumeError } from './codexAdapter.js'
 import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
 import { isProviderId, ProviderService } from './providerService.js'
 import { providerFailure } from './providerUtils.js'
@@ -49,6 +49,17 @@ describe('ProviderService', () => {
     expect(claude.discover).toHaveBeenCalledOnce()
   })
 
+  it('discovers a single provider without contacting the others', async () => {
+    const codex = createAdapter('codex')
+    const claude = createAdapter('claude')
+    const service = new ProviderService([codex, claude])
+
+    await expect(service.discoverProvider('claude')).resolves.toMatchObject({ id: 'claude', installed: true })
+    expect(claude.discover).toHaveBeenCalledOnce()
+    expect(codex.discover).not.toHaveBeenCalled()
+    await expect(service.discoverProvider('mock' as 'codex')).resolves.toBeUndefined()
+  })
+
   it('routes prompts without leaking provider differences to the caller', async () => {
     const codex = createAdapter('codex')
     const claude = createAdapter('claude')
@@ -61,11 +72,12 @@ describe('ProviderService', () => {
       modelId: 'model-1',
       effort: 'high',
       prompt: 'Build it',
+      referencePaths: ['C:\\references'],
     }, activity)).resolves.toEqual({ providerId: 'claude', modelId: 'model-1', text: 'Done' })
 
     expect(codex.prompt).not.toHaveBeenCalled()
     expect(claude.prompt).toHaveBeenCalledWith(
-      { modelId: 'model-1', effort: 'high', prompt: 'Build it' },
+      { modelId: 'model-1', effort: 'high', prompt: 'Build it', referencePaths: ['C:\\references'] },
       expect.any(Function),
     )
     expect(activity).toHaveBeenCalledWith({
@@ -75,6 +87,58 @@ describe('ProviderService', () => {
       label: 'Agent action',
       detail: 'inspect',
     })
+  })
+
+  it('forwards cancellation through the provider-neutral prompt contract', async () => {
+    const claude = createAdapter('claude')
+    const controller = new AbortController()
+    const service = new ProviderService([claude])
+
+    await service.prompt({
+      requestId: 'request-cancel',
+      providerId: 'claude',
+      modelId: 'model-1',
+      prompt: 'Build it',
+      signal: controller.signal,
+    })
+
+    expect(claude.prompt).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }), expect.any(Function))
+  })
+
+  it('runs a design agent in its managed workspace and validates its conversational completion payload', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"The design is ready."}' })
+
+    await expect(service.runDesignAgent({
+      requestId: 'request-2', providerId: 'codex', modelId: 'model-1', prompt: 'Refine the hierarchy', workspacePath: 'C:\\workspace\\design',
+    })).resolves.toEqual({ providerId: 'codex', modelId: 'model-1', response: 'The design is ready.' })
+
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      workspacePath: 'C:\\workspace\\design',
+      outputSchema: expect.objectContaining({ required: ['response'] }),
+      instructions: expect.stringContaining('C:\\workspace\\design'),
+    }), expect.any(Function))
+  })
+
+  it('passes a linked project through as a provider reference root', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"Done"}' })
+
+    await service.runDesignAgent({ requestId: 'request-3', providerId: 'codex', modelId: 'model-1', prompt: 'Match Aurora', workspacePath: 'C:\\workspace\\design', sourceProjectPath: 'C:\\projects\\aurora' })
+
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ referencePaths: ['C:\\projects\\aurora'], instructions: expect.stringContaining('Inspect its relevant source') }), expect.any(Function))
+  })
+
+  it('passes provider session identity through design-agent continuation', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"Done"}', sessionId: 'thread-1' })
+
+    await expect(service.runDesignAgent({ requestId: 'request-continue', providerId: 'codex', modelId: 'model-1', prompt: 'Continue', workspacePath: 'C:\\workspace\\design', resumeSessionId: 'thread-1' })).resolves.toMatchObject({ sessionId: 'thread-1' })
+
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: 'thread-1' }), expect.any(Function))
   })
 
   it('rejects duplicate adapter identities', () => {
@@ -124,9 +188,25 @@ describe('providerFailure', () => {
 
 describe('describeCodexTool', () => {
   it('normalizes common tool actions and excludes provider-only item types', () => {
-    expect(describeCodexTool({ item: { type: 'commandExecution', command: 'pnpm test' } })).toBe('Command: pnpm test')
-    expect(describeCodexTool({ item: { type: 'webSearch', query: 'accessible dialogs' } })).toBe('Web search: accessible dialogs')
+    // Tool activities are normalized to short, non-technical phrases (no command text or query).
+    expect(describeCodexTool({ item: { type: 'commandExecution', command: 'pnpm test' } })).toBe('Running a command')
+    expect(describeCodexTool({ item: { type: 'fileChange' } })).toBe('Editing the design')
+    expect(describeCodexTool({ item: { type: 'webSearch', query: 'accessible dialogs' } })).toBe('Looking something up')
     expect(describeCodexTool({ item: { type: 'reasoning', summary: ['Thinking'] } })).toBeUndefined()
     expect(describeCodexTool({ item: { type: 'agentMessage', text: 'Done' } })).toBeUndefined()
+  })
+})
+
+describe('recoverable resume errors', () => {
+  it('recognizes stale Codex thread failures (fall back to a fresh thread) but not real errors', () => {
+    expect(isRecoverableThreadResumeError(new Error('thread not found'))).toBe(true)
+    expect(isRecoverableThreadResumeError(new Error('missing rollout path for thread'))).toBe(true)
+    expect(isRecoverableThreadResumeError(new Error('rate limit exceeded'))).toBe(false)
+  })
+
+  it('recognizes stale Claude session failures but not real errors', () => {
+    expect(isRecoverableSessionResumeError('No conversation found with session id abc')).toBe(true)
+    expect(isRecoverableSessionResumeError('session does not exist')).toBe(true)
+    expect(isRecoverableSessionResumeError('network timeout')).toBe(false)
   })
 })

@@ -9,9 +9,11 @@ import type {
   ProviderAdapterStatus,
 } from './providerAdapter.js'
 import type { ProviderEffortLevel, ProviderModel } from './types.js'
-import { isObject, titleCase } from './providerUtils.js'
+import { formatTokenCount, friendlyToolAction, isObject, readFiniteNumber, titleCase } from './providerUtils.js'
 
-const PROMPT_TIMEOUT_MS = 120_000
+function runtimeRoots(request: ProviderAdapterPrompt): string[] {
+  return [...new Set([...(request.workspacePath ? [request.workspacePath] : []), ...(request.referencePaths ?? [])])]
+}
 
 export class CodexAdapter implements ProviderAdapter {
   public readonly id = 'codex' as const
@@ -48,23 +50,47 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   public async prompt(request: ProviderAdapterPrompt, onActivity: ProviderAdapterActivityListener): Promise<ProviderAdapterReply> {
+    if (request.signal?.aborted) throw new Error('Codex generation was cancelled.')
     this.emit(onActivity, 'status', 'Starting Codex app-server')
     const command = await resolveProviderCommand('codex')
-    const rpc = startJsonRpcProcess(command, ['app-server'])
+    // Run the app-server itself inside the design's Git repository so Codex operates on the design
+    // (never OmniDesign's own source tree) even if it falls back to its process cwd.
+    const rpc = startJsonRpcProcess(command, ['app-server'], request.workspacePath ? { cwd: request.workspacePath } : {})
+    const cancel = () => rpc.close(new Error('Codex generation was cancelled.'))
+    const runtimeWorkspaceRoots = runtimeRoots(request)
+    request.signal?.addEventListener('abort', cancel, { once: true })
     try {
       await this.initialize(rpc)
-      const thread = await rpc.request('thread/start', {
-        cwd: process.cwd(),
+      const startParams = {
+        cwd: request.workspacePath ?? process.cwd(),
         model: request.modelId,
-        sandbox: 'read-only',
+        sandbox: request.workspacePath ? 'workspace-write' : 'read-only',
         approvalPolicy: 'never',
-      })
+        ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
+        ...(request.instructions ? { developerInstructions: request.instructions } : {}),
+      }
+      let thread: unknown
+      let resumed = false
+      if (request.resumeSessionId) {
+        try {
+          thread = await rpc.request('thread/resume', { threadId: request.resumeSessionId, excludeTurns: true, ...startParams })
+          resumed = true
+        } catch (error) {
+          // A stale/missing thread id must not fail the whole turn: start a fresh thread instead.
+          if (!isRecoverableThreadResumeError(error)) throw error
+          this.emit(onActivity, 'status', 'Previous Codex thread was unavailable; starting a fresh one')
+          thread = await rpc.request('thread/start', startParams)
+        }
+      } else {
+        thread = await rpc.request('thread/start', startParams)
+      }
       if (!isObject(thread) || !isObject(thread.thread) || typeof thread.thread.id !== 'string') {
         throw new Error('Codex did not create a conversation.')
       }
-      this.emit(onActivity, 'status', 'Codex thread started', thread.thread.id)
-      return { modelId: request.modelId, text: await this.collectReply(rpc, thread.thread.id, request, onActivity) }
+      this.emit(onActivity, 'status', resumed ? 'Codex thread resumed' : 'Codex thread started', thread.thread.id, thread.thread.id)
+      return { modelId: request.modelId, text: await this.collectReply(rpc, thread.thread.id, request, onActivity), sessionId: thread.thread.id }
     } finally {
+      request.signal?.removeEventListener('abort', cancel)
       rpc.close()
     }
   }
@@ -115,23 +141,26 @@ export class CodexAdapter implements ProviderAdapter {
     request: ProviderAdapterPrompt,
     onActivity: ProviderAdapterActivityListener,
   ): Promise<string> {
+    const runtimeWorkspaceRoots = runtimeRoots(request)
     return new Promise<string>((resolve, reject) => {
       let output = ''
-      const timeout = setTimeout(() => done(new Error('Codex did not complete within two minutes.')), PROMPT_TIMEOUT_MS)
+      let usageDetail: string | undefined
+      // No completion timeout: agents run until the turn completes, the process exits, or the user
+      // cancels via the abort signal. A hung run is ended by Stop, not by an arbitrary clock.
       const unsubscribe = rpc.onNotification((method, params) => {
         const textDelta = method === 'item/agentMessage/delta' && isObject(params) && typeof params.delta === 'string'
           ? params.delta
           : undefined
         const toolDetail = method.startsWith('item/') ? describeCodexTool(params) : undefined
         if (textDelta) output += textDelta
+        if (method === 'thread/tokenUsage/updated') usageDetail = describeCodexUsage(params) ?? usageDetail
         if (textDelta) this.emit(onActivity, 'text', 'Response update', textDelta)
         else if (method.includes('error')) this.emit(onActivity, 'diagnostic', 'Provider diagnostic', method)
         else if (toolDetail) this.emit(onActivity, 'tool', 'Agent action', toolDetail)
-        else if (method === 'turn/completed') this.emit(onActivity, 'result', 'Completed')
+        else if (method === 'turn/completed') this.emit(onActivity, 'result', 'Completed', usageDetail)
         if (method === 'turn/completed') done()
       })
       const done = (error?: Error) => {
-        clearTimeout(timeout)
         unsubscribe()
         if (error) reject(error)
         else resolve(output || 'Codex completed without a text response.')
@@ -141,7 +170,12 @@ export class CodexAdapter implements ProviderAdapter {
         model: request.modelId,
         ...(request.effort ? { effort: request.effort } : {}),
         approvalPolicy: 'never',
-        sandboxPolicy: { type: 'readOnly', networkAccess: true },
+        sandboxPolicy: request.workspacePath
+          ? { type: 'workspaceWrite', networkAccess: true, writableRoots: [] }
+          : { type: 'readOnly', networkAccess: true },
+        ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
+        ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
+        ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
         input: [{ type: 'text', text: request.prompt }],
       }).catch((error: unknown) => done(error instanceof Error ? error : new Error('Codex failed to start the turn.')))
     })
@@ -152,27 +186,60 @@ export class CodexAdapter implements ProviderAdapter {
     kind: ProviderAdapterActivity['kind'],
     label: string,
     detail?: string,
+    sessionId?: string,
   ): void {
     listener({
       kind,
       label,
       ...(detail ? { detail } : {}),
+      ...(sessionId ? { sessionId } : {}),
     })
   }
 }
 
+// A thread/resume failure we can recover from by starting a fresh thread (the id is stale, missing, or
+// its rollout was pruned) rather than surfacing an error to the user.
+export function isRecoverableThreadResumeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /not found|no such|unknown thread|does not exist|missing (rollout|thread)|rollout path/i.test(message)
+}
+
+export function describeCodexUsage(params: unknown): string | undefined {
+  if (!isObject(params) || !isObject(params.tokenUsage)) return undefined
+  const usage = params.tokenUsage
+  const last = isObject(usage.last) ? usage.last : undefined
+  if (!last) return undefined
+  const input = readFiniteNumber(last.inputTokens)
+  const output = readFiniteNumber(last.outputTokens)
+  const total = readFiniteNumber(last.totalTokens)
+  const contextWindow = readFiniteNumber(usage.modelContextWindow)
+  const parts: string[] = []
+  if (input !== undefined) parts.push(`${formatTokenCount(input)} input`)
+  if (output !== undefined) parts.push(`${formatTokenCount(output)} output`)
+  if (total !== undefined && input === undefined && output === undefined) parts.push(`${formatTokenCount(total)} used`)
+  if (contextWindow !== undefined) parts.push(`${formatTokenCount(contextWindow)} context`)
+  return parts.length ? parts.join(' · ') : undefined
+}
+
+// Short, non-technical phrase for a Codex tool activity. The command text, file paths, and tool
+// identifiers are intentionally omitted — a non-technical user cares about the intent, not the details.
 export function describeCodexTool(params: unknown): string | undefined {
   if (!isObject(params) || !isObject(params.item) || typeof params.item.type !== 'string') return undefined
-  const item = params.item
-  if (item.type === 'commandExecution') return typeof item.command === 'string' ? `Command: ${item.command}` : 'Command execution'
-  if (item.type === 'fileChange') return 'File change'
-  if (item.type === 'mcpToolCall') {
-    const name = [item.server, item.tool].filter((value) => typeof value === 'string').join('/')
-    return name || 'MCP tool call'
+  switch (params.item.type) {
+    case 'commandExecution':
+      return friendlyToolAction('bash')
+    case 'fileChange':
+      return friendlyToolAction('edit')
+    case 'webSearch':
+      return friendlyToolAction('websearch')
+    case 'imageGeneration':
+      return 'Creating an image'
+    case 'imageView':
+      return friendlyToolAction('read')
+    case 'mcpToolCall':
+    case 'dynamicToolCall':
+      return friendlyToolAction('')
+    default:
+      return undefined
   }
-  if (item.type === 'dynamicToolCall') return typeof item.tool === 'string' ? item.tool : 'Tool call'
-  if (item.type === 'webSearch') return typeof item.query === 'string' ? `Web search: ${item.query}` : 'Web search'
-  if (item.type === 'imageView') return 'View image'
-  if (item.type === 'imageGeneration') return 'Generate image'
-  return undefined
 }

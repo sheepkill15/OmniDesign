@@ -42,9 +42,8 @@ Phase 1 supports basic multiple-design organization within a project. Multiple c
 ### Included in Phase 1
 
 - Windows application packaging and testing.
-- Real Codex and Claude integrations, informed by the supplied reference implementation.
+- Real Codex and Claude integrations, informed by the supplied reference implementation, reached through the installed-CLI discovery pilot.
 - A mock provider for development and automated testing.
-- Multiple configured providers and multiple configurations of the same provider.
 - Provider and model selection on every composer.
 - Standalone project containers and linked local-folder projects.
 - Cloning a remote Git repository through the installed `git` command.
@@ -58,6 +57,7 @@ Phase 1 supports basic multiple-design organization within a project. Multiple c
 
 ### Deferred Beyond Phase 1
 
+- API-key provider configuration, the provider setup and configuration UI, multiple configurations per provider, and automatic configuration testing. Phase 1 reaches providers through the installed-CLI discovery pilot; full provider configuration moves to Phase 3 (product-owner decision, 2026-07-21).
 - Multiple conversations per design.
 - Visible branching, merging, branch comparison, and running one prompt through multiple providers or models.
 - Editing or resubmitting an earlier prompt.
@@ -332,12 +332,9 @@ Attachments are referenced in place and are not copied into OmniDesign storage. 
 
 ### Setup
 
-- Provider setup supports multiple providers and multiple configurations for the same provider.
-- OmniDesign automatically tests a configuration during setup.
-- A failed test produces a warning and clear diagnostic information.
+- Phase 1 reaches Codex and Claude through the installed-CLI discovery pilot, reusing each tool's existing sign-in state without storing credentials.
 - Availability and capability reporting come from provider adapters rather than provider-specific UI assumptions.
-
-The precise installed-subscription, discovery, authentication, and API-key mechanisms remain deferred until the reference implementation is examined.
+- API-key provider configuration, the multi-configuration setup UI, and automatic configuration testing are deferred to Phase 3 (product-owner decision, 2026-07-21). When built, secrets must use operating-system credential storage and a failed configuration test must produce a warning with clear diagnostics.
 
 ### Removing or Losing a Provider
 
@@ -350,8 +347,12 @@ The precise installed-subscription, discovery, authentication, and API-key mecha
 
 ### Execution Model
 
-- The provider generates or modifies files in the OmniDesign-managed design working area.
-- Linked source projects and referenced attachments are read-only.
+- Every agent-backed design runs in a self-contained Git repository in OmniDesign-managed storage. OmniDesign prepares the repository and its `index.html` entry page before the agent starts.
+- The provider harness starts the agent in that design repository. The agent may work on its files as it would on any other project.
+- When a design is linked to an existing project, the harness provides that original project as an explicit read-only reference. It is never the design working directory and the agent receives no write authority to it.
+- Git detects changed files and records the resulting revision. The agent is not required to produce a changed-file list, and OmniDesign does not derive change detection from an agent report.
+- The prepared `index.html` is the fixed preview and export entry page. The agent does not choose or report an entry point.
+- After execution, the agent returns a validated JSON completion payload. It includes a `response` field containing the agent's conversational reply to the user; a response may be returned without design changes or a new revision. OmniDesign builds the persisted completion record independently: Git determines changes, harness and validation tooling produce validation results and diagnostics, and the provider adapter supplies usage and cost when available. The remaining product-defined agent-payload fields do not contain file inventory or entry-point fields.
 - The currently active completed revision remains previewable until a new candidate is complete and passes blocking validation.
 - Progressive file-by-file preview updates are deferred.
 
@@ -427,7 +428,7 @@ When a valid generation changes design files:
 - A thumbnail is generated.
 - The conversation records validation warnings, provider/model, usage, and cost when available.
 
-No revision is created when the provider response does not change design files. The conversation message and attempt record are still preserved.
+No revision is created when the provider response does not change design files. The agent's completion-report `response`, conversation message, and attempt record are still preserved.
 
 ### Cancel, Continue, and Retry
 
@@ -521,16 +522,16 @@ This behavior provides the outcome the user expects from restoration without usi
 
 ### Internal Git History
 
-Using one hidden Git repository per design is a provisional implementation option, not a settled product requirement. If adopted in the early phases:
+Each agent-backed design uses one Git repository in OmniDesign-managed storage. The repository is the agent harness workspace and Git is the authoritative mechanism for determining whether agent execution changed the design working tree.
 
-- Repositories live in OmniDesign-managed storage.
+- OmniDesign initializes the repository and prepares `index.html` before execution.
 - Users are not required to understand or manage Git.
-- Completed revision commits are automatic.
-- Restoration is non-destructive.
+- Completed changed revisions create commits automatically.
+- Restoration is non-destructive and must not rewrite or delete later history.
 - Source-project repositories are never nested with or modified by design repositories.
 - The design repository may become accessible to advanced users in a later phase.
 
-The implementation choice must be evaluated against the accepted SQLite-plus-immutable-files architecture before it is recorded as accepted in `ARCHITECTURE.md`.
+SQLite remains responsible for application metadata, conversations, job records, revision pointers, diagnostics, and migration-safe queries. The agent completion payload, including its `response` field, is validated and retained with the attempt; the harness-owned completion record retains independently observed Git, validation, diagnostics, and usage data.
 
 ## Export
 
@@ -679,11 +680,11 @@ Phase 1 is complete only when all of the following are true.
 
 ### Providers
 
-- Codex and Claude both work through real provider adapters based on the reference implementation.
+- Codex and Claude both work through real provider adapters based on the reference implementation, reached through the installed-CLI discovery pilot.
 - The mock provider remains available for automated tests and development.
-- Multiple configurations per provider work.
-- Setup testing, availability reporting, removal, switching, retry, cancellation, streaming, usage, and error reporting behave as specified.
+- Availability reporting, removal, switching, retry, cancellation, streaming, usage, and error reporting behave as specified.
 - Provider contract tests cover both real adapters' supported capabilities.
+- API-key configuration, multiple configurations per provider, and configuration setup testing are deferred to Phase 3.
 
 ### Home, Projects, and Designs
 
@@ -745,8 +746,7 @@ These implementation decisions must be resolved and recorded before or during th
 - Logging, diagnostics, and error-boundary approach.
 - Test runner responsibilities and Windows CI.
 - Development, preview, and production Content Security Policies.
-- Exact design working-directory shape.
-- Whether hidden per-design Git repositories add sufficient value over immutable snapshots and SQLite history.
+- Extensions to the accepted immutable snapshot directory shape needed for assets, invalid candidates, and thumbnails.
 - Exact Codex and Claude installed-subscription and API-key integration after examining the reference implementation.
 - How providers receive read-only project context without weakening isolation.
 
