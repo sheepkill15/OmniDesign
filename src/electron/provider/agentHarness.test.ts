@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConversationRecap, createDesignAgentInstructions, parseAgentCompletionPayload } from './agentHarness.js'
+import { buildConversationRecap, createDesignAgentInstructions, normalizeAgentReply } from './agentHarness.js'
 
 describe('conversation recap', () => {
   it('recaps recent user and assistant turns and skips system notices and blanks', () => {
@@ -25,25 +25,13 @@ describe('conversation recap', () => {
   })
 })
 
-describe('agent completion payload', () => {
-  it('extracts the conversational response even when the model adds extra keys or formatting', () => {
-    expect(parseAgentCompletionPayload('{"response":"I updated the design."}')).toEqual({ response: 'I updated the design.' })
-    // Extra keys are tolerated rather than rejected — only `response` is required.
-    expect(parseAgentCompletionPayload('{"response":"Done","changedFiles":["index.html"]}')).toEqual({ response: 'Done' })
-    // Markdown code fences and surrounding prose are stripped.
-    expect(parseAgentCompletionPayload('Here you go:\n```json\n{"response":"Fenced reply"}\n```')).toEqual({ response: 'Fenced reply' })
-    // As a last resort the raw text becomes the response so a valid revision is not discarded.
-    expect(parseAgentCompletionPayload('Just a plain sentence.')).toEqual({ response: 'Just a plain sentence.' })
-  })
-
-  it('uses the final object when a buffered chunk holds several concatenated JSON objects', () => {
-    // Earlier messages are pushed to the conversation live while streaming; the final parse only needs
-    // the last object of whatever remains buffered.
-    const concatenated = '{"response":"Starting on the layout."}{"response":"The cooking app is complete."}'
-    expect(parseAgentCompletionPayload(concatenated)).toEqual({ response: 'The cooking app is complete.' })
-    // Braces inside the response text must not split an object.
-    expect(parseAgentCompletionPayload('{"response":"first"}{"response":"uses {braces} inside"}'))
-      .toEqual({ response: 'uses {braces} inside' })
+describe('agent reply', () => {
+  it('treats whatever the agent returns as Markdown, only trimming and capping length', () => {
+    // No output shape is imposed: plain prose and Markdown pass through verbatim (just trimmed).
+    expect(normalizeAgentReply('  Your landing page is ready.  ')).toBe('Your landing page is ready.')
+    expect(normalizeAgentReply('## Done\n\nThe **hero** now spans the full width.')).toBe('## Done\n\nThe **hero** now spans the full width.')
+    // A runaway response is capped so it cannot balloon the store.
+    expect(normalizeAgentReply('a'.repeat(200_000))).toHaveLength(100_000)
   })
 
   it('directs the agent to work in the prepared repository without self-reporting Git evidence', () => {
@@ -66,6 +54,14 @@ describe('agent completion payload', () => {
     // Sibling files now ship in preview and export (reversal of the Phase 1 single-file contract).
     expect(instructions).toContain('All committed files are included in both the preview and the exported design')
     expect(instructions).toContain('Every page must be a complete HTML document')
+  })
+
+  it('tells the agent to write for a non-technical audience and imposes no reply format', () => {
+    const instructions = createDesignAgentInstructions('C:\\workspace\\design')
+    expect(instructions).toContain('who may not be technical')
+    expect(instructions).toContain('Do NOT mention code, file names')
+    expect(instructions).toContain('There is no required format')
+    expect(instructions).not.toContain('JSON object matching the required schema')
   })
 
   it('directs the agent to inspect a linked project before implementing the design', () => {

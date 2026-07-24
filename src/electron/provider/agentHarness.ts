@@ -1,5 +1,4 @@
 import path from 'node:path'
-import { z } from 'zod'
 import type { Attachment, Message } from '../workspace/contracts.js'
 
 const RECAP_MAX_MESSAGES = 16
@@ -21,25 +20,6 @@ export function buildConversationRecap(messages: readonly Pick<Message, 'role' |
 }
 
 const MAX_RESPONSE_LENGTH = 100_000
-
-// Kept lenient on purpose: models routinely add extra keys, so we only require a usable `response`
-// string and ignore anything else rather than rejecting an otherwise-good completion.
-export const agentCompletionPayloadSchema = z.object({
-  response: z.string().trim().min(1).max(MAX_RESPONSE_LENGTH),
-}).passthrough()
-
-export interface AgentCompletionPayload {
-  readonly response: string
-}
-
-export const agentCompletionOutputSchema = {
-  type: 'object',
-  properties: {
-    response: { type: 'string', minLength: 1, maxLength: 100_000 },
-  },
-  required: ['response'],
-  additionalProperties: false,
-} as const
 
 export function createDesignAgentInstructions(workspacePath: string, attachments: readonly Attachment[] = [], sourceProjectPath: string | null = null, conversationRecap = ''): string {
   if (!path.isAbsolute(workspacePath)) throw new Error('The design workspace path must be absolute.')
@@ -64,79 +44,16 @@ export function createDesignAgentInstructions(workspacePath: string, attachments
     'Do not claim which files changed or whether a revision was created; OmniDesign determines that from Git and validation.',
     ...(sourceProjectPath ? [`A linked source project is available for READ-ONLY reference at ${sourceProjectPath}. Inspect its relevant source, styles, assets, and configuration before implementing the design so the result adopts its existing design language. Never edit, delete, rename, or create files there.`] : []),
     ...(attachments.length ? ['User-provided references are READ-ONLY. Use them only when relevant; never modify, delete, rename, or copy them into the design repository:', ...attachments.map((attachment) => `- ${attachment.path}${attachment.status === 'available' ? '' : ` (${attachment.status}; ask the user before relying on it)`}`)] : []),
-    'Any explanatory text you write while working is already shown to the user in the conversation as you go. When you finish, respond only with a JSON object matching the required schema; its response value is a brief closing reply (e.g. a one-line confirmation) — do NOT restate the explanation you already gave, or it will appear twice.',
+    'Everything you write is shown directly to the person you are designing for, who may not be technical. Talk about the design the way a designer would to a client: what it looks like, what changed, how it will feel to use. Use plain, everyday language and keep it short. Do NOT mention code, file names, HTML, CSS, frameworks, Git, commits, tools, or any other technical detail, and do NOT walk through how you built it.',
+    'The notes you write while working appear in the conversation as you go, so the user can follow along. When you finish, just end with a brief, friendly closing message. There is no required format — write plain text or Markdown, not JSON or any wrapper — and do not repeat what you already said, or it will appear twice.',
   ].join('\n')
 }
 
 /**
- * Extract the agent's conversational reply from its final message. Models are inconsistent about
- * output formatting — they wrap JSON in Markdown fences, prepend prose, or add extra keys — and the
- * actual design work lives in the Git working tree regardless. So we try increasingly forgiving
- * strategies and, as a last resort, treat the whole text as the reply rather than discarding a valid
- * revision over a formatting quirk.
+ * We no longer impose any output shape on the design agent: whatever it says is treated as Markdown
+ * meant for the user, and the actual design work lives in the Git working tree regardless. This just
+ * trims surrounding whitespace and caps the length so a runaway response cannot balloon the store.
  */
-export function parseAgentCompletionPayload(value: string): AgentCompletionPayload {
-  const text = stripCodeFences(value.trim())
-  // Return the LAST well-formed {response} object. Earlier messages an agent emits mid-turn are pushed
-  // into the conversation live as they stream (see the design-agent runner), so here we only need the
-  // final message. A single buffered chunk usually holds exactly one object.
-  const objects = extractJsonObjects(text)
-  for (let index = objects.length - 1; index >= 0; index -= 1) {
-    const payload = tryParsePayload(objects[index])
-    if (payload) return payload
-  }
-
-  // Fall back to parsing the whole text, then to the raw text so a valid revision is never discarded
-  // over a formatting quirk.
-  const whole = tryParsePayload(text)
-  if (whole) return whole
-  if (text) return { response: text.slice(0, MAX_RESPONSE_LENGTH) }
-  throw new Error('The agent did not return any completion text.')
-}
-
-function tryParsePayload(candidate: string): AgentCompletionPayload | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(candidate)
-  } catch {
-    return null
-  }
-  const result = agentCompletionPayloadSchema.safeParse(parsed)
-  return result.success ? { response: result.data.response.slice(0, MAX_RESPONSE_LENGTH) } : null
-}
-
-// Find each balanced top-level {...} object in the text, ignoring braces inside string literals so
-// concatenated JSON messages are separated correctly.
-function extractJsonObjects(text: string): string[] {
-  const objects: string[] = []
-  let depth = 0
-  let start = -1
-  let inString = false
-  let escaped = false
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (character === '\\') escaped = true
-      else if (character === '"') inString = false
-      continue
-    }
-    if (character === '"') inString = true
-    else if (character === '{') {
-      if (depth === 0) start = index
-      depth += 1
-    } else if (character === '}' && depth > 0) {
-      depth -= 1
-      if (depth === 0 && start !== -1) {
-        objects.push(text.slice(start, index + 1))
-        start = -1
-      }
-    }
-  }
-  return objects
-}
-
-function stripCodeFences(text: string): string {
-  const fenced = text.match(/```(?:[a-z]*)?\s*([\s\S]*?)```/i)?.[1]
-  return (fenced ?? text).trim()
+export function normalizeAgentReply(value: string): string {
+  return value.trim().slice(0, MAX_RESPONSE_LENGTH)
 }

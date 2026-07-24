@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
-import { buildConversationRecap, parseAgentCompletionPayload } from '../provider/agentHarness.js'
+import { buildConversationRecap, normalizeAgentReply } from '../provider/agentHarness.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
@@ -676,8 +676,7 @@ void app.whenReady().then(() => {
           const buffered = agentText.trim()
           agentText = ''
           if (!buffered) return
-          let message: string
-          try { message = parseAgentCompletionPayload(buffered).response } catch { message = buffered }
+          const message = normalizeAgentReply(buffered)
           if (!message || message === lastFlushed) return
           lastFlushed = message
           try {

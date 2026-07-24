@@ -11,7 +11,6 @@ export type ProviderAdapterPrompt = Pick<ProviderPrompt, 'modelId' | 'effort' | 
   readonly workspacePath?: string
   readonly referencePaths?: readonly string[]
   readonly instructions?: string
-  readonly outputSchema?: Record<string, unknown>
 }
 export type ProviderAdapterReply = Omit<ProviderReply, 'providerId'>
 export type ProviderAdapterActivity = Omit<ProviderActivity, 'requestId' | 'providerId'>

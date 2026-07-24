@@ -105,26 +105,28 @@ describe('ProviderService', () => {
     expect(claude.prompt).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }), expect.any(Function))
   })
 
-  it('runs a design agent in its managed workspace and validates its conversational completion payload', async () => {
+  it('runs a design agent in its managed workspace and returns its reply as Markdown', async () => {
     const codex = createAdapter('codex')
     const service = new ProviderService([codex])
-    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"The design is ready."}' })
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '  The design is ready.  ' })
 
     await expect(service.runDesignAgent({
       requestId: 'request-2', providerId: 'codex', modelId: 'model-1', prompt: 'Refine the hierarchy', workspacePath: 'C:\\workspace\\design',
     })).resolves.toEqual({ providerId: 'codex', modelId: 'model-1', response: 'The design is ready.' })
 
-    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({
+    // No output shape is imposed on the agent — only instructions and the workspace are passed through.
+    const [adapterRequest] = vi.mocked(codex.prompt).mock.calls[0]
+    expect(adapterRequest).not.toHaveProperty('outputSchema')
+    expect(adapterRequest).toEqual(expect.objectContaining({
       workspacePath: 'C:\\workspace\\design',
-      outputSchema: expect.objectContaining({ required: ['response'] }),
       instructions: expect.stringContaining('C:\\workspace\\design'),
-    }), expect.any(Function))
+    }))
   })
 
   it('passes a linked project through as a provider reference root', async () => {
     const codex = createAdapter('codex')
     const service = new ProviderService([codex])
-    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"Done"}' })
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: 'Done' })
 
     await service.runDesignAgent({ requestId: 'request-3', providerId: 'codex', modelId: 'model-1', prompt: 'Match Aurora', workspacePath: 'C:\\workspace\\design', sourceProjectPath: 'C:\\projects\\aurora' })
 
@@ -134,7 +136,7 @@ describe('ProviderService', () => {
   it('passes provider session identity through design-agent continuation', async () => {
     const codex = createAdapter('codex')
     const service = new ProviderService([codex])
-    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '{"response":"Done"}', sessionId: 'thread-1' })
+    vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: 'Done', sessionId: 'thread-1' })
 
     await expect(service.runDesignAgent({ requestId: 'request-continue', providerId: 'codex', modelId: 'model-1', prompt: 'Continue', workspacePath: 'C:\\workspace\\design', resumeSessionId: 'thread-1' })).resolves.toMatchObject({ sessionId: 'thread-1' })
 
