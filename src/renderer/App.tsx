@@ -1308,15 +1308,17 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
               </Menu>
             </DropdownButton>
           )}
-          <DropdownButton label="Device size" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<><CurrentDeviceIcon aria-hidden="true" /><span>{deviceLabels[previewDevice]}</span></>}>
-            <Menu aria-label="Device size" onAction={(key) => setPreviewDevice(key as PreviewDevice)}>
-              {(['desktop', 'tablet', 'phone'] as const).map((option) => <MenuItem id={option} key={option} textValue={deviceLabels[option]}><span>{deviceLabels[option]}</span>{previewDevice === option && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
-            </Menu>
-          </DropdownButton>
-          <div className="preview-view-toggle" role="group" aria-label="Preview fit">
-            <Button className="preview-toggle-option" data-active={previewFit === 'artboard' || undefined} aria-pressed={previewFit === 'artboard'} onPress={() => setPreviewFit('artboard')}>Artboard</Button>
-            <Button className="preview-toggle-option" data-active={previewFit === 'fixed' || undefined} aria-pressed={previewFit === 'fixed'} onPress={() => setPreviewFit('fixed')}>Fixed</Button>
-          </div>
+          {previewViewMode === 'canvas' && <>
+            <DropdownButton label="Device size" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<><CurrentDeviceIcon aria-hidden="true" /><span>{deviceLabels[previewDevice]}</span></>}>
+              <Menu aria-label="Device size" onAction={(key) => setPreviewDevice(key as PreviewDevice)}>
+                {(['desktop', 'tablet', 'phone'] as const).map((option) => <MenuItem id={option} key={option} textValue={deviceLabels[option]}><span>{deviceLabels[option]}</span>{previewDevice === option && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+              </Menu>
+            </DropdownButton>
+            <div className="preview-view-toggle" role="group" aria-label="Preview fit">
+              <Button className="preview-toggle-option" data-active={previewFit === 'artboard' || undefined} aria-pressed={previewFit === 'artboard'} onPress={() => setPreviewFit('artboard')}>Artboard</Button>
+              <Button className="preview-toggle-option" data-active={previewFit === 'fixed' || undefined} aria-pressed={previewFit === 'fixed'} onPress={() => setPreviewFit('fixed')}>Fixed</Button>
+            </div>
+          </>}
         </div>
         <small>{previewStatus}</small>
       </div>

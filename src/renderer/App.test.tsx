@@ -1002,7 +1002,10 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('group', { name: 'Preview layout' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Canvas' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Focused' })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
+    // Device size and fit controls apply to canvas only; focused mode just fills the pane.
+    expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    expect(await screen.findByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
   })
 
   it('recovers saved designs into the home list', async () => {

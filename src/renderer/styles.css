@@ -2952,9 +2952,11 @@ button[aria-expanded="true"] .dropdown-caret {
     var(--background);
   cursor: grab;
   touch-action: none;
+  /* Panning over the board must never select the tile labels or chrome text. */
+  user-select: none;
 }
 
-.preview-canvas:active {
+.preview-canvas[data-panning] {
   cursor: grabbing;
 }
 
@@ -2990,28 +2992,19 @@ button[aria-expanded="true"] .dropdown-caret {
   color: var(--text-subtle);
 }
 
-/* Focused mode: one page scaled to fit the pane. */
-.preview-focused {
-  position: relative;
-  overflow: auto;
+/* Focused mode: the selected page fills the pane, exactly like opening the HTML file itself. */
+.preview-focused-fill {
   height: 100%;
   min-height: 0;
-  display: flex;
-  justify-content: center;
-  padding: 24px;
-  background: var(--background);
+  background: #ffffff;
 }
 
-.preview-focused-stage {
-  position: relative;
-  flex: none;
-}
-
-.preview-focused-scale {
-  position: absolute;
-  top: 0;
-  left: 0;
-  transform-origin: top left;
+.preview-focused-fill iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
 }
 
 /* A device-framed tile: trusted-UI chrome drawn around the sandboxed iframe. */

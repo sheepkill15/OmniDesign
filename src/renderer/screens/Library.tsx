@@ -1,7 +1,6 @@
 import {
   ArrowRightIcon,
   ChevronRightIcon,
-  ClockIcon,
   DocumentDuplicateIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -293,7 +292,7 @@ export function Library(props: LibraryProps) {
                         <strong className="library-card-title">{design.title}</strong>
                         <small>{project?.name ?? design.projectName}</small>
                         {design.tags.length > 0 && <span className="library-row-tags">{design.tags.map((tag) => <TagChip key={tag.id} tag={tag} />)}</span>}
-                        <span className="design-card-meta"><span><ClockIcon aria-hidden="true" />{new Date(design.updatedAt).toLocaleDateString()}</span><span>{providerLabel(design.lastSelection.providerId)}</span></span>
+                        <span className="design-card-meta"><span>{new Date(design.updatedAt).toLocaleDateString()}</span><span>{providerLabel(design.lastSelection.providerId)}</span></span>
                         <span className="library-card-actions">
                           <TagAssignMenu tags={tags} assigned={design.tags} onToggle={(tag, next) => void run(() => props.onToggleTag('design', design.id, tag, next), 'The tag could not be updated.')} onCreate={(name) => void run(async () => { const tag = await props.onCreateTag(name); if (tag) await props.onToggleTag('design', design.id, tag, true) }, 'The tag could not be created.')} />
                           <DropdownButton label={`Actions for ${design.title}`} triggerClassName="icon-button" popoverClassName="project-popover" placement="bottom" trigger={<span aria-hidden="true">⋯</span>}>

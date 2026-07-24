@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
 import { MinusIcon, PlusIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 
@@ -35,22 +35,22 @@ export interface DesignPreviewProps {
   readonly onSelectPage: (page: string) => void
 }
 
-// Renders the design preview as sandboxed, opaque-origin iframes served over the preview scheme. Canvas
-// mode lays every page out as a device-framed tile on a pan/zoom board; focused mode shows one page
-// scaled to fit. Both honor the global device size and fit. Height (for Artboard fit), diagnostics, and
-// current-page reporting arrive from the injected shim via postMessage.
+// Renders the design preview as sandboxed, opaque-origin iframes served over the preview scheme.
+// Focused mode shows one page filling the pane (like the Phase 1 preview, just the page itself).
+// Canvas mode lays every page out as a device-framed tile on a pan/zoom board honoring the global
+// device size and fit. Height (Artboard fit), diagnostics, and current-page reporting arrive from the
+// injected shim via postMessage.
 export function DesignPreview({ designId, revisionId, token, isHeadRevision, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, onSelectPage }: DesignPreviewProps) {
   const dims = deviceDimensions(device, customWidth, customHeight)
   const [heights, setHeights] = useState<Record<string, number>>({})
   const [zoom, setZoom] = useState(0.75)
   const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [focusScale, setFocusScale] = useState(1)
   const capturedRef = useRef<string | null>(null)
   const viewport = useRef<HTMLDivElement>(null)
-  const focusedFrame = useRef<HTMLIFrameElement>(null)
 
   const pageUrl = useCallback((path: string) => `omnidesign-preview://revision/${token}/${path.split('/').map(encodeURIComponent).join('/')}`, [token])
   const heightFor = (path: string) => fit === 'fixed' ? dims.height : Math.max(heights[path] ?? dims.height, 120)
+  const activePage = selectedPage ?? pages.find((page) => page.isHome)?.path ?? pages[0]?.path ?? 'index.html'
 
   // Height / diagnostics / page-sync from the injected shim.
   useEffect(() => {
@@ -62,7 +62,6 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
       } else if (data.type === 'diagnostic') {
         void window.omnidesign?.preview.reportDiagnostic(designId, revisionId, { level: data.level, message: data.message, source: data.src, line: data.line })
       } else if (data.type === 'page') {
-        // Following an in-page link in focused mode keeps the switcher in sync.
         if (viewMode === 'focused' && data.page !== selectedPage) onSelectPage(data.page)
       }
     }
@@ -73,30 +72,19 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   // A fresh revision reprepares the surface: forget stale heights and re-arm thumbnail capture.
   useEffect(() => { setHeights({}); capturedRef.current = null }, [revisionId, token])
 
-  // Focused mode scales the device-width page down to fit the pane width (never scales up past 1).
-  useLayoutEffect(() => {
-    if (viewMode !== 'focused') return
-    const element = viewport.current
-    if (!element) return
-    const measure = () => {
-      const available = element.clientWidth - 48
-      setFocusScale(available > 0 ? Math.min(1, available / dims.width) : 1)
-    }
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [viewMode, dims.width])
+  // Ask every mounted frame to re-measure after a layout-affecting change so Artboard tiles resize
+  // instead of keeping a height from the previous device size or fit mode.
+  useEffect(() => {
+    const frames = viewport.current?.querySelectorAll('iframe') ?? []
+    frames.forEach((frame) => { try { (frame as HTMLIFrameElement).contentWindow?.postMessage({ type: 'omnidesign-measure' }, '*') } catch { /* opaque frame not ready */ } })
+  }, [fit, device, customWidth, customHeight])
 
   // Capture a thumbnail for the head revision once the home page has painted in focused mode.
-  const activePage = selectedPage ?? pages.find((page) => page.isHome)?.path ?? pages[0]?.path ?? 'index.html'
   useEffect(() => {
     if (!isHeadRevision || viewMode !== 'focused') return
     const homePath = pages.find((page) => page.isHome)?.path ?? pages[0]?.path
-    if (!homePath || activePage !== homePath || capturedRef.current === revisionId) return
-    if (!heights[homePath]) return
-    const frame = focusedFrame.current
+    if (!homePath || activePage !== homePath || capturedRef.current === revisionId || !heights[homePath]) return
+    const frame = viewport.current?.querySelector('iframe')
     if (!frame) return
     const rect = frame.getBoundingClientRect()
     if (rect.width < 2 || rect.height < 2) return
@@ -106,16 +94,15 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
 
   const onWheel = (event: React.WheelEvent) => {
     if (viewMode !== 'canvas') return
-    if (event.ctrlKey || event.metaKey) {
-      setZoom((current) => Math.min(2, Math.max(0.2, current - event.deltaY * 0.0015)))
-    } else {
-      setPan((current) => ({ x: current.x - event.deltaX, y: current.y - event.deltaY }))
-    }
+    if (event.ctrlKey || event.metaKey) setZoom((current) => Math.min(2, Math.max(0.2, current - event.deltaY * 0.0015)))
+    else setPan((current) => ({ x: current.x - event.deltaX, y: current.y - event.deltaY }))
   }
   const panState = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
   const onPointerDown = (event: React.PointerEvent) => {
     if (viewMode !== 'canvas' || event.button !== 0) return
-    if ((event.target as HTMLElement).closest('.preview-tile-frame')) return
+    // Only pan from the board background — never when the gesture starts on a page frame or a control.
+    if ((event.target as HTMLElement).closest('.preview-tile-frame, .preview-tile-open, .preview-canvas-controls')) return
+    event.preventDefault()
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
     panState.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }
   }
@@ -126,36 +113,25 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   const endPan = () => { panState.current = null }
   const resetView = () => { setZoom(0.75); setPan({ x: 0, y: 0 }) }
 
-  const tile = (page: DesignPage, framed: boolean) => (
-    <figure className="preview-tile" data-device={device} key={page.path} style={{ width: `${dims.width}px` }}>
-      <div className="preview-tile-chrome" data-device={device} aria-hidden="true">
-        {device === 'desktop' || device === 'custom'
-          ? <><span className="preview-chrome-dots"><i /><i /><i /></span><span className="preview-chrome-title">{page.title ?? page.path}</span></>
-          : <span className="preview-chrome-notch" />}
-      </div>
-      <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
-        <iframe
-          ref={framed ? undefined : focusedFrame}
-          title={page.title ?? page.path}
-          src={pageUrl(page.path)}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          scrolling={fit === 'fixed' ? 'auto' : 'no'}
-        />
-      </div>
-      {framed && <figcaption className="preview-tile-label"><Button className="preview-tile-open" onPress={() => onSelectPage(page.path)}>{page.title ?? page.path}{page.isHome && <span className="preview-tile-home">Home</span>}</Button></figcaption>}
-    </figure>
-  )
-
-  if (!pages.length) {
-    return <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>
-  }
+  if (!pages.length) return <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>
 
   if (viewMode === 'canvas') {
     return (
-      <div className="preview-canvas" ref={viewport} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}>
+      <div className="preview-canvas" ref={viewport} data-panning={panState.current ? true : undefined} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}>
         <div className="preview-board" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
-          {pages.map((page) => tile(page, true))}
+          {pages.map((page) => (
+            <figure className="preview-tile" data-device={device} key={page.path} style={{ width: `${dims.width}px` }}>
+              <div className="preview-tile-chrome" data-device={device} aria-hidden="true">
+                {device === 'phone' || device === 'tablet'
+                  ? <span className="preview-chrome-notch" />
+                  : <><span className="preview-chrome-dots"><i /><i /><i /></span><span className="preview-chrome-title">{page.title ?? page.path}</span></>}
+              </div>
+              <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
+                <iframe title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} />
+              </div>
+              <figcaption className="preview-tile-label"><Button className="preview-tile-open" onPress={() => onSelectPage(page.path)}>{page.title ?? page.path}{page.isHome && <span className="preview-tile-home">Home</span>}</Button></figcaption>
+            </figure>
+          ))}
         </div>
         <div className="preview-canvas-controls" role="group" aria-label="Canvas zoom">
           <Button className="icon-button" aria-label="Zoom out" onPress={() => setZoom((current) => Math.max(0.2, current - 0.1))}><MinusIcon aria-hidden="true" /></Button>
@@ -167,15 +143,10 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
     )
   }
 
-  const focused = pages.find((page) => page.path === activePage) ?? pages[0]
-  const scaledHeight = heightFor(focused.path) * focusScale + 44 * focusScale
+  // Focused mode: the selected page fills the pane, exactly like opening the HTML file itself.
   return (
-    <div className="preview-focused" ref={viewport}>
-      <div className="preview-focused-stage" style={{ width: `${dims.width * focusScale}px`, height: `${scaledHeight}px` }}>
-        <div className="preview-focused-scale" style={{ width: `${dims.width}px`, transform: `scale(${focusScale})` }}>
-          {tile(focused, false)}
-        </div>
-      </div>
+    <div className="preview-focused-fill" ref={viewport}>
+      <iframe key={`${token}:${activePage}`} title={pages.find((page) => page.path === activePage)?.title ?? activePage} src={pageUrl(activePage)} sandbox="allow-scripts" referrerPolicy="no-referrer" />
     </div>
   )
 }

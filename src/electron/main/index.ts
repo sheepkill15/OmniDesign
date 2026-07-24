@@ -131,6 +131,9 @@ function createMainWindow(): BrowserWindow {
 
   window.once('ready-to-show', () => window.show())
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  if (developmentServerUrl) {
+    window.webContents.on('console-message', (event) => console.log(`[renderer:${event.level}] ${event.message}${event.sourceId ? ` (${event.sourceId}:${event.lineNumber})` : ''}`))
+  }
   // The trusted renderer's only subframes are preview iframes. Keep a previewed page from navigating a
   // frame away to any non-preview URL (e.g. an external link click); the sandbox already blocks
   // top-level navigation and popups, this closes off in-frame navigation as defense in depth.

@@ -19,9 +19,12 @@ function shimBody(): string {
   }
   function reportHeight() {
     try {
-      var doc = document.documentElement;
+      // Measure the body's content height, NOT documentElement.scrollHeight — the latter is clamped to
+      // at least the viewport height, so a short page could never shrink below the frame. Falling back
+      // to documentElement only when there is no body.
       var body = document.body;
-      var height = Math.max(doc ? doc.scrollHeight : 0, body ? body.scrollHeight : 0, doc ? doc.offsetHeight : 0);
+      var doc = document.documentElement;
+      var height = body ? Math.max(body.scrollHeight, body.offsetHeight) : (doc ? doc.scrollHeight : 0);
       if (height > 0) post({ type: 'height', height: height });
     } catch (e) {}
   }
@@ -49,12 +52,17 @@ function shimBody(): string {
     try {
       if (typeof ResizeObserver !== 'undefined') {
         var observer = new ResizeObserver(function () { reportHeight(); });
-        if (document.documentElement) observer.observe(document.documentElement);
         if (document.body) observer.observe(document.body);
       }
     } catch (e) {}
     window.addEventListener('load', reportHeight);
     window.addEventListener('resize', reportHeight);
+    // The parent asks for a fresh measurement after a layout-affecting change (device size / fit mode).
+    window.addEventListener('message', function (event) {
+      if (event.data && event.data.type === 'omnidesign-measure') reportHeight();
+    });
+    // Catch late layout (web fonts, images, Alpine expanding content) that fires no size event.
+    [120, 400, 1000].forEach(function (delay) { setTimeout(reportHeight, delay); });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready);
   else ready();
