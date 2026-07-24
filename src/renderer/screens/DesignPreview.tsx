@@ -46,9 +46,10 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   const [heights, setHeights] = useState<Record<string, number>>({})
   const [zoom, setZoom] = useState(0.75)
   const [pan, setPan] = useState({ x: 0, y: 0 })
-  // Canvas mode runs the design's scripts (Alpine, animation loops) in only one tile at a time — the
-  // hovered one — so a board of many pages does not run every design's JS at once. The rest load
-  // without scripts: still full HTML/CSS, just paused.
+  // Canvas mode keeps every tile loaded but runs the design's animation loops in only one at a time —
+  // the hovered one, or the home page by default. The rest are told (over postMessage, via the injected
+  // shim) to pause their requestAnimationFrame loops, so switching the active tile never reloads a frame
+  // (no white flash) yet a board of many pages does not animate everything at once.
   const [hoveredPath, setHoveredPath] = useState<string | null>(null)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const capturedRef = useRef<string | null>(null)
@@ -57,7 +58,21 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
 
   const pageUrl = useCallback((path: string) => `omnidesign-preview://revision/${token}/${path.split('/').map(encodeURIComponent).join('/')}`, [token])
   const heightFor = (path: string) => fit === 'fixed' ? dims.height : Math.max(heights[path] ?? dims.height, 120)
-  const activePage = selectedPage ?? pages.find((page) => page.isHome)?.path ?? pages[0]?.path ?? 'index.html'
+  const homePath = pages.find((page) => page.isHome)?.path ?? pages[0]?.path ?? null
+  const activePage = selectedPage ?? homePath ?? 'index.html'
+  // The one page allowed to animate: the focused page in focused mode, or the hovered/home tile on the
+  // canvas. The shim in every other frame is told to pause.
+  const livePath = viewMode === 'focused'
+    ? activePage
+    : (hoveredPath && pages.some((page) => page.path === hoveredPath) ? hoveredPath : homePath)
+
+  // Resume the live frame and pause the rest, without reloading anything.
+  const syncFrame = useCallback((frame: HTMLIFrameElement, live: string | null) => {
+    try { frame.contentWindow?.postMessage({ type: frame.dataset.page === live ? 'omnidesign-resume' : 'omnidesign-pause' }, '*') } catch { /* frame not ready yet */ }
+  }, [])
+  useEffect(() => {
+    viewport.current?.querySelectorAll('iframe').forEach((frame) => syncFrame(frame as HTMLIFrameElement, livePath))
+  }, [livePath, viewMode, pages, syncFrame])
 
   // Height / diagnostics / page-sync from the injected shim.
   useEffect(() => {
@@ -124,10 +139,8 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   const endPan = () => { panState.current = null }
   const resetView = () => { setZoom(0.75); setPan({ x: 0, y: 0 }) }
 
-  // The home page runs by default; hovering a tile (after it settles briefly, to avoid activating every
-  // tile during a fast sweep) makes that one the single live tile.
-  const homePath = pages.find((page) => page.isHome)?.path ?? pages[0]?.path ?? null
-  const livePath = hoveredPath && pages.some((page) => page.path === hoveredPath) ? hoveredPath : homePath
+  // Hovering a tile (after it settles briefly, to avoid activating every tile during a fast sweep)
+  // makes that one the single live tile.
   const armHover = (path: string) => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current)
     hoverTimer.current = setTimeout(() => setHoveredPath(path), 140)
@@ -151,9 +164,9 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
                     : <><span className="preview-chrome-dots"><i /><i /><i /></span><span className="preview-chrome-title">{page.title ?? page.path}</span>{!isLive && <span className="preview-tile-paused">Paused</span>}</>}
                 </div>
                 <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
-                  {/* Only the live tile runs scripts; paused tiles load with an empty sandbox (HTML/CSS
-                      only). Keying on live-state remounts the frame so the sandbox flags re-apply. */}
-                  <iframe key={isLive ? 'live' : 'paused'} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox={isLive ? 'allow-scripts' : ''} referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} />
+                  {/* Every tile stays loaded; the shim pauses/resumes its animation loops over
+                      postMessage (see the sync effect), so switching the live tile never reloads. */}
+                  <iframe data-page={page.path} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} onLoad={(event) => syncFrame(event.currentTarget, livePath)} />
                 </div>
                 <figcaption className="preview-tile-label" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</figcaption>
               </figure>
@@ -173,7 +186,7 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   // Focused mode: the selected page fills the pane, exactly like opening the HTML file itself.
   return (
     <div className="preview-focused-fill" ref={viewport}>
-      <iframe key={`${token}:${activePage}`} title={pages.find((page) => page.path === activePage)?.title ?? activePage} src={pageUrl(activePage)} sandbox="allow-scripts" referrerPolicy="no-referrer" />
+      <iframe key={`${token}:${activePage}`} data-page={activePage} title={pages.find((page) => page.path === activePage)?.title ?? activePage} src={pageUrl(activePage)} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => syncFrame(event.currentTarget, livePath)} />
     </div>
   )
 }

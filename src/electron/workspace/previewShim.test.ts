@@ -35,4 +35,11 @@ describe('preview shim injection', () => {
     const result = injectPreviewShim('<html><head></head><body></body></html>', 'pages/a"b.html')
     expect(result).toContain(String.raw`window.__OMNIDESIGN_PAGE__="pages/a\"b.html"`)
   })
+
+  it('wires the pause/resume hooks that let the parent stop a frame animating without reloading', () => {
+    const result = injectPreviewShim('<html><head></head><body></body></html>', 'index.html')
+    expect(result).toContain('requestAnimationFrame')
+    expect(result).toContain('omnidesign-pause')
+    expect(result).toContain('omnidesign-resume')
+  })
 })

@@ -17,6 +17,33 @@ function shimBody(): string {
   function post(message) {
     try { parent.postMessage(Object.assign({ source: SOURCE, page: PAGE }, message), '*'); } catch (e) {}
   }
+  // Pause the design's animation loops without reloading the frame. requestAnimationFrame is patched
+  // BEFORE the page's own scripts run (this shim is the first script), so a paused frame stops driving
+  // its rAF loops (the main CPU cost) while staying fully loaded. The parent resumes the active frame
+  // and pauses the rest via postMessage — no remount, no white flash. One frame is allowed while paused
+  // so canvas-based designs still paint a static first frame instead of showing blank.
+  var paused = true;
+  var rafPending = [];
+  var fakeRafId = -1;
+  var firstFrameDone = false;
+  var realRaf = typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame.bind(window) : null;
+  var realCaf = typeof window.cancelAnimationFrame === 'function' ? window.cancelAnimationFrame.bind(window) : null;
+  if (realRaf) {
+    window.requestAnimationFrame = function (cb) {
+      if (!paused) return realRaf(cb);
+      if (!firstFrameDone) { firstFrameDone = true; return realRaf(cb); }
+      var id = fakeRafId--; rafPending.push({ id: id, cb: cb }); return id;
+    };
+    window.cancelAnimationFrame = function (id) {
+      if (typeof id === 'number' && id < 0) { rafPending = rafPending.filter(function (e) { return e.id !== id; }); return; }
+      if (realCaf) realCaf(id);
+    };
+  }
+  function setPaused(next) {
+    if (next === paused) return;
+    paused = next;
+    if (!paused && realRaf) { var queued = rafPending; rafPending = []; queued.forEach(function (e) { realRaf(e.cb); }); }
+  }
   function reportHeight() {
     try {
       // Measure the body's content height, NOT documentElement.scrollHeight — the latter is clamped to
@@ -59,7 +86,10 @@ function shimBody(): string {
     window.addEventListener('resize', reportHeight);
     // The parent asks for a fresh measurement after a layout-affecting change (device size / fit mode).
     window.addEventListener('message', function (event) {
-      if (event.data && event.data.type === 'omnidesign-measure') reportHeight();
+      if (!event.data) return;
+      if (event.data.type === 'omnidesign-measure') reportHeight();
+      else if (event.data.type === 'omnidesign-pause') setPaused(true);
+      else if (event.data.type === 'omnidesign-resume') setPaused(false);
     });
     // Catch late layout (web fonts, images, Alpine expanding content) that fires no size event.
     [120, 400, 1000].forEach(function (delay) { setTimeout(reportHeight, delay); });
