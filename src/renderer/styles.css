@@ -3073,6 +3073,19 @@ button[aria-expanded="true"] .dropdown-caret {
   white-space: nowrap;
 }
 
+/* Marks a canvas tile whose design scripts are paused until the cursor is over it. */
+.preview-tile-paused {
+  margin-left: auto;
+  flex: none;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
 .preview-chrome-notch {
   width: 64px;
   height: 5px;

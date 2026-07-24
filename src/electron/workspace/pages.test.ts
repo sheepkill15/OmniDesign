@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { discoverPages, isBuildPath, isCandidateSource, isHtmlPage, resolveEntryPage } from './pages.js'
+import { discoverPages, extractPageTitle, isBuildPath, isCandidateSource, isHtmlPage, resolveEntryPage } from './pages.js'
 
 describe('page discovery', () => {
   it('classifies build artifacts, pages, and candidate sources', () => {
@@ -27,5 +27,12 @@ describe('page discovery', () => {
     // A stale preference that no longer exists falls back to the normal resolution.
     expect(resolveEntryPage(['index.html', 'about.html'], 'gone.html')).toBe('index.html')
     expect(resolveEntryPage([])).toBeNull()
+  })
+
+  it('extracts a page title from its document, collapsing whitespace', () => {
+    expect(extractPageTitle('<html><head><title>About us</title></head><body></body></html>')).toBe('About us')
+    expect(extractPageTitle('<title>\n  Pricing &amp; plans\n</title>')).toBe('Pricing &amp; plans')
+    expect(extractPageTitle('<html><head></head><body>No title</body></html>')).toBeNull()
+    expect(extractPageTitle('<title>   </title>')).toBeNull()
   })
 })

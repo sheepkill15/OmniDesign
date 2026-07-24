@@ -50,8 +50,8 @@ describe('WorkspaceService', () => {
 
     const shell = service.createAgentDesignShell('A small marketing site', () => undefined, undefined, 'Marketing site')
     const repositoryPath = service.getDesignRepositoryPath(shell.id)
-    writeFileSync(path.join(repositoryPath, 'index.html'), '<html><head><link rel="stylesheet" href=".build/tailwind.css"></head><body class="bg-white"><a href="about.html" class="text-blue-600">About</a></body></html>', 'utf8')
-    writeFileSync(path.join(repositoryPath, 'about.html'), '<html><head><link rel="stylesheet" href=".build/tailwind.css"></head><body class="bg-white"><h1 class="text-3xl">About us</h1></body></html>', 'utf8')
+    writeFileSync(path.join(repositoryPath, 'index.html'), '<html><head><title>Home</title><link rel="stylesheet" href=".build/tailwind.css"></head><body class="bg-white"><a href="about.html" class="text-blue-600">About</a></body></html>', 'utf8')
+    writeFileSync(path.join(repositoryPath, 'about.html'), '<html><head><title>About</title><link rel="stylesheet" href=".build/tailwind.css"></head><body class="bg-white"><h1 class="text-3xl">About us</h1></body></html>', 'utf8')
 
     const saved = await service.saveAgentWorkspaceResult(shell.id, 'A small marketing site', 'codex', 'codex-1', 'Built a two-page site.', () => undefined)
     expect(saved.revisions).toHaveLength(1)
@@ -66,6 +66,8 @@ describe('WorkspaceService', () => {
     expect(pages.map((page) => page.path)).toEqual(['index.html', 'about.html'])
     expect(entryPagePath).toBe('index.html')
     expect(pages.find((page) => page.path === 'index.html')?.isHome).toBe(true)
+    // With no metadata title set, each page defaults to its own <title>.
+    expect(pages.map((page) => page.title)).toEqual(['Home', 'About'])
 
     // The home page can be overridden to another discovered page.
     service.setDesignEntryPage(saved.id, 'about.html')

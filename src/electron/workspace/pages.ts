@@ -32,6 +32,14 @@ export function discoverPages(files: Readonly<Record<string, string>>): string[]
     })
 }
 
+/** The page's own <title>, used as its default display name when no metadata title is set. */
+export function extractPageTitle(html: string): string | null {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  if (!match) return null
+  const title = match[1].replace(/\s+/g, ' ').trim()
+  return title || null
+}
+
 /**
  * Resolve which page is the home/entry page. A persisted preference wins when it still exists;
  * otherwise index.html if present, otherwise the first discovered page, otherwise null.

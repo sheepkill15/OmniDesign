@@ -2,7 +2,7 @@ import { compileTailwindCss, compileTailwindCssForFiles, validateCompiledDesign,
 import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectSummary, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
-import { discoverPages, resolveEntryPage } from './pages.js'
+import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 import { cloneRepository } from './gitClone.js'
@@ -199,7 +199,8 @@ export class WorkspaceService {
     const entryPagePath = resolveEntryPage(discovered, design.entryPagePath)
     const pages: DesignPage[] = discovered.map((page, index) => ({
       path: page,
-      title: metadata.get(page)?.title ?? null,
+      // A user-set display title wins; otherwise fall back to the page's own <title>, then the path.
+      title: metadata.get(page)?.title ?? extractPageTitle(files[page] ?? '') ?? null,
       order: metadata.get(page)?.order ?? index,
       isHome: page === entryPagePath,
     }))

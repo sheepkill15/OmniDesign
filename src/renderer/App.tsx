@@ -1286,8 +1286,8 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
             <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<span>{currentPageLabel}</span>}>
               <Menu aria-label="Preview page" onAction={(key) => {
                 const value = String(key)
-                if (value.startsWith('home:')) void setPageAsHome(value.slice('home:'.length))
-                else if (value.startsWith('rename:')) { const path = value.slice('rename:'.length); setPageRename({ path, value: previewPages.find((page) => page.path === path)?.title ?? '' }) }
+                if (value === '__set_home__') { if (previewPage) void setPageAsHome(previewPage) }
+                else if (value === '__rename__') { if (previewPage) setPageRename({ path: previewPage, value: previewPages.find((page) => page.path === previewPage)?.title ?? '' }) }
                 else setPreviewPage(value)
               }}>
                 <MenuSection className="project-popover-section">
@@ -1302,8 +1302,8 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
                 </MenuSection>
                 <MenuSection className="project-popover-section">
                   <Header className="project-popover-header">{currentPageLabel}</Header>
-                  <MenuItem id={`home:${previewPage ?? ''}`} textValue="Set as home page">Set as home page</MenuItem>
-                  <MenuItem id={`rename:${previewPage ?? ''}`} textValue="Rename page">Rename page…</MenuItem>
+                  <MenuItem id="__set_home__" textValue="Set as home page">Set as home page</MenuItem>
+                  <MenuItem id="__rename__" textValue="Rename page">Rename page…</MenuItem>
                 </MenuSection>
               </Menu>
             </DropdownButton>

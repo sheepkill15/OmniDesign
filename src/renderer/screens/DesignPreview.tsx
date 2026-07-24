@@ -46,6 +46,11 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   const [heights, setHeights] = useState<Record<string, number>>({})
   const [zoom, setZoom] = useState(0.75)
   const [pan, setPan] = useState({ x: 0, y: 0 })
+  // Canvas mode runs the design's scripts (Alpine, animation loops) in only one tile at a time — the
+  // hovered one — so a board of many pages does not run every design's JS at once. The rest load
+  // without scripts: still full HTML/CSS, just paused.
+  const [hoveredPath, setHoveredPath] = useState<string | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const capturedRef = useRef<string | null>(null)
   const capturingRef = useRef(false)
   const viewport = useRef<HTMLDivElement>(null)
@@ -119,25 +124,41 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   const endPan = () => { panState.current = null }
   const resetView = () => { setZoom(0.75); setPan({ x: 0, y: 0 }) }
 
+  // The home page runs by default; hovering a tile (after it settles briefly, to avoid activating every
+  // tile during a fast sweep) makes that one the single live tile.
+  const homePath = pages.find((page) => page.isHome)?.path ?? pages[0]?.path ?? null
+  const livePath = hoveredPath && pages.some((page) => page.path === hoveredPath) ? hoveredPath : homePath
+  const armHover = (path: string) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    hoverTimer.current = setTimeout(() => setHoveredPath(path), 140)
+  }
+  const cancelHover = () => { if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null } }
+  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current) }, [])
+
   if (!pages.length) return <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>
 
   if (viewMode === 'canvas') {
     return (
       <div className="preview-canvas" ref={viewport} data-panning={panState.current ? true : undefined} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}>
         <div className="preview-board" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
-          {pages.map((page) => (
-            <figure className="preview-tile" data-device={device} key={page.path} style={{ width: `${dims.width}px` }}>
-              <div className="preview-tile-chrome" data-device={device} aria-hidden="true">
-                {device === 'phone' || device === 'tablet'
-                  ? <span className="preview-chrome-notch" />
-                  : <><span className="preview-chrome-dots"><i /><i /><i /></span><span className="preview-chrome-title">{page.title ?? page.path}</span></>}
-              </div>
-              <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
-                <iframe title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} />
-              </div>
-              <figcaption className="preview-tile-label" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</figcaption>
-            </figure>
-          ))}
+          {pages.map((page) => {
+            const isLive = page.path === livePath
+            return (
+              <figure className="preview-tile" data-device={device} data-paused={!isLive || undefined} key={page.path} style={{ width: `${dims.width}px` }} onPointerEnter={() => armHover(page.path)} onPointerLeave={cancelHover}>
+                <div className="preview-tile-chrome" data-device={device} aria-hidden="true">
+                  {device === 'phone' || device === 'tablet'
+                    ? <span className="preview-chrome-notch" />
+                    : <><span className="preview-chrome-dots"><i /><i /><i /></span><span className="preview-chrome-title">{page.title ?? page.path}</span>{!isLive && <span className="preview-tile-paused">Paused</span>}</>}
+                </div>
+                <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
+                  {/* Only the live tile runs scripts; paused tiles load with an empty sandbox (HTML/CSS
+                      only). Keying on live-state remounts the frame so the sandbox flags re-apply. */}
+                  <iframe key={isLive ? 'live' : 'paused'} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox={isLive ? 'allow-scripts' : ''} referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} />
+                </div>
+                <figcaption className="preview-tile-label" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</figcaption>
+              </figure>
+            )
+          })}
         </div>
         <div className="preview-canvas-controls" role="group" aria-label="Canvas zoom">
           <Button className="icon-button" aria-label="Zoom out" onPress={() => setZoom((current) => Math.max(0.2, current - 0.1))}><MinusIcon aria-hidden="true" /></Button>
