@@ -3098,28 +3098,30 @@ button[aria-expanded="true"] .dropdown-caret {
   background: #ffffff;
 }
 
+/* The tile caption is the filename row; double-clicking it opens the page in focused mode. */
 .preview-tile-label {
   margin: 0;
-}
-
-.preview-tile-open {
-  width: 100%;
-  border: 0;
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text-subtle);
-  font: inherit;
-  font-size: 12px;
-  padding: 6px 12px;
-  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
 }
 
-.preview-tile-open:hover {
+.preview-tile-label:hover {
   color: var(--text);
   background: var(--surface-3);
+}
+
+.preview-tile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .preview-tile-home {

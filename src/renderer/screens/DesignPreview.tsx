@@ -107,7 +107,7 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   const onPointerDown = (event: React.PointerEvent) => {
     if (viewMode !== 'canvas' || event.button !== 0) return
     // Only pan from the board background — never when the gesture starts on a page frame or a control.
-    if ((event.target as HTMLElement).closest('.preview-tile-chrome, .preview-tile-frame, .preview-tile-label, .preview-canvas-controls')) return
+    if ((event.target as HTMLElement).closest('.preview-tile-frame, .preview-tile-label, .preview-canvas-controls')) return
     event.preventDefault()
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
     panState.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }
@@ -127,7 +127,7 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
         <div className="preview-board" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
           {pages.map((page) => (
             <figure className="preview-tile" data-device={device} key={page.path} style={{ width: `${dims.width}px` }}>
-              <div className="preview-tile-chrome" data-device={device} aria-hidden="true" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}>
+              <div className="preview-tile-chrome" data-device={device} aria-hidden="true">
                 {device === 'phone' || device === 'tablet'
                   ? <span className="preview-chrome-notch" />
                   : <><span className="preview-chrome-dots"><i /><i /><i /></span><span className="preview-chrome-title">{page.title ?? page.path}</span></>}
@@ -135,7 +135,7 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
               <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
                 <iframe title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} />
               </div>
-              <figcaption className="preview-tile-label" onDoubleClick={() => onOpenPage(page.path)}><Button className="preview-tile-open" onPress={() => onOpenPage(page.path)} aria-label={`Open ${page.title ?? page.path} in focused view`}>{page.title ?? page.path}{page.isHome && <span className="preview-tile-home">Home</span>}</Button></figcaption>
+              <figcaption className="preview-tile-label" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</figcaption>
             </figure>
           ))}
         </div>

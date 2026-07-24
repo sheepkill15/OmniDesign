@@ -1018,8 +1018,11 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Generated design preview' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
-    const tileLabel = await screen.findByRole('button', { name: 'Open index.html in focused view' })
-    fireEvent.dblClick(tileLabel)
+    const caption = await screen.findByTitle('Double-click to open in focused view')
+    // A single click stays on the canvas; only a double-click opens the page.
+    fireEvent.click(caption)
+    expect(screen.getByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
+    fireEvent.dblClick(caption)
 
     // Back in focused mode: the canvas-only fit controls are gone.
     await waitFor(() => expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument())
