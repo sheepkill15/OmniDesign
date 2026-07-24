@@ -1008,6 +1008,23 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
   })
 
+  it('opens a page in focused mode by double-clicking its filename on the canvas', async () => {
+    installBridge()
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    const tileLabel = await screen.findByRole('button', { name: 'Open index.html in focused view' })
+    fireEvent.dblClick(tileLabel)
+
+    // Back in focused mode: the canvas-only fit controls are gone.
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument())
+  })
+
   it('recovers saved designs into the home list', async () => {
     installBridge([design])
     render(<App />)

@@ -1323,7 +1323,7 @@ function DesignWorkspace({ design, providers, projects, associationNotice, activ
         <small>{previewStatus}</small>
       </div>
       {previewToken && design.selectedRevisionId
-        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} isHeadRevision={selectedIsHead} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={design.layout.previewCustomWidth} customHeight={design.layout.previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} />
+        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} isHeadRevision={selectedIsHead} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={design.layout.previewCustomWidth} customHeight={design.layout.previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} />
         : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
     </section>
   )
