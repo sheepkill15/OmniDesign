@@ -563,15 +563,25 @@ function registerIpc(): void {
   ipcMain.handle('preview:capture', async (event, value: unknown) => {
     authorize(event)
     const request = previewCaptureRequestSchema.parse(value)
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    try {
-      const image = await mainWindow.webContents.capturePage(request.rect)
-      if (image.isEmpty()) return
-      workspaceStore?.saveThumbnail(request.designId, request.revisionId, image.resize({ width: 320 }).toPNG())
-      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
-    } catch {
-      // The design or revision may have been removed while the capture was in flight.
+    // The iframe may not have painted on the first attempt after loading, so capturePage can return an
+    // empty frame. Retry briefly and only persist a real image; report success so the renderer stops
+    // retrying (and does not mark a revision captured when every attempt came back empty).
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (!mainWindow || mainWindow.isDestroyed()) return false
+      try {
+        const image = await mainWindow.webContents.capturePage(request.rect)
+        if (!image.isEmpty()) {
+          workspaceStore?.saveThumbnail(request.designId, request.revisionId, image.resize({ width: 320 }).toPNG())
+          if (!mainWindow.isDestroyed()) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
+          return true
+        }
+      } catch {
+        // The design or revision may have been removed while the capture was in flight.
+        return false
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150))
     }
+    return false
   })
   ipcMain.handle('preview:pop-out', (event, value: unknown) => {
     authorize(event)

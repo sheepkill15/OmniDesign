@@ -312,7 +312,7 @@ interface Window {
     readonly preview: {
       register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>
       reportDiagnostic(designId: string, revisionId: string, diagnostic: { readonly level: 'warning' | 'error'; readonly message: string; readonly source: string | null; readonly line: number | null }): Promise<void>
-      capture(designId: string, revisionId: string, rect: PreviewBounds): Promise<void>
+      capture(designId: string, revisionId: string, rect: PreviewBounds): Promise<boolean>
       popOut(request: { readonly designId: string; readonly revisionId: string; readonly page?: string }): Promise<void>
       closePopOut(): Promise<void>
       onDiagnostic(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void

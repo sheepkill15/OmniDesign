@@ -137,7 +137,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     preview: {
       register: vi.fn().mockResolvedValue({ token: 'token-1', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' }),
       reportDiagnostic: vi.fn().mockResolvedValue(undefined),
-      capture: vi.fn().mockResolvedValue(undefined),
+      capture: vi.fn().mockResolvedValue(true),
       popOut: vi.fn().mockResolvedValue(undefined),
       closePopOut: vi.fn().mockResolvedValue(undefined),
       onDiagnostic: vi.fn().mockReturnValue(() => undefined),

@@ -46,6 +46,7 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   const [zoom, setZoom] = useState(0.75)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const capturedRef = useRef<string | null>(null)
+  const capturingRef = useRef(false)
   const viewport = useRef<HTMLDivElement>(null)
 
   const pageUrl = useCallback((path: string) => `omnidesign-preview://revision/${token}/${path.split('/').map(encodeURIComponent).join('/')}`, [token])
@@ -70,7 +71,7 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
   }, [designId, revisionId, viewMode, selectedPage, onSelectPage])
 
   // A fresh revision reprepares the surface: forget stale heights and re-arm thumbnail capture.
-  useEffect(() => { setHeights({}); capturedRef.current = null }, [revisionId, token])
+  useEffect(() => { setHeights({}); capturedRef.current = null; capturingRef.current = false }, [revisionId, token])
 
   // Ask every mounted frame to re-measure after a layout-affecting change so Artboard tiles resize
   // instead of keeping a height from the previous device size or fit mode.
@@ -79,17 +80,21 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
     frames.forEach((frame) => { try { (frame as HTMLIFrameElement).contentWindow?.postMessage({ type: 'omnidesign-measure' }, '*') } catch { /* opaque frame not ready */ } })
   }, [fit, device, customWidth, customHeight])
 
-  // Capture a thumbnail for the head revision once the home page has painted in focused mode.
+  // Capture a thumbnail for the head revision once the home page has painted in focused mode. Only mark
+  // the revision captured once main confirms a non-empty frame, so an early empty capture retries.
   useEffect(() => {
     if (!isHeadRevision || viewMode !== 'focused') return
     const homePath = pages.find((page) => page.isHome)?.path ?? pages[0]?.path
-    if (!homePath || activePage !== homePath || capturedRef.current === revisionId || !heights[homePath]) return
+    if (!homePath || activePage !== homePath || capturedRef.current === revisionId || capturingRef.current || !heights[homePath]) return
     const frame = viewport.current?.querySelector('iframe')
     if (!frame) return
     const rect = frame.getBoundingClientRect()
     if (rect.width < 2 || rect.height < 2) return
-    capturedRef.current = revisionId
-    void window.omnidesign?.preview.capture(designId, revisionId, { x: Math.max(0, Math.round(rect.x)), y: Math.max(0, Math.round(rect.y)), width: Math.round(rect.width), height: Math.round(rect.height) })
+    const targetRevision = revisionId
+    capturingRef.current = true
+    void window.omnidesign?.preview.capture(designId, targetRevision, { x: Math.max(0, Math.round(rect.x)), y: Math.max(0, Math.round(rect.y)), width: Math.round(rect.width), height: Math.round(rect.height) })
+      .then((captured) => { if (captured) capturedRef.current = targetRevision })
+      .finally(() => { capturingRef.current = false })
   }, [designId, revisionId, isHeadRevision, viewMode, activePage, heights, pages])
 
   const onWheel = (event: React.WheelEvent) => {
