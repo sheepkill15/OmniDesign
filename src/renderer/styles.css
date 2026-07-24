@@ -3005,7 +3005,7 @@ button[aria-expanded="true"] .dropdown-caret {
 .preview-focused-fill {
   height: 100%;
   min-height: 0;
-  background: #ffffff;
+  background: var(--background);
 }
 
 .preview-focused-fill iframe {
@@ -3013,7 +3013,7 @@ button[aria-expanded="true"] .dropdown-caret {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #ffffff;
+  background: var(--background);
 }
 
 /* A device-framed tile: trusted-UI chrome drawn around the sandboxed iframe. */
@@ -3094,7 +3094,7 @@ button[aria-expanded="true"] .dropdown-caret {
 }
 
 .preview-tile-frame {
-  background: #ffffff;
+  background: var(--background);
   overflow: hidden;
 }
 
@@ -3108,7 +3108,7 @@ button[aria-expanded="true"] .dropdown-caret {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #ffffff;
+  background: var(--background);
 }
 
 /* The tile caption is the filename row; double-clicking it opens the page in focused mode. */
