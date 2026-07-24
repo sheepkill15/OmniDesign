@@ -47,6 +47,7 @@ import type { GenerationActivity } from '../workspace/contracts.js'
 import { writeOfflineZip } from '../workspace/exportService.js'
 import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewContentServer } from '../workspace/previewServer.js'
+import { ThumbnailCapturer } from '../workspace/thumbnailCapturer.js'
 import { isAllowedPreviewUrl } from '../workspace/previewPolicy.js'
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
@@ -61,6 +62,7 @@ const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS ===
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let previewServer: PreviewContentServer | null = null
+let thumbnailCapturer: ThumbnailCapturer | null = null
 let popWindow: BrowserWindow | null = null
 let popWindowDesignId: string | null = null
 let workspace: WorkspaceService | null = null
@@ -563,25 +565,24 @@ function registerIpc(): void {
   ipcMain.handle('preview:capture', async (event, value: unknown) => {
     authorize(event)
     const request = previewCaptureRequestSchema.parse(value)
-    // The iframe may not have painted on the first attempt after loading, so capturePage can return an
-    // empty frame. Retry briefly and only persist a real image; report success so the renderer stops
-    // retrying (and does not mark a revision captured when every attempt came back empty).
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      if (!mainWindow || mainWindow.isDestroyed()) return false
-      try {
-        const image = await mainWindow.webContents.capturePage(request.rect)
-        if (!image.isEmpty()) {
-          workspaceStore?.saveThumbnail(request.designId, request.revisionId, image.resize({ width: 320 }).toPNG())
-          if (!mainWindow.isDestroyed()) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
-          return true
-        }
-      } catch {
-        // The design or revision may have been removed while the capture was in flight.
-        return false
-      }
-      await new Promise((resolve) => setTimeout(resolve, 150))
+    if (!thumbnailCapturer || !requireWorkspace().getDesign(request.designId)) return false
+    let files: import('../workspace/designRepository.js').RevisionFiles
+    let entryPage: string
+    try {
+      files = requireWorkspace().getRevisionFiles(request.designId, request.revisionId)
+      entryPage = requireWorkspace().getRevisionPages(request.designId, request.revisionId).entryPagePath ?? 'index.html'
+    } catch {
+      return false
     }
-    return false
+    const png = await thumbnailCapturer.capture(request.designId, request.revisionId, files, entryPage)
+    if (!png) return false
+    try {
+      workspaceStore?.saveThumbnail(request.designId, request.revisionId, png)
+    } catch {
+      return false
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
+    return true
   })
   ipcMain.handle('preview:pop-out', (event, value: unknown) => {
     authorize(event)
@@ -720,6 +721,7 @@ void app.whenReady().then(() => {
   )
   generationQueue.recoverAfterRestart()
   previewServer = new PreviewContentServer(session.defaultSession, previewFrameAncestors())
+  thumbnailCapturer = new ThumbnailCapturer(session.defaultSession, previewServer)
   mainWindow = createMainWindow()
   registerIpc()
 
@@ -764,6 +766,7 @@ void app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       previewServer ??= new PreviewContentServer(session.defaultSession, previewFrameAncestors())
+      thumbnailCapturer ??= new ThumbnailCapturer(session.defaultSession, previewServer)
       mainWindow = createMainWindow()
     }
   })

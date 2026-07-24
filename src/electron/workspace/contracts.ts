@@ -290,13 +290,6 @@ export const previewRequestSchema = selectRevisionRequestSchema.extend({
 
 export const exportRequestSchema = selectRevisionRequestSchema
 
-const previewRectSchema = z.object({
-  x: z.number().int(),
-  y: z.number().int(),
-  width: z.number().int().positive(),
-  height: z.number().int().positive(),
-})
-
 export const previewRegisterRequestSchema = selectRevisionRequestSchema
 
 export const previewPopOutRequestSchema = selectRevisionRequestSchema.extend({
@@ -312,9 +305,9 @@ export const previewDiagnosticReportSchema = selectRevisionRequestSchema.extend(
   }),
 })
 
-export const previewCaptureRequestSchema = selectRevisionRequestSchema.extend({
-  rect: previewRectSchema,
-})
+// The thumbnail is rendered off-screen from the revision's entry page, so the request only needs to
+// identify the revision — no on-screen rectangle.
+export const previewCaptureRequestSchema = selectRevisionRequestSchema
 
 export const revisionPagesRequestSchema = selectRevisionRequestSchema
 

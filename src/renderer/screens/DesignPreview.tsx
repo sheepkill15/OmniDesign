@@ -24,7 +24,7 @@ export interface DesignPreviewProps {
   readonly designId: string
   readonly revisionId: string
   readonly token: string
-  readonly isHeadRevision: boolean
+  readonly captureNeeded: boolean
   readonly pages: readonly DesignPage[]
   readonly viewMode: PreviewViewMode
   readonly fit: PreviewFit
@@ -41,7 +41,7 @@ export interface DesignPreviewProps {
 // Canvas mode lays every page out as a device-framed tile on a pan/zoom board honoring the global
 // device size and fit. Height (Artboard fit), diagnostics, and current-page reporting arrive from the
 // injected shim via postMessage.
-export function DesignPreview({ designId, revisionId, token, isHeadRevision, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, onSelectPage, onOpenPage }: DesignPreviewProps) {
+export function DesignPreview({ designId, revisionId, token, captureNeeded, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, onSelectPage, onOpenPage }: DesignPreviewProps) {
   const dims = deviceDimensions(device, customWidth, customHeight)
   const [heights, setHeights] = useState<Record<string, number>>({})
   const [zoom, setZoom] = useState(0.75)
@@ -101,22 +101,17 @@ export function DesignPreview({ designId, revisionId, token, isHeadRevision, pag
     frames.forEach((frame) => { try { (frame as HTMLIFrameElement).contentWindow?.postMessage({ type: 'omnidesign-measure' }, '*') } catch { /* opaque frame not ready */ } })
   }, [fit, device, customWidth, customHeight])
 
-  // Capture a thumbnail for the head revision once the home page has painted in focused mode. Only mark
-  // the revision captured once main confirms a non-empty frame, so an early empty capture retries.
+  // Ask main to (re)generate this head revision's thumbnail when it lacks one. Main renders the entry
+  // page off-screen and screenshots it, so this does not depend on the view mode, the current page, or
+  // the on-screen frame having painted.
   useEffect(() => {
-    if (!isHeadRevision || viewMode !== 'focused') return
-    const homePath = pages.find((page) => page.isHome)?.path ?? pages[0]?.path
-    if (!homePath || activePage !== homePath || capturedRef.current === revisionId || capturingRef.current || !heights[homePath]) return
-    const frame = viewport.current?.querySelector('iframe')
-    if (!frame) return
-    const rect = frame.getBoundingClientRect()
-    if (rect.width < 2 || rect.height < 2) return
+    if (!captureNeeded || capturedRef.current === revisionId || capturingRef.current) return
     const targetRevision = revisionId
     capturingRef.current = true
-    void window.omnidesign?.preview.capture(designId, targetRevision, { x: Math.max(0, Math.round(rect.x)), y: Math.max(0, Math.round(rect.y)), width: Math.round(rect.width), height: Math.round(rect.height) })
+    void window.omnidesign?.preview.capture(designId, targetRevision)
       .then((captured) => { if (captured) capturedRef.current = targetRevision })
       .finally(() => { capturingRef.current = false })
-  }, [designId, revisionId, isHeadRevision, viewMode, activePage, heights, pages])
+  }, [designId, revisionId, captureNeeded])
 
   const onWheel = (event: React.WheelEvent) => {
     if (viewMode !== 'canvas') return

@@ -90,7 +90,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
   preview: {
     register: (designId: string, revisionId: string) => ipcRenderer.invoke('preview:register', { designId, revisionId }),
     reportDiagnostic: (designId: string, revisionId: string, diagnostic: { level: 'warning' | 'error'; message: string; source: string | null; line: number | null }) => ipcRenderer.invoke('preview:report-diagnostic', { designId, revisionId, diagnostic }),
-    capture: (designId: string, revisionId: string, rect: { x: number; y: number; width: number; height: number }): Promise<boolean> => ipcRenderer.invoke('preview:capture', { designId, revisionId, rect }),
+    capture: (designId: string, revisionId: string): Promise<boolean> => ipcRenderer.invoke('preview:capture', { designId, revisionId }),
     popOut: (request: { designId: string; revisionId: string; page?: string }) => ipcRenderer.invoke('preview:pop-out', request),
     closePopOut: () => ipcRenderer.invoke('preview:close-pop-out'),
     onDiagnostic: (listener: (event: { designId: string; revisionId: string }) => void) => {
