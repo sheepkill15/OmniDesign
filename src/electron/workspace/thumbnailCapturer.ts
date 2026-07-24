@@ -44,13 +44,16 @@ export class ThumbnailCapturer {
     try {
       window.showInactive()
       await window.webContents.loadURL(`omnidesign-preview://revision/${token}/${entryPage.split('/').map(encodeURIComponent).join('/')}`)
-      // Give fonts, images, and the first paint a moment to settle before the screenshot.
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      // The injected shim starts with its animation loops paused (so canvas tiles stay cheap). For a
+      // thumbnail we want real content, so resume it and let the design's scripts run and paint before
+      // the screenshot — otherwise a JS/canvas-driven design captures as just its background.
+      try { await window.webContents.executeJavaScript("window.postMessage({ type: 'omnidesign-resume' }, '*')") } catch { /* ignore */ }
+      await new Promise((resolve) => setTimeout(resolve, 900))
       for (let attempt = 0; attempt < 6; attempt += 1) {
         if (window.isDestroyed()) return null
         const image = await window.webContents.capturePage()
         if (!image.isEmpty()) return image.resize({ width: THUMBNAIL_WIDTH }).toPNG()
-        await new Promise((resolve) => setTimeout(resolve, 150))
+        await new Promise((resolve) => setTimeout(resolve, 200))
       }
       return null
     } catch {
