@@ -75,6 +75,38 @@ interface ProjectDefinitionVersionRow {
   created_at: string
 }
 
+export interface ProjectDefinitionApplicationAttempt {
+  readonly id: string
+  readonly designId: string
+  readonly targetVersion: number
+  readonly mechanism: 'deterministic' | 'ai'
+  readonly state: 'applying' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'unavailable'
+  readonly generationJobId: string | null
+  readonly providerId: string | null
+  readonly modelId: string | null
+  readonly effort: string | null
+  readonly diagnostic: string | null
+  readonly resultingRevisionId: string | null
+  readonly createdAt: string
+  readonly completedAt: string | null
+}
+
+interface ProjectDefinitionApplicationAttemptRow {
+  id: string
+  design_id: string
+  target_version: number
+  mechanism: ProjectDefinitionApplicationAttempt['mechanism']
+  state: ProjectDefinitionApplicationAttempt['state']
+  generation_job_id: string | null
+  provider_id: string | null
+  model_id: string | null
+  effort: string | null
+  diagnostic: string | null
+  resulting_revision_id: string | null
+  created_at: string
+  completed_at: string | null
+}
+
 interface TagRow {
   id: string
   name: string
@@ -527,6 +559,26 @@ ALTER TABLE messages ADD COLUMN focused_target_json TEXT;
 ALTER TABLE generation_jobs ADD COLUMN focused_target_json TEXT;
 `
 
+const migrationThirtyEight = `
+CREATE TABLE project_definition_application_attempts (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  target_version INTEGER NOT NULL CHECK (target_version > 0),
+  mechanism TEXT NOT NULL CHECK (mechanism IN ('deterministic', 'ai')),
+  state TEXT NOT NULL CHECK (state IN ('applying', 'completed', 'failed', 'cancelled', 'interrupted', 'unavailable')),
+  generation_job_id TEXT REFERENCES generation_jobs(id) ON DELETE SET NULL,
+  provider_id TEXT,
+  model_id TEXT,
+  effort TEXT,
+  diagnostic TEXT,
+  resulting_revision_id TEXT REFERENCES revisions(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+) STRICT;
+CREATE INDEX project_definition_application_attempts_by_design ON project_definition_application_attempts(design_id, created_at);
+CREATE INDEX project_definition_application_attempts_by_job ON project_definition_application_attempts(generation_job_id);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -547,6 +599,7 @@ export class WorkspaceStore {
     // A background title request never survives a process exit, so no design can still be pending on open.
     this.database.exec('UPDATE designs SET title_pending = 0 WHERE title_pending = 1')
     this.database.exec("UPDATE designs SET definition_application_state = 'failed', definition_application_error = 'Definition application was interrupted when OmniDesign closed.' WHERE definition_application_state = 'applying'")
+    this.database.exec("UPDATE project_definition_application_attempts SET state = 'interrupted', diagnostic = 'OmniDesign closed before this definition application completed.', completed_at = datetime('now') WHERE state = 'applying'")
     this.purgeTimer = setInterval(() => { try { this.purgeExpiredTrash() } catch { /* a transient DB error should not crash the sweep */ } }, TRASH_PURGE_INTERVAL_MS)
     // Do not keep the process alive solely for the sweep.
     this.purgeTimer.unref?.()
@@ -734,6 +787,54 @@ export class WorkspaceStore {
     `).run(unavailable ? 'unavailable' : 'failed', error, designId, targetVersion)
     if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
     return this.requireDesign(designId)
+  }
+
+  public startProjectDefinitionApplicationAttempt(designId: string, targetVersion: number, options: {
+    readonly mechanism: 'deterministic' | 'ai'
+    readonly generationJobId?: string | null
+    readonly providerId?: string | null
+    readonly modelId?: string | null
+    readonly effort?: string | null
+    readonly state?: 'applying' | 'failed' | 'unavailable'
+    readonly diagnostic?: string | null
+  }): ProjectDefinitionApplicationAttempt {
+    this.requireDesign(designId)
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    const state = options.state ?? 'applying'
+    this.database.prepare(`
+      INSERT INTO project_definition_application_attempts
+        (id, design_id, target_version, mechanism, state, generation_job_id, provider_id, model_id, effort, diagnostic, resulting_revision_id, created_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    `).run(id, designId, targetVersion, options.mechanism, state, options.generationJobId ?? null, options.providerId ?? null, options.modelId ?? null, options.effort ?? null, options.diagnostic ?? null, now, state === 'applying' ? null : now)
+    return this.requireProjectDefinitionApplicationAttempt(id)
+  }
+
+  public finishProjectDefinitionApplicationAttempt(id: string, state: 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'unavailable', diagnostic: string | null = null, resultingRevisionId: string | null = null): ProjectDefinitionApplicationAttempt {
+    const result = this.database.prepare(`
+      UPDATE project_definition_application_attempts
+      SET state = ?, diagnostic = ?, resulting_revision_id = ?, completed_at = ?
+      WHERE id = ? AND state IN ('applying', 'interrupted')
+    `).run(state, diagnostic, resultingRevisionId, new Date().toISOString(), id)
+    if (result.changes !== 1) throw new Error('Definition application attempt is not active.')
+    return this.requireProjectDefinitionApplicationAttempt(id)
+  }
+
+  public finishProjectDefinitionApplicationAttemptForJob(generationJobId: string, state: 'completed' | 'failed' | 'cancelled' | 'interrupted', diagnostic: string | null = null, resultingRevisionId: string | null = null): ProjectDefinitionApplicationAttempt | null {
+    const row = this.database.prepare(`
+      SELECT id FROM project_definition_application_attempts
+      WHERE generation_job_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1
+    `).get(generationJobId) as { id: string } | undefined
+    return row ? this.finishProjectDefinitionApplicationAttempt(row.id, state, diagnostic, resultingRevisionId) : null
+  }
+
+  public listProjectDefinitionApplicationAttempts(designId: string): ProjectDefinitionApplicationAttempt[] {
+    const rows = this.database.prepare(`
+      SELECT id, design_id, target_version, mechanism, state, generation_job_id, provider_id, model_id, effort,
+             diagnostic, resulting_revision_id, created_at, completed_at
+      FROM project_definition_application_attempts WHERE design_id = ? ORDER BY created_at, rowid
+    `).all(designId) as unknown as ProjectDefinitionApplicationAttemptRow[]
+    return rows.map((row) => this.hydrateProjectDefinitionApplicationAttempt(row))
   }
 
   public renameDesign(designId: string, title: string): Design {
@@ -1073,7 +1174,17 @@ export class WorkspaceStore {
 
   public restoreRevision(designId: string, revisionId: string, gitCommit: string | null = null): Design {
     const revision = this.requireRevision(designId, revisionId)
-    return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.providerId, revision.modelId, gitCommit, undefined, revision.definitionVersion ?? null)
+    const restored = this.addRevision(designId, `Restored: ${revision.prompt}`, revision.providerId, revision.modelId, gitCommit, undefined, revision.definitionVersion ?? null)
+    const project = this.database.prepare('SELECT current_definition_version FROM projects WHERE id = ?').get(restored.projectId) as { current_definition_version: number | null } | undefined
+    const currentVersion = project?.current_definition_version ?? null
+    if (currentVersion && currentVersion > (revision.definitionVersion ?? 0) && restored.keptDefinitionVersion !== currentVersion) {
+      this.database.prepare(`
+        UPDATE designs SET pending_definition_version = ?, definition_application_state = 'pending', definition_application_error = NULL
+        WHERE id = ?
+      `).run(currentVersion, designId)
+      return this.requireDesign(designId)
+    }
+    return restored
   }
 
   public saveDraft(designId: string, draft: string, attachments: readonly Attachment[] = []): void {
@@ -1462,7 +1573,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1630,6 +1741,34 @@ export class WorkspaceStore {
     const job = this.getGenerationJob(id)
     if (!job) throw new Error('Generation job not found.')
     return job
+  }
+
+  private requireProjectDefinitionApplicationAttempt(id: string): ProjectDefinitionApplicationAttempt {
+    const row = this.database.prepare(`
+      SELECT id, design_id, target_version, mechanism, state, generation_job_id, provider_id, model_id, effort,
+             diagnostic, resulting_revision_id, created_at, completed_at
+      FROM project_definition_application_attempts WHERE id = ?
+    `).get(id) as unknown as ProjectDefinitionApplicationAttemptRow | undefined
+    if (!row) throw new Error('Definition application attempt not found.')
+    return this.hydrateProjectDefinitionApplicationAttempt(row)
+  }
+
+  private hydrateProjectDefinitionApplicationAttempt(row: ProjectDefinitionApplicationAttemptRow): ProjectDefinitionApplicationAttempt {
+    return {
+      id: row.id,
+      designId: row.design_id,
+      targetVersion: row.target_version,
+      mechanism: row.mechanism,
+      state: row.state,
+      generationJobId: row.generation_job_id,
+      providerId: row.provider_id,
+      modelId: row.model_id,
+      effort: row.effort,
+      diagnostic: row.diagnostic,
+      resultingRevisionId: row.resulting_revision_id,
+      createdAt: row.created_at,
+      completedAt: row.completed_at,
+    }
   }
 
   private listGenerationStepsForDesign(designId: string): GenerationStep[] {

@@ -237,6 +237,13 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     const updated = await runWorkspaceAction(() => api.applyProjectDesignDefinitionsToAll(design.projectId, target), 'Project definitions could not be applied to every design.')
     const current = updated?.find((candidate) => candidate.id === design.id)
     if (current) onChange(current)
+    if (updated) {
+      const needsAttention = updated.filter((candidate) => candidate.definitionApplicationState === 'failed' || candidate.definitionApplicationState === 'unavailable')
+      const applying = updated.filter((candidate) => candidate.definitionApplicationState === 'applying')
+      if (needsAttention.length) setFeedback({ tone: 'error', message: `${needsAttention.length} design${needsAttention.length === 1 ? ' still needs' : 's still need'} attention.`, detail: 'Successful updates were kept. Open each remaining design to retry or choose a provider.' })
+      else if (applying.length) setFeedback({ tone: 'success', message: `Definition updates are queued for ${applying.length} design${applying.length === 1 ? '' : 's'}.` })
+      else setFeedback({ tone: 'success', message: 'Project definitions were applied to every pending design.' })
+    }
   }
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
@@ -481,6 +488,13 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
 
   const previewStatus = selectedRevision ? 'Offline · validated' : 'Waiting for revision'
   const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
+  const definitionStatus = design.pendingDefinitionVersion
+    ? `${design.definitionApplicationState === 'applying' ? 'Applying' : design.definitionApplicationState === 'failed' ? 'Failed' : design.definitionApplicationState === 'unavailable' ? 'Unavailable' : 'Pending'} version ${design.pendingDefinitionVersion}`
+    : design.definitionApplicationState === 'kept' && design.keptDefinitionVersion
+    ? `Kept version ${design.keptDefinitionVersion}`
+    : design.definitionVersion
+    ? `Current version ${design.definitionVersion}`
+    : 'Not set up'
 
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
@@ -606,6 +620,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
+          <span className="definition-status" data-state={design.definitionApplicationState ?? 'current'}>Definitions: {definitionStatus}</span>
           <Button className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions</Button>
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>

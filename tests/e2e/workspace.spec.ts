@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { _electron as electron } from 'playwright'
-import type { ElectronApplication } from 'playwright'
+import type { ElectronApplication, Page } from 'playwright'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -21,6 +21,16 @@ async function launchWorkspace(userDataDirectory: string) {
   return { app, window: await app.firstWindow() }
 }
 
+async function continueWithoutDefinitions(window: Page, required = true): Promise<void> {
+  const prompt = window.getByRole('dialog', { name: /Set up design definitions for/ })
+  if (required) await expect(prompt).toBeVisible()
+  else {
+    try { await prompt.waitFor({ state: 'visible', timeout: 2_000 }) } catch { return }
+  }
+  await prompt.getByRole('button', { name: 'Not now' }).click()
+  await expect(prompt).toHaveCount(0)
+}
+
 test('creates and recovers a standalone design in the built Electron app', async () => {
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-e2e-'))
   let activeApp: ElectronApplication | null = null
@@ -33,6 +43,7 @@ test('creates and recovers a standalone design in the built Electron app', async
     await prompt.press('Enter')
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(firstRun.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await continueWithoutDefinitions(firstRun.window)
     const designTitle = firstRun.window.getByRole('textbox', { name: 'Rename design' })
     await designTitle.fill('Calm signals')
     await designTitle.press('Enter')
@@ -132,6 +143,7 @@ test('keeps a removed standalone design recoverable across an Electron restart',
     await prompt.fill('A disposable landing page')
     await prompt.press('Enter')
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await continueWithoutDefinitions(firstRun.window)
     await firstRun.window.getByRole('button', { name: 'Remove' }).click()
     await firstRun.window.getByRole('button', { name: 'Trash' }).click()
     await expect(firstRun.window.getByText('A disposable landing page', { exact: true })).toBeVisible()
@@ -184,6 +196,7 @@ test('applies and persists the trusted application theme across primary screens'
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'dark')
     await expect(firstRun.window.getByRole('button', { name: /Layout/ })).toBeVisible()
+    await continueWithoutDefinitions(firstRun.window)
 
     await firstRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
     const notifications = firstRun.window.getByRole('switch', { name: 'System notifications' })
@@ -211,6 +224,7 @@ test('applies and persists the trusted application theme across primary screens'
     activeApp = secondRun.app
     await expect(secondRun.window.getByRole('heading', { name: 'Start with an idea.' })).toBeVisible()
     await expect(secondRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
+    await continueWithoutDefinitions(secondRun.window, false)
     await secondRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(secondRun.window.getByRole('switch', { name: 'System notifications' })).not.toBeChecked()
   } finally {
@@ -332,6 +346,7 @@ test('opens the layout menu and dismisses it', async () => {
     await prompt.fill('A calm analytics dashboard')
     await prompt.press('Enter')
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await continueWithoutDefinitions(run.window)
 
     await run.window.getByRole('button', { name: /Layout/ }).click()
     const conversationOnly = run.window.getByRole('menuitem', { name: 'Conversation only' })
@@ -360,6 +375,7 @@ test('pops the preview into its own window and docks it back', async () => {
     await prompt.fill('A calm analytics dashboard')
     await prompt.press('Enter')
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await continueWithoutDefinitions(run.window)
     const dockedWindowCount = run.app.windows().length
 
     await run.window.getByRole('button', { name: /Layout/ }).click()
@@ -390,6 +406,7 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
     await prompt.fill('A multi-page product site')
     await prompt.press('Enter')
     await expect(firstRun.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await continueWithoutDefinitions(firstRun.window)
 
     await firstRun.window.getByRole('button', { name: 'Preview page' }).click()
     await firstRun.window.getByRole('menuitem', { name: /About A multi-page product site/ }).click()
@@ -432,5 +449,102 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
   } finally {
     await activeApp?.close().catch(() => undefined)
     await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('completes the Phase 3 definitions and exact focused-edit journey across restart', async () => {
+  test.setTimeout(90_000)
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-phase3-e2e-'))
+  const linkedProjectDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-phase3-project-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    await writeFile(path.join(linkedProjectDirectory, 'README.md'), '# Phase 3 project\n')
+    const projectName = path.basename(linkedProjectDirectory)
+    const firstRun = await launchWorkspace(userDataDirectory)
+    activeApp = firstRun.app
+    await firstRun.app.evaluate(({ dialog }, folder) => {
+      dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [folder] })
+    }, linkedProjectDirectory)
+
+    await firstRun.window.getByRole('button', { name: /Standalone design/ }).click()
+    await firstRun.window.getByRole('menuitem', { name: 'Choose local project folder…' }).click()
+    const firstPrompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await firstPrompt.fill('A Phase 3 seed page')
+    await firstPrompt.press('Enter')
+    const setupPrompt = firstRun.window.getByRole('dialog', { name: `Set up design definitions for ${projectName}?` })
+    await expect(setupPrompt).toBeVisible()
+    await setupPrompt.getByRole('button', { name: 'Set up now' }).click()
+    const setupChooser = firstRun.window.getByRole('dialog', { name: `Choose how to set up ${projectName}` })
+    await setupChooser.getByRole('button', { name: 'Fill in manually' }).click()
+    await expect(firstRun.window.getByRole('heading', { name: 'Design definitions' })).toBeVisible()
+    await firstRun.window.getByRole('button', { name: 'Add color' }).click()
+    await firstRun.window.getByRole('textbox', { name: 'Name' }).fill('primary')
+    await firstRun.window.getByRole('textbox', { name: 'Value' }).fill('#725d78')
+    await firstRun.window.getByRole('textbox', { name: 'AI Agent instructions' }).fill('Keep navigation compact and use the semantic project tokens.')
+    await firstRun.window.getByRole('button', { name: 'Save definitions' }).click()
+    await expect(firstRun.window.getByText('Definitions saved.')).toBeVisible()
+    await firstRun.window.getByRole('button', { name: 'Back' }).click()
+    await expect(firstRun.window.getByText('Project definitions version 1 is ready.')).toBeVisible()
+    await firstRun.window.getByRole('button', { name: 'Keep current design' }).click()
+
+    await firstRun.window.getByRole('button', { name: `New design in ${projectName}` }).click()
+    const secondPrompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await secondPrompt.fill('A focused-edit product page')
+    await secondPrompt.press('Enter')
+    await expect(firstRun.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await expect(firstRun.window.getByText('Definitions: Current version 1')).toBeVisible()
+
+    await firstRun.window.getByRole('button', { name: 'Definitions', exact: true }).click()
+    await firstRun.window.getByRole('textbox', { name: 'Value' }).fill('#3f6f68')
+    await firstRun.window.getByRole('button', { name: 'Save definitions' }).click()
+    await expect(firstRun.window.getByText('Definitions saved.')).toBeVisible()
+    await firstRun.window.getByRole('button', { name: 'Back' }).click()
+    await expect(firstRun.window.getByText('Project definitions version 2 is ready.')).toBeVisible()
+    await firstRun.window.getByRole('button', { name: 'Apply to this design' }).click()
+    await expect(firstRun.window.getByText('Definitions: Current version 2')).toBeVisible()
+    await expect(firstRun.window.getByRole('button', { name: /History · 2/ })).toBeVisible()
+
+    await firstRun.window.getByRole('button', { name: 'Select element' }).click()
+    await firstRun.window.frameLocator('.preview-focused-fill iframe').locator('h1').click()
+    const targetReference = firstRun.window.locator('.focused-target-chip small')
+    await expect(targetReference).toHaveText(/^index\.html:\d+-\d+$/)
+    const exactReference = await targetReference.textContent()
+    const followUp = firstRun.window.getByRole('textbox', { name: 'Request a design change' })
+    await followUp.fill('Make this heading feel more grounded')
+    await followUp.press('Enter')
+    await expect(firstRun.window.locator('.focused-target-chip')).toHaveCount(0)
+    await expect(firstRun.window.getByRole('button', { name: /History · 3/ })).toBeVisible()
+
+    const persisted = await firstRun.window.evaluate(async () => {
+      const current = (await window.omnidesign!.workspace.list()).find((design) => design.title === 'A focused-edit product page')!
+      return {
+        definitionVersion: current.definitionVersion,
+        target: [...current.messages].reverse().find((message) => message.focusedTarget)?.focusedTarget,
+        revisions: current.revisions.length,
+      }
+    })
+    expect(persisted).toMatchObject({ definitionVersion: 2, target: { path: 'index.html', startLine: expect.any(Number), endLine: expect.any(Number) }, revisions: 3 })
+    expect(exactReference).toBe(`index.html:${persisted.target!.startLine}-${persisted.target!.endLine}`)
+    await firstRun.app.close()
+    activeApp = null
+
+    const database = new DatabaseSync(path.join(userDataDirectory, 'workspace', 'omnidesign.sqlite'))
+    const applicationAttempt = database.prepare(`
+      SELECT state, mechanism, resulting_revision_id FROM project_definition_application_attempts
+      WHERE target_version = 2 ORDER BY created_at DESC LIMIT 1
+    `).get() as { state: string; mechanism: string; resulting_revision_id: string | null }
+    database.close()
+    expect(applicationAttempt).toMatchObject({ state: 'completed', mechanism: 'deterministic', resulting_revision_id: expect.any(String) })
+
+    const secondRun = await launchWorkspace(userDataDirectory)
+    activeApp = secondRun.app
+    await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await expect(secondRun.window.getByText(`Target · ${exactReference} ·`, { exact: false })).toBeVisible()
+    await expect(secondRun.window.getByText('Definitions: Current version 2')).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: /History · 3/ })).toBeVisible()
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    await rm(linkedProjectDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

@@ -177,6 +177,27 @@ button:not(:disabled):active {
 .icon-button[data-pressed],
 .navigation-item[data-pressed] { background: var(--surface-selected); }
 
+.primary-action {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.primary-action:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.primary-action[data-pressed] { background: var(--accent-strong); }
+.primary-action svg { width: 15px; }
+
 .app-frame {
   height: 100%;
   min-height: 0;
@@ -395,12 +416,14 @@ button:not(:disabled):active {
   color: var(--text-faint);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
   transition: opacity 100ms ease;
 }
 
 .project-add {
   position: absolute;
   inset: 0;
+  z-index: 1;
   display: grid;
   place-items: center;
   border: 0;
@@ -409,7 +432,7 @@ button:not(:disabled):active {
   color: var(--text-faint);
   cursor: pointer;
   opacity: 0;
-  pointer-events: none;
+  pointer-events: auto;
   transition: opacity 100ms ease;
 }
 
@@ -425,7 +448,6 @@ button:not(:disabled):active {
 
 .project-add[data-focus-visible] {
   opacity: 1;
-  pointer-events: auto;
   box-shadow: 0 0 0 2px var(--focus);
 }
 
@@ -437,7 +459,6 @@ button:not(:disabled):active {
 .project-nav-row:hover .project-add,
 .project-nav-row:focus-within .project-add {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .design-sublist {
@@ -1097,12 +1118,50 @@ button:not(:disabled):active {
 .definition-section textarea { min-height: 132px; padding: 11px 12px; resize: vertical; line-height: 1.55; }
 .definition-section input:focus,
 .definition-section textarea:focus { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 26%, transparent); }
+.definition-section [data-invalid] input { border-color: var(--danger); }
+.definition-field-error { display: block; margin-top: 5px; color: var(--danger); font-size: 11px; line-height: 1.35; }
 .definition-remove { width: 36px; height: 38px; color: var(--text-subtle); }
 .definition-remove:hover { color: var(--danger); }
 .definition-empty { margin: 0; padding: 13px 0; color: var(--text-faint); font-size: 12px; }
-.definition-setup-modal { width: min(520px, calc(100vw - 32px)); }
-.definition-setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 22px; }
-.definition-setup-actions .text-button { margin-left: auto; }
+.definition-setup-modal { width: min(540px, calc(100vw - 32px)); }
+.definition-setup-modal [role='dialog'] { gap: 18px; padding: 26px; }
+.definition-setup-modal h2 { max-width: 460px; font-size: 20px; font-weight: 500; letter-spacing: -.018em; line-height: 1.25; }
+.definition-setup-intro { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: start; gap: 13px; }
+.definition-setup-symbol,
+.definition-setup-option-icon { display: grid; place-items: center; border: 1px solid var(--border); background: var(--surface-2); color: var(--accent); }
+.definition-setup-symbol { width: 40px; height: 40px; border-radius: 11px; }
+.definition-setup-symbol svg { width: 20px; }
+.definition-setup-intro p { padding-top: 1px; font-size: 13px; line-height: 1.6; }
+.definition-setup-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 5px; border-top: 1px solid var(--border); }
+.definition-setup-confirmation { display: flex; gap: 8px; }
+.definition-setup-dismiss { height: 32px; padding-inline: 4px; color: var(--text-faint); font-size: 11px; }
+.definition-setup-copy { font-size: 12px; }
+.definition-setup-options { display: grid; gap: 9px; }
+.definition-setup-option {
+  width: 100%;
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.definition-setup-option:hover { border-color: var(--border-strong); background: var(--surface-3); }
+.definition-setup-option > span:nth-child(2) { display: grid; gap: 4px; }
+.definition-setup-option strong { font-size: 13px; font-weight: 600; }
+.definition-setup-option small { color: var(--text-subtle); font-size: 11px; line-height: 1.4; }
+.definition-setup-option-icon { width: 36px; height: 36px; border-radius: 9px; }
+.definition-setup-option-icon svg { width: 18px; }
+.definition-setup-option > svg { width: 15px; color: var(--text-faint); transition: transform 120ms ease, color 120ms ease; }
+.definition-setup-option:hover > svg { color: var(--text); transform: translateX(2px); }
+.definition-setup-skip { width: max-content; height: 30px; margin: -4px auto 0; color: var(--text-faint); font-size: 11px; }
 .definition-proposal-controls { display: flex; align-items: center; gap: 10px; }
 .definition-proposal-controls .generation-settings-button { width: min(420px, 100%); }
 
@@ -3321,3 +3380,17 @@ button[aria-expanded="true"] .dropdown-caret {
 .focused-target-chip small, .focused-target-reference { color: var(--text-muted); font-size: 12px; }
 .focused-target-chip > button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font-size: 18px; }
 .focused-target-reference { margin-top: 8px; }
+.definition-status { align-items: center; border: 1px solid var(--border); border-radius: 999px; color: var(--text-subtle); display: inline-flex; font-size: 11px; padding: 4px 8px; white-space: nowrap; }
+.definition-status[data-state="failed"], .definition-status[data-state="unavailable"] { border-color: var(--danger); color: var(--danger); }
+.definition-status[data-state="applying"] { border-style: dashed; }
+
+@media (forced-colors: active) {
+  .definition-section [data-invalid] input { border-color: Mark; }
+  .definition-field-error,
+  .definition-status[data-state="failed"],
+  .definition-status[data-state="unavailable"] { color: Mark; }
+  .definition-setup-option,
+  .definition-setup-symbol,
+  .definition-setup-option-icon,
+  .definition-status { border-color: ButtonText; }
+}

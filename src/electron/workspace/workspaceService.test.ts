@@ -51,6 +51,10 @@ describe('WorkspaceService', () => {
     expect(applied).toMatchObject({ definitionVersion: 2, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
     expect(applied.revisions).toHaveLength(2)
     expect(service.getRevisionFiles(applied.id, applied.revisions[1].id)['omnidesign.theme.css']).toContain('--od-color-primary: #654321;')
+    expect(service.getRevisionFiles(applied.id, applied.revisions[0].id)['omnidesign.theme.css']).toContain('--od-color-primary: #123456;')
+    expect(store.listProjectDefinitionApplicationAttempts(saved.id)).toMatchObject([{
+      targetVersion: 2, mechanism: 'deterministic', state: 'completed', resultingRevisionId: applied.revisions[1].id,
+    }])
 
     store.saveProjectDesignDefinitions(seed.projectId, {
       ...store.getProjectDesignDefinitionState(seed.projectId)!.current!.definitions,
@@ -58,6 +62,7 @@ describe('WorkspaceService', () => {
     })
     const unavailable = await service.applyProjectDesignDefinitions(saved.id, 3)
     expect(unavailable).toMatchObject({ pendingDefinitionVersion: 3, definitionApplicationState: 'unavailable' })
+    expect(store.listProjectDefinitionApplicationAttempts(saved.id).at(-1)).toMatchObject({ targetVersion: 3, mechanism: 'ai', state: 'unavailable', diagnostic: expect.stringContaining('needs AI interpretation') })
     expect(service.prepareAIProjectDefinitionApplication(saved.id, 3)).toContain('Target definitions:')
     const currentHtml = readFileSync(path.join(repositoryPath, 'index.html'), 'utf8')
     writeFileSync(path.join(repositoryPath, 'index.html'), currentHtml.replace('</body>', '<p>AI-applied direction</p></body>'), 'utf8')
@@ -66,11 +71,16 @@ describe('WorkspaceService', () => {
     expect(interpreted.revisions.at(-1)?.definitionVersion).toBe(3)
     expect(completed).toMatchObject({ definitionVersion: 3, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
 
+    const restored = service.restoreRevision(saved.id, applied.revisions[0].id)
+    expect(restored.revisions.at(-1)?.definitionVersion).toBe(1)
+    expect(restored).toMatchObject({ definitionVersion: 1, pendingDefinitionVersion: 3, definitionApplicationState: 'pending' })
+    expect(service.getRevisionFiles(restored.id, restored.revisions.at(-1)!.id)['omnidesign.theme.css']).toContain('--od-color-primary: #123456;')
+
     store.saveProjectDesignDefinitions(seed.projectId, {
       ...store.getProjectDesignDefinitionState(seed.projectId)!.current!.definitions,
       visualGuidance: 'Another new direction.',
     })
-    expect(service.keepProjectDesignDefinitions(saved.id, 4)).toMatchObject({ definitionVersion: 3, keptDefinitionVersion: 4, pendingDefinitionVersion: null, definitionApplicationState: 'kept' })
+    expect(service.keepProjectDesignDefinitions(saved.id, 4)).toMatchObject({ definitionVersion: 1, keptDefinitionVersion: 4, pendingDefinitionVersion: null, definitionApplicationState: 'kept' })
     store.close()
   })
 

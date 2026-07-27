@@ -712,10 +712,38 @@ describe('Phase 1 walking skeleton UI', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Set up design definitions for Calm dashboard?' })
     expect(within(dialog).getByText(/shared colors, typography, spacing, shape/i)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Set up now' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Not now' })).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: "Don't show again for this project" }))
 
     await waitFor(() => expect(bridge.workspace.setProjectDefinitionPromptSuppressed).toHaveBeenCalledWith('project-1', true))
     expect(screen.queryByRole('dialog', { name: /Set up design definitions/ })).not.toBeInTheDocument()
+  })
+
+  it('offers proposal, manual, and continue setup paths and starts the chosen proposal for review', async () => {
+    const bridge = installBridge([design], design)
+    const project = { ...projectFromDesign(design), currentDefinitionVersion: null }
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    vi.mocked(bridge.settings.getTheme).mockResolvedValue('light')
+    render(<App />)
+
+    const prompt = await screen.findByRole('dialog', { name: 'Set up design definitions for Calm dashboard?' })
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+    const setupButton = within(prompt).getByRole('button', { name: 'Set up now' })
+    fireEvent.keyDown(setupButton, { key: 'Enter' })
+    fireEvent.keyUp(setupButton, { key: 'Enter' })
+    const chooser = await screen.findByRole('dialog', { name: 'Choose how to set up Calm dashboard' })
+    expect(within(chooser).getByRole('button', { name: 'Fill in manually' })).toBeInTheDocument()
+    expect(within(chooser).getByRole('button', { name: 'Continue without definitions' })).toBeInTheDocument()
+    const proposalButton = within(chooser).getByRole('button', { name: 'Generate a proposal' })
+    fireEvent.keyDown(proposalButton, { key: 'Enter' })
+    fireEvent.keyUp(proposalButton, { key: 'Enter' })
+
+    expect(await screen.findByRole('heading', { name: 'Design definitions' })).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.proposeProjectDesignDefinitions).toHaveBeenCalledWith('project-1', 'mock', 'mock-v1', null))
+    expect(await screen.findByText('Proposal ready for review.')).toBeInTheDocument()
+    expect(bridge.workspace.saveProjectDesignDefinitions).not.toHaveBeenCalled()
   })
 
   it('edits and saves structured project definitions from a design workspace', async () => {
@@ -742,6 +770,32 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText('Definitions saved.')).toBeInTheDocument()
   })
 
+  it('shows field-level recovery for duplicate names and unsafe CSS values before saving definitions', async () => {
+    const bridge = installBridge([design], design)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
+    await screen.findByRole('heading', { name: 'Design definitions' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add color' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add color' }))
+    const names = screen.getAllByRole('textbox', { name: 'Name' })
+    const values = screen.getAllByRole('textbox', { name: 'Value' })
+    fireEvent.change(names[0], { target: { value: 'primary' } })
+    fireEvent.change(names[1], { target: { value: 'primary' } })
+    fireEvent.change(values[0], { target: { value: '#725d78' } })
+    fireEvent.change(values[1], { target: { value: 'red; } body { display: none' } })
+
+    expect(screen.getAllByText(/already used in this section/)).toHaveLength(2)
+    expect(screen.getByText(/without semicolons, braces, comments/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save definitions' })).toBeDisabled()
+    expect(bridge.workspace.saveProjectDesignDefinitions).not.toHaveBeenCalled()
+
+    fireEvent.change(names[1], { target: { value: 'secondary' } })
+    fireEvent.change(values[1], { target: { value: 'oklch(65% 0.12 320)' } })
+    expect(screen.getByRole('button', { name: 'Save definitions' })).toBeEnabled()
+  })
+
   it('loads an AI-generated definition proposal for review without saving it', async () => {
     const bridge = installBridge([design], design)
     vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
@@ -763,9 +817,27 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     expect(await screen.findByText('Project definitions version 2 is ready.')).toBeInTheDocument()
+    expect(screen.getByText('Definitions: Pending version 2')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Apply to all' }))
 
     await waitFor(() => expect(bridge.workspace.applyProjectDesignDefinitionsToAll).toHaveBeenCalledWith('project-1', 2))
+  })
+
+  it('reports recoverable partial apply-to-all results without hiding successful designs', async () => {
+    const pending = { ...design, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
+    const sibling = { ...pending, id: 'design-2', title: 'Settings' }
+    const bridge = installBridge([pending, sibling], pending)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(pending.id)
+    vi.mocked(bridge.workspace.applyProjectDesignDefinitionsToAll).mockResolvedValueOnce([
+      { ...pending, definitionVersion: 2, pendingDefinitionVersion: null, definitionApplicationState: 'current' },
+      { ...sibling, definitionApplicationState: 'failed', definitionApplicationError: 'Validation failed.' },
+    ])
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply to all' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 design still needs attention.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Successful updates were kept.')
   })
 
   it('offers only linked projects as reuse targets in the composer selector', async () => {
@@ -1114,6 +1186,7 @@ describe('Phase 1 walking skeleton UI', () => {
       label: '<button#buy.primary>', stableId: 'pricing-cta', excerpt: '<button>Buy now</button>', dynamicDescription: null,
     }
     vi.mocked(bridge.preview.resolveFocusedTarget).mockResolvedValue(target)
+    vi.mocked(bridge.settings.getTheme).mockResolvedValue('light')
     render(<App />)
 
     const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -1122,7 +1195,10 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Generated design preview' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Select element' }))
+    const selectButton = screen.getByRole('button', { name: 'Select element' })
+    fireEvent.keyDown(selectButton, { key: 'Enter' })
+    fireEvent.keyUp(selectButton, { key: 'Enter' })
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
     expect(screen.getByRole('button', { name: 'Focused' })).toHaveAttribute('aria-pressed', 'true')
     const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
     expect(frame).toBeTruthy()
@@ -1144,6 +1220,35 @@ describe('Phase 1 walking skeleton UI', () => {
       'design-1', 'Make this call to action calmer', 'mock', 'mock-v1', undefined, [], target,
     ))
     expect(screen.queryByText('pages/pricing.html:24-31')).not.toBeInTheDocument()
+  })
+
+  it('drops a focused resolution that becomes stale while the preview mode changes', async () => {
+    const bridge = installBridge()
+    let finishResolution: ((target: FocusedTarget) => void) | undefined
+    vi.mocked(bridge.preview.resolveFocusedTarget).mockImplementation(() => new Promise((resolve) => { finishResolution = resolve }))
+    render(<App />)
+
+    const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(initialPrompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(initialPrompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+    const selectElement = screen.getByRole('button', { name: 'Select element' })
+    await waitFor(() => expect(selectElement).toBeEnabled())
+    fireEvent.click(selectElement)
+    await screen.findByRole('button', { name: 'Selecting…' })
+    const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', clickedLabel: '<button>', usedAncestor: false },
+    }))
+    await waitFor(() => expect(bridge.preview.resolveFocusedTarget).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    await act(async () => finishResolution?.({
+      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 5, endLine: 5,
+      label: '<button>', stableId: null, excerpt: '<button>Go</button>', dynamicDescription: null,
+    }))
+
+    expect(screen.queryByText('index.html:5-5')).not.toBeInTheDocument()
   })
 
   it('configures and persists a custom canvas size while focused mode stays unconstrained', async () => {

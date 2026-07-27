@@ -171,6 +171,11 @@ function requireWorkspace(): WorkspaceService {
   return workspace
 }
 
+function requireWorkspaceStore(): WorkspaceStore {
+  if (!workspaceStore) throw new Error('Workspace store is not ready.')
+  return workspaceStore
+}
+
 function requireGenerationQueue(): GenerationQueue {
   if (!generationQueue) throw new Error('Generation queue is not ready.')
   return generationQueue
@@ -379,7 +384,8 @@ function registerIpc(): void {
     let design = await requireWorkspace().applyProjectDesignDefinitions(request.designId, request.targetVersion)
     if (design.definitionApplicationState === 'unavailable' && request.providerId && request.modelId) {
       const prompt = requireWorkspace().prepareAIProjectDefinitionApplication(request.designId, request.targetVersion)
-      requireGenerationQueue().enqueue(request.designId, prompt, request.providerId, request.modelId, request.effort, [], request.targetVersion)
+      const job = requireGenerationQueue().enqueue(request.designId, prompt, request.providerId, request.modelId, request.effort, [], request.targetVersion)
+      requireWorkspaceStore().startProjectDefinitionApplicationAttempt(request.designId, request.targetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
       design = requireWorkspace().getDesign(request.designId) ?? design
     }
     sendWorkspaceChanged(request.designId)
@@ -396,7 +402,8 @@ function registerIpc(): void {
       const available = availableProviders.some((provider) => provider.id === design.lastSelection.providerId && provider.installed && provider.authenticated && provider.models.some((model) => model.id === design.lastSelection.modelId))
       if (!available) continue
       const prompt = requireWorkspace().prepareAIProjectDefinitionApplication(design.id, request.targetVersion)
-      requireGenerationQueue().enqueue(design.id, prompt, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort, [], request.targetVersion)
+      const job = requireGenerationQueue().enqueue(design.id, prompt, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort, [], request.targetVersion)
+      requireWorkspaceStore().startProjectDefinitionApplicationAttempt(design.id, request.targetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: design.lastSelection.providerId, modelId: design.lastSelection.modelId, effort: design.lastSelection.effort })
       designs[index] = requireWorkspace().getDesign(design.id) ?? design
     }
     for (const design of designs) sendWorkspaceChanged(design.id)
@@ -758,14 +765,17 @@ void app.whenReady().then(() => {
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
       let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
-      if (job.mode === 'fresh') {
+      // A retry normally resumes the provider thread that already received the new-design context.
+      // Re-send it only when there is no resumable session (for example, the first attempt failed
+      // before the provider returned a session id).
+      const storedSession = store.getDesignProviderSession(job.designId)
+      if (job.mode === 'fresh' && !job.providerSessionId && !storedSession) {
         const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId)
         if (definitionContext) agentPrompt = `${agentPrompt}\n\n${definitionContext}`
       }
       if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
       // Resume the design's own provider conversation when the selected provider matches the stored
       // session; otherwise this is a fresh session (first prompt, a provider switch, or a stale session).
-      const storedSession = store.getDesignProviderSession(job.designId)
       let providerSessionId = job.providerSessionId ?? (storedSession && storedSession.providerId === job.providerId ? storedSession.sessionId : undefined)
       // When starting fresh, give the agent a recap of the conversation so far so it is not blind to it.
       // The last message is the current prompt (added at enqueue), so it is excluded from the recap.
@@ -823,9 +833,13 @@ void app.whenReady().then(() => {
         if (signal.aborted) throw new Error('Generation was cancelled.')
         const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
         const revisionReason = job.definitionTargetVersion ? `Apply project definitions version ${job.definitionTargetVersion}` : job.prompt
+        const priorRevisionId = requireWorkspace().getDesign(job.designId)?.activeRevisionId ?? null
         const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, revisionReason, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3, job.definitionTargetVersion)
         if (saved.invalidCandidates.length === invalidCount) {
-          if (job.definitionTargetVersion) store.completeProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
+          if (job.definitionTargetVersion) {
+            store.completeProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
+            store.finishProjectDefinitionApplicationAttemptForJob(job.id, 'completed', null, saved.activeRevisionId !== priorRevisionId ? saved.activeRevisionId : null)
+          }
           return
         }
         const diagnostic = saved.invalidCandidates.at(-1)?.diagnostic ?? 'The candidate did not pass validation.'

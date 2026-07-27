@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
+import { ArrowRightIcon, PencilSquareIcon, SparklesIcon, SwatchIcon } from '@heroicons/react/24/outline'
 import { promptMentionsProject } from './promptMatch'
 import { Library } from './screens/Library'
 import { Sidebar } from './screens/Sidebar'
@@ -68,7 +69,9 @@ export function App() {
   const [trashOpen, setTrashOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [definitionsProject, setDefinitionsProject] = useState<ProjectSummary | null>(null)
+  const [definitionSetupPath, setDefinitionSetupPath] = useState<'proposal' | 'manual' | null>(null)
   const [definitionPromptProject, setDefinitionPromptProject] = useState<ProjectSummary | null>(null)
+  const [definitionSetupChooserProject, setDefinitionSetupChooserProject] = useState<ProjectSummary | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [generationDetail, setGenerationDetail] = useState<'full' | 'concise'>('full')
@@ -173,14 +176,15 @@ export function App() {
   }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
 
   useEffect(() => {
-    if (definitionsProject || definitionPromptProject) return
+    if (definitionsProject || definitionPromptProject || definitionSetupChooserProject) return
     const project = activeDesign ? projects.find((candidate) => candidate.id === activeDesign.projectId) : activeProject
     if (!project || project.currentDefinitionVersion !== null || project.definitionPromptSuppressed || definitionPromptsSeen.current.has(project.id)) return
     const hasActiveWork = activeDesign?.projectId === project.id && activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')
-    if (hasActiveWork) return
+    const hasUnsavedInput = activeDesign?.projectId === project.id && (Boolean(activeDesign.draft.trim()) || activeDesign.draftAttachments.length > 0)
+    if (hasActiveWork || hasUnsavedInput) return
     definitionPromptsSeen.current.add(project.id)
     setDefinitionPromptProject(project)
-  }, [activeDesign, activeProject, definitionPromptProject, definitionsProject, projects])
+  }, [activeDesign, activeProject, definitionPromptProject, definitionSetupChooserProject, definitionsProject, projects])
 
   const create = async (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => {
     if (!workspaceApi) return
@@ -213,7 +217,7 @@ export function App() {
       throw reason
     }
   }
-  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false); setLibraryOpen(false); setDefinitionsProject(null); setDefinitionPromptProject(null) }
+  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false); setLibraryOpen(false); setDefinitionsProject(null); setDefinitionSetupPath(null); setDefinitionPromptProject(null); setDefinitionSetupChooserProject(null) }
   const home = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
   const openLibrary = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
@@ -222,7 +226,7 @@ export function App() {
   const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
   const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
   const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
-  const openDefinitions = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDefinitionsProject(project) }
+  const openDefinitions = (project: ProjectSummary, setupPath: 'proposal' | 'manual' | null = null) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDefinitionSetupPath(setupPath); setDefinitionsProject(project) }
   const suppressDefinitionPrompt = async (project: ProjectSummary) => {
     try {
       await workspaceApi?.setProjectDefinitionPromptSuppressed(project.id, true)
@@ -390,7 +394,7 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} initialError={settingsError} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : definitionsProject
-        ? <DesignDefinitions project={definitionsProject} providers={providerState.providers} onBack={() => setDefinitionsProject(null)} onSaved={(version) => { setDefinitionsProject((current) => current ? { ...current, currentDefinitionVersion: version.version } : current); void refresh() }} />
+        ? <DesignDefinitions project={definitionsProject} providers={providerState.providers} initialSetupPath={definitionSetupPath} onBack={() => { setDefinitionsProject(null); setDefinitionSetupPath(null) }} onSaved={(version) => { setDefinitionsProject((current) => current ? { ...current, currentDefinitionVersion: version.version } : current); void refresh() }} />
         : activeDesign
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
         : activeProject
@@ -398,12 +402,35 @@ export function App() {
         : <Home projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}
       <AppModal isOpen={definitionPromptProject !== null} onOpenChange={(open) => { if (!open) setDefinitionPromptProject(null) }} className="definition-setup-modal" title={`Set up design definitions for ${definitionPromptProject?.name ?? 'this project'}?`}>
         {(close) => <>
-          <p>Define shared colors, typography, spacing, shape, and project guidance before creating or refining designs. You can also continue without them.</p>
-          <div className="definition-setup-actions">
-            <Button className="primary-action" onPress={() => { const project = definitionPromptProject; close(); if (project) openDefinitions(project) }}>Set up now</Button>
-            <Button className="secondary-action" onPress={close}>Not now</Button>
-            <Button className="text-button" onPress={() => { const project = definitionPromptProject; if (project) void suppressDefinitionPrompt(project) }}>Don't show again for this project</Button>
+          <div className="definition-setup-intro">
+            <span className="definition-setup-symbol"><SwatchIcon aria-hidden="true" /></span>
+            <p>Give every design in this project shared colors, typography, spacing, shape, and agent guidance. You can change these definitions later.</p>
           </div>
+          <div className="definition-setup-footer">
+            <Button className="text-button definition-setup-dismiss" onPress={() => { const project = definitionPromptProject; if (project) void suppressDefinitionPrompt(project) }}>Don't show again for this project</Button>
+            <span className="definition-setup-confirmation">
+              <Button className="secondary-action" onPress={close}>Not now</Button>
+              <Button className="primary-action" onPress={() => { const project = definitionPromptProject; close(); if (project) setDefinitionSetupChooserProject(project) }}>Set up now</Button>
+            </span>
+          </div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={definitionSetupChooserProject !== null} onOpenChange={(open) => { if (!open) setDefinitionSetupChooserProject(null) }} className="definition-setup-modal" title={`Choose how to set up ${definitionSetupChooserProject?.name ?? 'this project'}`}>
+        {(close) => <>
+          <p className="definition-setup-copy">Nothing is saved until you review the definitions and choose Save.</p>
+          <div className="definition-setup-options">
+            <Button className="definition-setup-option" aria-label="Generate a proposal" onPress={() => { const project = definitionSetupChooserProject; close(); if (project) openDefinitions(project, 'proposal') }}>
+              <span className="definition-setup-option-icon"><SparklesIcon aria-hidden="true" /></span>
+              <span><strong>Generate a proposal</strong><small>Let an installed AI inspect the project and prepare an editable starting point.</small></span>
+              <ArrowRightIcon aria-hidden="true" />
+            </Button>
+            <Button className="definition-setup-option" aria-label="Fill in manually" onPress={() => { const project = definitionSetupChooserProject; close(); if (project) openDefinitions(project, 'manual') }}>
+              <span className="definition-setup-option-icon"><PencilSquareIcon aria-hidden="true" /></span>
+              <span><strong>Fill in manually</strong><small>Start with empty sections and define the project system yourself.</small></span>
+              <ArrowRightIcon aria-hidden="true" />
+            </Button>
+          </div>
+          <Button className="text-button definition-setup-skip" onPress={close}>Continue without definitions</Button>
         </>}
       </AppModal>
     </div>

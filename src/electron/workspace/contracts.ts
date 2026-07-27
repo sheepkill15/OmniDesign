@@ -87,6 +87,29 @@ export const projectKindSchema = z.enum(['standalone', 'linked'])
 const definitionNameSchema = z.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, 'Use lowercase semantic names separated by hyphens.')
 const definitionDescriptionSchema = z.string().trim().max(500).nullable().default(null)
 
+export function isSafeCssDefinitionValue(value: string): boolean {
+  const input = value.trim()
+  if (!input || /[;{}\u0000-\u001f\u007f]/.test(input) || /\/\*|\*\/|!\s*important/i.test(input)) return false
+  const stack: string[] = []
+  let quote: '"' | "'" | null = null
+  let escaped = false
+  for (const character of input) {
+    if (escaped) { escaped = false; continue }
+    if (character === '\\') { escaped = true; continue }
+    if (quote) { if (character === quote) quote = null; continue }
+    if (character === '"' || character === "'") { quote = character; continue }
+    if (character === '(' || character === '[') stack.push(character)
+    else if (character === ')' || character === ']') {
+      const expected = character === ')' ? '(' : '['
+      if (stack.pop() !== expected) return false
+    }
+  }
+  return !quote && !escaped && stack.length === 0
+}
+
+const cssDefinitionValueSchema = (maximum: number) => z.string().trim().min(1).max(maximum)
+  .refine(isSafeCssDefinitionValue, 'Enter one CSS-compatible value without semicolons, braces, comments, control characters, or !important.')
+
 function uniqueDefinitionNames<T extends { readonly name: string }>(items: readonly T[], context: z.RefinementCtx): void {
   const names = new Set<string>()
   items.forEach((item, index) => {
@@ -97,7 +120,7 @@ function uniqueDefinitionNames<T extends { readonly name: string }>(items: reado
 
 const namedDefinitionValueSchema = z.object({
   name: definitionNameSchema,
-  value: z.string().trim().min(1).max(500),
+  value: cssDefinitionValueSchema(500),
   description: definitionDescriptionSchema,
 })
 
@@ -105,11 +128,11 @@ const namedDefinitionValuesSchema = z.array(namedDefinitionValueSchema).max(100)
 
 export const typographyDefinitionSchema = z.object({
   name: definitionNameSchema,
-  fontFamily: z.string().trim().min(1).max(500),
-  fontSize: z.string().trim().min(1).max(100),
-  fontWeight: z.string().trim().min(1).max(100),
-  lineHeight: z.string().trim().min(1).max(100),
-  letterSpacing: z.string().trim().min(1).max(100).nullable().default(null),
+  fontFamily: cssDefinitionValueSchema(500),
+  fontSize: cssDefinitionValueSchema(100),
+  fontWeight: cssDefinitionValueSchema(100),
+  lineHeight: cssDefinitionValueSchema(100),
+  letterSpacing: cssDefinitionValueSchema(100).nullable().default(null),
   description: definitionDescriptionSchema,
 })
 

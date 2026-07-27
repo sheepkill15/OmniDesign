@@ -53,6 +53,7 @@ describe('WorkspaceStore', () => {
     expect(themedRevision.revisions[0].definitionVersion).toBe(2)
     expect(themedRevision).toMatchObject({ definitionVersion: 2, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
     store.beginProjectDefinitionApplication(design.id, 2)
+    store.startProjectDefinitionApplicationAttempt(design.id, 2, { mechanism: 'ai', providerId: 'codex', modelId: 'gpt-5.6', effort: 'high' })
     store.close()
 
     const reopened = new WorkspaceStore(directory)
@@ -63,6 +64,10 @@ describe('WorkspaceStore', () => {
     expect(reopened.listProjectDesignDefinitionVersions(projectId)).toHaveLength(2)
     expect(reopened.getDesign(themedDesign.id)).toMatchObject({ definitionVersion: 2, revisions: [{ definitionVersion: 2 }] })
     expect(reopened.getDesign(design.id)).toMatchObject({ pendingDefinitionVersion: 2, definitionApplicationState: 'failed', definitionApplicationError: expect.stringContaining('interrupted') })
+    expect(reopened.listProjectDefinitionApplicationAttempts(design.id)).toMatchObject([{
+      targetVersion: 2, mechanism: 'ai', state: 'interrupted', providerId: 'codex', modelId: 'gpt-5.6', effort: 'high',
+      diagnostic: expect.stringContaining('closed'),
+    }])
     reopened.close()
   })
 
@@ -85,6 +90,22 @@ describe('WorkspaceStore', () => {
     expect(() => store.saveProjectDesignDefinitions(projectId, invalidDefinitions)).toThrow()
     expect(store.listProjectDesignDefinitionVersions(projectId)).toHaveLength(0)
     expect(store.getProjectSummary(projectId)?.currentDefinitionVersion).toBeNull()
+    store.close()
+  })
+
+  it('rejects definition values that could break out of managed CSS declarations', () => {
+    const { store } = createStore()
+    const projectId = store.createStandaloneDesign('First', 'Design').projectId
+    const base = {
+      schemaVersion: 1 as const,
+      colors: [{ name: 'primary', value: '#725d78', description: null }],
+      typography: [], spacing: [], shape: [], visualGuidance: '', aiAgentInstructions: '',
+    }
+
+    expect(() => store.saveProjectDesignDefinitions(projectId, { ...base, colors: [{ ...base.colors[0], value: 'red; } body { display: none' }] })).toThrow(/CSS-compatible/)
+    expect(() => store.saveProjectDesignDefinitions(projectId, { ...base, colors: [{ ...base.colors[0], value: 'var(--missing' }] })).toThrow(/CSS-compatible/)
+    expect(() => store.saveProjectDesignDefinitions(projectId, { ...base, spacing: [{ name: 'gap', value: '1rem !important', description: null }] })).toThrow(/CSS-compatible/)
+    expect(store.listProjectDesignDefinitionVersions(projectId)).toHaveLength(0)
     store.close()
   })
 

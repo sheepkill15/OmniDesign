@@ -122,6 +122,10 @@ describe('GenerationQueue', () => {
     expect(retry.definitionTargetVersion).toBe(1)
     expect(store.getDesign(design.id)?.definitionApplicationState).toBe('applying')
     await waitFor(() => store.getGenerationJob(retry.id)?.state === 'failed')
+    expect(store.listProjectDefinitionApplicationAttempts(design.id)).toMatchObject([{
+      targetVersion: 1, mechanism: 'ai', state: 'failed', generationJobId: retry.id,
+      providerId: 'codex', modelId: 'gpt-5.6', diagnostic: 'Provider unavailable.', resultingRevisionId: null,
+    }])
     store.close()
   })
 

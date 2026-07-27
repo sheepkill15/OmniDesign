@@ -56,10 +56,15 @@ export class WorkspaceService {
       ? this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === design.definitionVersion) ?? null
       : null
     if (design.activeRevisionId && (!current || !canUpdateProjectThemeDeterministically(current.definitions, target.definitions))) {
-      return this.store.failProjectDefinitionApplication(designId, targetVersion, 'This change needs AI interpretation. Choose an available provider to apply it.', true)
+      const diagnostic = 'This change needs AI interpretation. Choose an available provider to apply it.'
+      this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'ai', state: 'unavailable', diagnostic })
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic, true)
     }
+    const attempt = this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'deterministic' })
     if (design.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')) {
-      return this.store.failProjectDefinitionApplication(designId, targetVersion, 'Finish or stop the design’s active work before applying project definitions.')
+      const diagnostic = 'Finish or stop the design’s active work before applying project definitions.'
+      this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'failed', diagnostic)
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic)
     }
 
     this.store.beginProjectDefinitionApplication(designId, targetVersion)
@@ -67,15 +72,22 @@ export class WorkspaceService {
       this.repositories.checkoutMain(designId)
       const sourceFiles = materializeProjectTheme(this.repositories.readWorkingTreeFiles(designId), target)
       this.repositories.writeSourceFiles(designId, sourceFiles)
-      if (!design.activeRevisionId) return this.store.completeProjectDefinitionApplication(designId, targetVersion)
+      if (!design.activeRevisionId) {
+        const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion)
+        this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'completed')
+        return completed
+      }
       const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       validateDesignFiles(sourceFiles)
       const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply project definitions version ${targetVersion}`)
-      if (gitCommit) this.store.addRevision(designId, `Apply project definitions version ${targetVersion}`, 'omnidesign', 'deterministic', gitCommit, `Applied project definitions version ${targetVersion}.`, targetVersion)
-      return this.store.completeProjectDefinitionApplication(designId, targetVersion)
+      const revised = gitCommit ? this.store.addRevision(designId, `Apply project definitions version ${targetVersion}`, 'omnidesign', 'deterministic', gitCommit, `Applied project definitions version ${targetVersion}.`, targetVersion) : null
+      const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion)
+      this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'completed', null, revised?.activeRevisionId ?? null)
+      return completed
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Project definitions could not be applied.'
       this.store.failProjectDefinitionApplication(designId, targetVersion, message)
+      this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'failed', message)
       throw error
     }
   }
