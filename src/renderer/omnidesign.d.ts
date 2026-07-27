@@ -294,6 +294,7 @@ interface Window {
       getProject(projectId: string): Promise<ProjectDetail | null>
       getProjectDesignDefinitions(projectId: string): Promise<ProjectDesignDefinitionState | null>
       saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): Promise<ProjectDesignDefinitionVersion>
+      proposeProjectDesignDefinitions(projectId: string, providerId: 'mock' | 'codex' | 'claude', modelId: string, effort?: string | null): Promise<ProjectDesignDefinitions>
       setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): Promise<ProjectDesignDefinitionState>
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
       duplicateDesign(designId: string): Promise<OmniDesignDocument>

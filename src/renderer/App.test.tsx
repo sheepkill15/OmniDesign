@@ -90,6 +90,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       }),
       getProjectDesignDefinitions: vi.fn().mockResolvedValue({ current: null, promptSuppressed: false }),
       saveProjectDesignDefinitions: vi.fn(async (projectId: string, definitions: ProjectDesignDefinitions) => ({ id: '4ecde3a1-3d43-4db9-a8f4-6da2c8d8d5ab', projectId, version: 1, definitions, createdAt: '2026-07-20T10:00:00.000Z' })),
+      proposeProjectDesignDefinitions: vi.fn().mockResolvedValue({ schemaVersion: 1, colors: [{ name: 'primary', value: '#4b3b47', description: 'Primary actions' }], typography: [], spacing: [], shape: [], visualGuidance: 'Calm and cohesive.', aiAgentInstructions: 'Reuse semantic tokens.' }),
       setProjectDefinitionPromptSuppressed: vi.fn().mockResolvedValue({ current: null, promptSuppressed: true }),
       listTrash: vi.fn().mockResolvedValue([]),
       listFolders: vi.fn().mockResolvedValue([]),
@@ -735,6 +736,20 @@ describe('Phase 1 walking skeleton UI', () => {
       aiAgentInstructions: 'Use semantic HTML.',
     })))
     expect(await screen.findByText('Definitions saved.')).toBeInTheDocument()
+  })
+
+  it('loads an AI-generated definition proposal for review without saving it', async () => {
+    const bridge = installBridge([design], design)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate proposal' }))
+
+    await waitFor(() => expect(bridge.workspace.proposeProjectDesignDefinitions).toHaveBeenCalledWith('project-1', 'mock', 'mock-v1', null))
+    expect(await screen.findByText('Proposal ready for review.')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'AI Agent instructions' })).toHaveValue('Reuse semantic tokens.')
+    expect(bridge.workspace.saveProjectDesignDefinitions).not.toHaveBeenCalled()
   })
 
   it('offers only linked projects as reuse targets in the composer selector', async () => {

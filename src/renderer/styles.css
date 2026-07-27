@@ -1103,6 +1103,8 @@ button:not(:disabled):active {
 .definition-setup-modal { width: min(520px, calc(100vw - 32px)); }
 .definition-setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 22px; }
 .definition-setup-actions .text-button { margin-left: auto; }
+.definition-proposal-controls { display: flex; align-items: center; gap: 10px; }
+.definition-proposal-controls .generation-settings-button { width: min(420px, 100%); }
 
 @media (max-width: 1050px) {
   .definitions-content { padding-inline: 28px; }

@@ -20,6 +20,7 @@ import {
   previewDiagnosticReportSchema,
   previewPopOutRequestSchema,
   previewRegisterRequestSchema,
+  proposeProjectDesignDefinitionsRequestSchema,
   renameFolderRequestSchema,
   tagIdRequestSchema,
   tagTargetRequestSchema,
@@ -55,6 +56,7 @@ import { isAllowedPreviewNetworkUrl, isAllowedPreviewUrl } from '../workspace/pr
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
 import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
+import { createMockProjectDefinitionProposal, createProjectDefinitionProposalPrompt, parseProjectDefinitionProposal, selectProjectDefinitionAnalysisRoots } from '../workspace/projectDefinitionProposal.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
@@ -331,6 +333,30 @@ function registerIpc(): void {
     authorize(event)
     const request = saveProjectDesignDefinitionsRequestSchema.parse(value)
     return requireWorkspace().saveProjectDesignDefinitions(request.projectId, request.definitions)
+  })
+  ipcMain.handle('workspace:propose-project-design-definitions', async (event, value: unknown) => {
+    authorize(event)
+    const request = proposeProjectDesignDefinitionsRequestSchema.parse(value)
+    const projectContext = requireWorkspace().getProject(request.projectId)
+    if (!projectContext) throw new Error('Project not found.')
+    const { project, designs } = projectContext
+    if (request.providerId === 'mock') return createMockProjectDefinitionProposal(project.name)
+    const designRepositoryPaths = designs
+      .filter((design) => Boolean(design.activeRevisionId))
+      .map((design) => requireWorkspace().getDesignRepositoryPath(design.id))
+    const analysisRoots = selectProjectDefinitionAnalysisRoots(project.sourceProjectPath, project.sourceAvailable, designRepositoryPaths)
+    if (!analysisRoots) throw new Error('This project has no linked source or completed designs to analyze yet.')
+    const reply = await providers.runAnalysisAgent({
+      requestId: randomUUID(),
+      providerId: request.providerId,
+      modelId: request.modelId,
+      ...(request.effort ? { effort: request.effort } : {}),
+      workspacePath: analysisRoots.workspacePath,
+      ...(analysisRoots.referencePaths.length ? { referencePaths: analysisRoots.referencePaths } : {}),
+      prompt: createProjectDefinitionProposalPrompt(project.name),
+      instructions: 'Inspect the original project and design repositories directly. Do not modify files. Return only the requested JSON object and no Markdown.',
+    })
+    return parseProjectDefinitionProposal(reply.text)
   })
   ipcMain.handle('workspace:set-project-definition-prompt-suppressed', (event, value: unknown) => {
     authorize(event)

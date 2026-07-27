@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Input, Label, TextArea, TextField } from 'react-aria-components'
-import { ArrowLeftIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, PlusIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { GenerationSettingsMenu, type ProviderId } from '../components/composer'
 
 const emptyDefinitions: ProjectDesignDefinitions = {
   schemaVersion: 1,
@@ -64,8 +65,9 @@ function TypographyDefinitions({ values, onChange }: { readonly values: readonly
   )
 }
 
-export function DesignDefinitions({ project, onBack, onSaved }: {
+export function DesignDefinitions({ project, providers, onBack, onSaved }: {
   readonly project: ProjectSummary
+  readonly providers: readonly ProviderStatus[]
   readonly onBack: () => void
   readonly onSaved: (version: ProjectDesignDefinitionVersion) => void
 }) {
@@ -75,6 +77,17 @@ export function DesignDefinitions({ project, onBack, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [proposing, setProposing] = useState(false)
+  const [proposalReady, setProposalReady] = useState(false)
+  const firstProvider = providers.find((provider) => provider.installed && provider.authenticated && provider.models.length)
+  const [selection, setSelection] = useState<GenerationSelection>({ providerId: firstProvider?.id ?? 'mock', modelId: firstProvider?.models[0]?.id ?? 'mock-v1', effort: firstProvider?.models[0]?.effortLevels.find((effort) => effort.isDefault)?.id ?? null })
+
+  useEffect(() => {
+    const available = providers.find((provider) => provider.id === selection.providerId && provider.installed && provider.authenticated && provider.models.some((model) => model.id === selection.modelId))
+    if (available) return
+    const next = providers.find((provider) => provider.installed && provider.authenticated && provider.models.length)
+    if (next) setSelection({ providerId: next.id, modelId: next.models[0].id, effort: next.models[0].effortLevels.find((effort) => effort.isDefault)?.id ?? null })
+  }, [providers, selection.modelId, selection.providerId])
 
   useEffect(() => {
     let active = true
@@ -108,6 +121,22 @@ export function DesignDefinitions({ project, onBack, onSaved }: {
     }
   }
 
+  const propose = async () => {
+    setProposing(true)
+    setError(null)
+    setSaved(false)
+    setProposalReady(false)
+    try {
+      const proposal = await window.omnidesign.workspace.proposeProjectDesignDefinitions(project.id, selection.providerId, selection.modelId, selection.effort)
+      setDraft(proposal)
+      setProposalReady(true)
+    } catch (reason) {
+      setError(reason instanceof Error && reason.message ? reason.message : 'A design-definition proposal could not be generated.')
+    } finally {
+      setProposing(false)
+    }
+  }
+
   return (
     <main className="definitions-main">
       <div className="definitions-content">
@@ -118,7 +147,16 @@ export function DesignDefinitions({ project, onBack, onSaved }: {
         </header>
         {error && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Definitions unavailable.</strong><small>{error}</small></span><Button className="text-button" onPress={() => setError(null)}>Dismiss</Button></div>}
         {saved && <div className="workspace-feedback" data-tone="success" role="status"><span><strong>Definitions saved.</strong><small>Existing designs can decide whether to apply this version.</small></span></div>}
+        {proposalReady && <div className="workspace-feedback" data-tone="success" role="status"><span><strong>Proposal ready for review.</strong><small>Nothing has been saved yet. Adjust any field, then save when it reflects the project.</small></span></div>}
         {loading ? <p className="settings-empty">Loading design definitions…</p> : <div className="definition-editor">
+          <section className="definition-section definition-proposal" aria-labelledby="definition-proposal">
+            <div className="definition-section-heading"><span><h2 id="definition-proposal">Start from the project</h2><p>Ask an installed provider to inspect {project.kind === 'linked' ? 'the linked project and completed designs' : 'completed designs'} directly and prepare an editable proposal.</p></span></div>
+            <div className="definition-proposal-controls">
+              <GenerationSettingsMenu providers={providers} providerId={selection.providerId as ProviderId} modelId={selection.modelId} effort={selection.effort} onChange={setSelection} />
+              <Button className="secondary-action" isDisabled={proposing || !firstProvider} onPress={() => void propose()}><SparklesIcon aria-hidden="true" />{proposing ? 'Generating proposal…' : 'Generate proposal'}</Button>
+            </div>
+            {!firstProvider && <p className="definition-empty">Connect an installed provider to generate a proposal, or fill in the sections manually.</p>}
+          </section>
           <NamedDefinitions title="Colors" description="Semantic project colors used across new designs." values={draft.colors} valuePlaceholder="#725d78 or oklch(… )" onChange={(values) => setNamed('colors', values)} />
           <TypographyDefinitions values={draft.typography} onChange={(typography) => setDraft((current) => ({ ...current, typography }))} />
           <NamedDefinitions title="Spacing" description="Reusable spacing values for layout and component rhythm." values={draft.spacing} valuePlaceholder="1rem" onChange={(values) => setNamed('spacing', values)} />

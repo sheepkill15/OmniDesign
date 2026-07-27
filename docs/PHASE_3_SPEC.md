@@ -4,9 +4,9 @@
 
 This document defines the intended Phase 3 product behavior for OmniDesign. It is subordinate to the product principles in `AGENTS.md`, the accepted technical decisions in `ARCHITECTURE.md`, and the trusted-interface rules in `DESIGN_SYSTEM.md`.
 
-Phase 3 implementation must remain local-first, preserve immutable design history, keep linked source projects read-only, and preserve the generated-preview security boundary. Phase 3 is complete only when the acceptance criteria in this document are implemented and tested.
+Phase 3 implementation must remain local-first, preserve immutable design history, and preserve the generated-preview security boundary. Phase 3 is complete only when the acceptance criteria in this document are implemented and tested.
 
-The product owner defined this contract on 2026-07-27. Provider API keys, multiple provider configurations, provider setup/testing, and an OmniDesign-owned provider harness are explicitly excluded. They are deferred to a future provider-infrastructure milestone with no assigned phase. Phase 3 continues using the installed, authenticated Codex and Claude CLI harnesses already supported by OmniDesign.
+The product owner defined this contract on 2026-07-27. Provider API keys, multiple provider configurations, provider setup/testing, and an OmniDesign-owned provider harness are explicitly excluded. They are deferred to a future provider-infrastructure milestone with no assigned phase. Phase 3 continues using the installed, authenticated Codex and Claude CLI harnesses already supported by OmniDesign. These provider-owned harnesses receive the original linked project and existing design repositories directly; OmniDesign does not make disposable or safety copies. Their current read-write access is an explicitly accepted temporary limitation.
 
 ## Outcome
 
@@ -40,7 +40,7 @@ AI-directed work remains the primary editing workflow. Project definitions provi
 - An OmniDesign-owned provider harness.
 - Multiple configurations or accounts for one provider.
 - Provider setup, credential storage, and automatic configuration testing.
-- Enforceable external-root write denial that requires replacing or materially extending provider-owned harness behavior; the existing documented Phase 1 security gap remains open in the future provider-infrastructure milestone.
+- Enforceable external-root write denial that requires replacing or materially extending provider-owned harness behavior. Direct read-write repository access is accepted for now; revisiting that access remains part of the future provider-infrastructure milestone.
 - Multiple selected elements or range/lasso selection.
 - Selection in Canvas preview mode.
 - Pixel-level controls, direct style handles, drag-to-layout editing, or a general developer-tools inspector.
@@ -88,7 +88,7 @@ When a project has no saved definitions, OmniDesign may offer setup on any relev
 
 Definition setup offers all three paths:
 
-1. **Generate a proposal.** Use an available installed CLI provider to inspect the linked project read-only, existing OmniDesign designs, or both. If no usable source or provider exists, explain why this path is unavailable.
+1. **Generate a proposal.** Use an available installed CLI provider to inspect the original linked project, existing OmniDesign design repositories, or both directly. Do not create copies. The proposal prompt tells the provider not to modify files, while the provider-owned harness retains read-write access for now. If no usable source or provider exists, explain why this path is unavailable.
 2. **Fill in manually.** Open the structured editor with empty sections.
 3. **Continue without definitions.** Close setup without blocking design creation or other project work.
 
@@ -301,5 +301,5 @@ Each track lands in small, testable commits. Track C may be prototyped while Tra
 
 - New Phase 3 behavior must update this document and its acceptance criteria.
 - Provider configuration work must not return to Phase 3 without an explicit product-owner roadmap decision.
-- Preview isolation, immutable history, source-project read-only access, and local-first operation may not be weakened for convenience.
+- Preview isolation, immutable history, and local-first operation may not be weakened for convenience. The accepted direct read-write provider access may change only through an explicit product-owner decision or the future provider-infrastructure work.
 - Direct manipulation, multi-selection, and later-phase branching remain deferred unless explicitly moved into scope.

@@ -316,7 +316,7 @@ Revision directories are append-only. Restoration copies the selected snapshot i
 
 Each agent-backed design has a self-contained Git repository in OmniDesign-managed storage. It is a normal working repository for the provider harness, not a repository the user is required to manage. Before an agent starts, OmniDesign creates the repository and prepares its `index.html` entry page.
 
-The provider harness starts the agent in that design repository. The agent may inspect and edit the design as it would any other project. When the design is associated with an existing project, the original project is supplied separately as an explicit read-only reference; it is never the agent's working directory and the harness grants it no write authority.
+The provider harness starts design generation in that design repository. The agent may inspect and edit the design as it would any other project. When the design is associated with an existing project, the original project is supplied directly rather than copied. OmniDesign tells design agents to treat it as reference material, but the current provider-owned harness may grant it read-write access. This is an accepted temporary limitation until provider-infrastructure work supplies stronger access control.
 
 Git, not an agent-authored file inventory, determines whether the working tree changed and records the resulting design revision. The prepared `index.html` is the fixed preview/export entry page, so the agent does not choose or report an entry point. Completed revisions continue to be represented by immutable application metadata and non-destructive restoration; implementation may create a new commit from a restored state rather than rewriting history.
 
@@ -670,8 +670,18 @@ Prefer semantic CSS custom properties in ordinary design working files for color
 typography, spacing, and shape. Exact changes to an unambiguously managed token may be
 applied programmatically. Broad source rewriting is forbidden; designs without a safe
 managed representation use the existing installed-provider generation pipeline for
-migration or interpretation. Linked source projects remain read-only and never receive
-OmniDesign's definition files.
+migration or interpretation. OmniDesign stores definition records outside linked source
+projects and does not deliberately write definition files into them.
+
+### ADR 2026-07-27: Analyze original project repositories without copies (accepted)
+
+AI-assisted definition proposals pass the original linked project and existing
+OmniDesign design repositories directly to the installed provider harness. OmniDesign
+does not assemble disposable snapshots or other project copies for this analysis. The
+proposal prompt tells the agent not to modify files, but the repositories remain
+read-write because the current provider-owned harness does not provide the desired
+fine-grained access boundary. The product owner explicitly accepts this limitation for
+now; enforceable read-only roots remain deferred with the OmniDesign-owned harness.
 
 ### ADR 2026-07-27: Resolve focused selections through immutable source maps (accepted)
 

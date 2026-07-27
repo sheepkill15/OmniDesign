@@ -181,6 +181,12 @@ export const saveProjectDesignDefinitionsRequestSchema = projectIdRequestSchema.
   definitions: projectDesignDefinitionsSchema,
 })
 
+export const proposeProjectDesignDefinitionsRequestSchema = projectIdRequestSchema.extend({
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().trim().min(1).max(200),
+  effort: z.string().trim().min(1).max(100).nullable().optional(),
+})
+
 export const setProjectDefinitionPromptSuppressedRequestSchema = projectIdRequestSchema.extend({
   suppressed: z.boolean(),
 })

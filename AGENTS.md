@@ -122,6 +122,7 @@ This is the preparation required to begin Phase 1 responsibly; it does not repla
 - An OmniDesign-owned provider harness.
 - Provider setup with operating-system credential storage, multiple configurations per provider, and automatic configuration testing.
 - Phase 3 continues to rely on the installed, authenticated Codex and Claude CLI harnesses already supported by OmniDesign (product-owner decision, 2026-07-27).
+- Pass original project and design repositories directly to those harnesses without making safety copies; their read-write access is accepted for now (product-owner decision, 2026-07-27).
 
 ### Phase 4: Design Branching
 

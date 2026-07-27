@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     getProject: (projectId: string) => ipcRenderer.invoke('workspace:get-project', { projectId }),
     getProjectDesignDefinitions: (projectId: string) => ipcRenderer.invoke('workspace:get-project-design-definitions', { projectId }),
     saveProjectDesignDefinitions: (projectId: string, definitions: import('../workspace/contracts.js').ProjectDesignDefinitions) => ipcRenderer.invoke('workspace:save-project-design-definitions', { projectId, definitions }),
+    proposeProjectDesignDefinitions: (projectId: string, providerId: 'mock' | 'codex' | 'claude', modelId: string, effort?: string | null) => ipcRenderer.invoke('workspace:propose-project-design-definitions', { projectId, providerId, modelId, effort: effort ?? null }),
     setProjectDefinitionPromptSuppressed: (projectId: string, suppressed: boolean) => ipcRenderer.invoke('workspace:set-project-definition-prompt-suppressed', { projectId, suppressed }),
     associateDesign: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-design', { designId, projectId }),
     duplicateDesign: (designId: string) => ipcRenderer.invoke('workspace:duplicate-design', { designId }),

@@ -22,6 +22,11 @@ export interface DesignAgentReply extends Omit<ProviderReply, 'text'> {
   readonly response: string
 }
 
+export interface AnalysisAgentRequest extends ProviderPrompt {
+  readonly workspacePath: string
+  readonly instructions: string
+}
+
 export class ProviderService {
   private readonly adapters: ReadonlyMap<ProviderId, ProviderAdapter>
 
@@ -79,6 +84,23 @@ export class ProviderService {
       instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath, request.conversationRecap),
     }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
     return { providerId: adapter.id, modelId: reply.modelId, response: normalizeAgentReply(reply.text), ...(reply.sessionId ? { sessionId: reply.sessionId } : {}) }
+  }
+
+  public async runAnalysisAgent(request: AnalysisAgentRequest, onActivity: ActivityListener = () => undefined): Promise<ProviderReply> {
+    if (!request.workspacePath || !/^(?:[A-Za-z]:\\|\/)/.test(request.workspacePath)) throw new Error('The analysis workspace path must be absolute.')
+    this.validatePrompt(request)
+    const adapter = this.adapters.get(request.providerId)
+    if (!adapter) throw new Error(`Provider adapter "${request.providerId}" is not registered.`)
+    const reply = await adapter.prompt({
+      modelId: request.modelId,
+      prompt: request.prompt,
+      workspacePath: request.workspacePath,
+      instructions: request.instructions,
+      ...(request.referencePaths?.length ? { referencePaths: request.referencePaths } : {}),
+      ...(request.signal ? { signal: request.signal } : {}),
+      ...(request.effort ? { effort: request.effort } : {}),
+    }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
+    return { providerId: adapter.id, ...reply }
   }
 
   private validatePrompt(request: ProviderPrompt): void {
