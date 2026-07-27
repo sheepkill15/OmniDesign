@@ -16,6 +16,7 @@ import {
   ExclamationTriangleIcon,
   FolderIcon,
   InformationCircleIcon,
+  QueueListIcon,
   SparklesIcon,
   Squares2X2Icon,
   StopIcon,
@@ -23,6 +24,8 @@ import {
   TrashIcon,
   ViewColumnsIcon,
   WindowIcon,
+  WrenchScrewdriverIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { AppModal } from '../components/AppModal'
 import { DropdownButton } from '../components/DropdownButton'
@@ -80,6 +83,7 @@ function ConversationMessage({ message, onOpenAttachment }: { readonly message: 
           {isUser ? <p>{message.text}</p> : <Markdown text={message.text} />}
           {message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => onOpenAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}
           {message.focusedTarget && <div className="focused-target-reference">Target · {message.focusedTarget.path}:{message.focusedTarget.startLine}-{message.focusedTarget.endLine} · {message.focusedTarget.label}</div>}
+          {message.focusedFeedback?.length ? <div className="focused-feedback-history" aria-label="Submitted focused feedback">{message.focusedFeedback.map((item, index) => <div key={item.id}><strong>{index + 1}. {item.comment}</strong><small>{item.target.path}:{item.target.startLine}-{item.target.endLine} · {item.target.label}</small></div>)}</div> : null}
         </div>
       </div>
     </article>
@@ -163,6 +167,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   const [previewCustomHeight, setPreviewCustomHeight] = useState(design.layout.previewCustomHeight)
   const [selectionActive, setSelectionActive] = useState(false)
   const [focusedTarget, setFocusedTarget] = useState<FocusedTarget | null>(null)
+  const [focusedFeedbackQueue, setFocusedFeedbackQueue] = useState<readonly FocusedFeedback[]>([])
   const [customSizeOpen, setCustomSizeOpen] = useState(false)
   const [customWidthDraft, setCustomWidthDraft] = useState(String(design.layout.previewCustomWidth))
   const [customHeightDraft, setCustomHeightDraft] = useState(String(design.layout.previewCustomHeight))
@@ -251,6 +256,13 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
   useEffect(() => setSelection(design.lastSelection), [design.id])
+  useEffect(() => {
+    let active = true
+    void window.omnidesign?.workspace.listFocusedFeedback(design.id)
+      .then((items) => { if (active) setFocusedFeedbackQueue(items) })
+      .catch((reason: unknown) => { if (active) setFeedback({ tone: 'error', message: 'Queued feedback could not be loaded.', ...(reason instanceof Error ? { detail: reason.message } : {}) }) })
+    return () => { active = false }
+  }, [design.id, design.activeRevisionId])
   useEffect(() => {
     setPreviewViewMode(design.layout.previewViewMode)
     setPreviewFit(design.layout.previewFit)
@@ -371,6 +383,30 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
       setDraft(prompt)
       setAttachments(submittedAttachments)
     }
+  }
+  const queueFocusedFeedback = async () => {
+    if (!api || !draft.trim() || !focusedTarget || busy || !selectedIsHead) return
+    const comment = draft.trim()
+    const updated = await runWorkspaceAction(() => api.queueFocusedFeedback(design.id, comment, focusedTarget), 'Focused feedback could not be queued. Your comment is still here.')
+    if (!updated) return
+    setFocusedFeedbackQueue(updated)
+    setDraft('')
+    setFocusedTarget(null)
+    setSelectionActive(false)
+    void api.saveDraft(design.id, '', attachments)
+  }
+  const removeFocusedFeedback = async (feedbackId: string) => {
+    if (!api) return
+    const updated = await runWorkspaceAction(() => api.removeFocusedFeedback(design.id, feedbackId), 'That queued feedback item could not be removed.')
+    if (updated) setFocusedFeedbackQueue(updated)
+  }
+  const submitFocusedFeedbackBatch = async () => {
+    if (!api || !focusedFeedbackQueue.length || busy || !selectedIsHead || !hasUsableSelection || !previewToken) return
+    const submitted = focusedFeedbackQueue
+    const updated = await runWorkspaceAction(() => api.submitFocusedFeedbackBatch(design.id, submitted.map((item) => item.id), selection.providerId, selection.modelId, selection.effort ?? undefined), 'The focused feedback batch could not be submitted. Your queue is unchanged.')
+    if (!updated) return
+    setFocusedFeedbackQueue([])
+    onChange(updated)
   }
   const selectRevision = async (revisionId: string) => {
     if (!api || revisionId === design.selectedRevisionId) return
@@ -517,6 +553,10 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
         {design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
       </div>
+      {focusedFeedbackQueue.length > 0 && <section className="focused-feedback-queue" aria-label="Focused feedback queue">
+        <header><span><QueueListIcon aria-hidden="true" /><span><strong>{focusedFeedbackQueue.length} focused note{focusedFeedbackQueue.length === 1 ? '' : 's'} queued</strong><small>They will be fixed together in one generation.</small></span></span><Button className="primary-action" isDisabled={busy || !selectedIsHead || !hasUsableSelection || !previewToken} onPress={() => void submitFocusedFeedbackBatch()}><WrenchScrewdriverIcon aria-hidden="true" />Fix all</Button></header>
+        <div className="focused-feedback-queue-list">{focusedFeedbackQueue.map((item, index) => <article key={item.id}><span className="focused-feedback-index">{index + 1}</span><span><strong>{item.comment}</strong><small>{item.target.path}:{item.target.startLine}-{item.target.endLine} · {item.target.label}</small></span><Button className="icon-button" aria-label={`Remove queued feedback ${index + 1}`} onPress={() => void removeFocusedFeedback(item.id)}><XMarkIcon aria-hidden="true" /></Button></article>)}</div>
+      </section>}
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
       <div className="workspace-composer">
         {focusedTarget && <div className="focused-target-chip" role="status"><CursorArrowRaysIcon aria-hidden="true" /><span><strong>{focusedTarget.label}</strong><small>{focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}{focusedTarget.dynamicDescription ? ` · nearest authored ancestor for ${focusedTarget.dynamicDescription}` : ''}</small></span><Button aria-label="Clear selected element" onPress={() => setFocusedTarget(null)}>×</Button></div>}
@@ -524,7 +564,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />{focusedTarget ? <span className="focused-feedback-actions"><Button className="secondary-action" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void queueFocusedFeedback()}><QueueListIcon aria-hidden="true" />Queue</Button><Button className="primary-action" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><WrenchScrewdriverIcon aria-hidden="true" />Submit &amp; fix</Button></span> : <Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button>}</div>
         {!hasUsableSelection && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
     </section>

@@ -13,7 +13,7 @@ The product owner defined this contract on 2026-07-27. Provider API keys, multip
 Phase 3 adds two connected capabilities:
 
 1. A project can own structured design definitions that guide new designs and can be propagated safely to existing designs.
-2. A user can select one source-authored element in a focused preview and ask the active AI agent to edit it with exact file-and-line context.
+2. A user can select one source-authored element in a focused preview, attach a comment with exact file-and-line context, and either fix it immediately or queue several focused comments for one coordinated AI update.
 
 AI-directed work remains the primary editing workflow. Project definitions provide durable, high-level control; focused selection makes a conversational request more precise without becoming a pixel editor or general DOM inspector.
 
@@ -33,6 +33,7 @@ AI-directed work remains the primary editing workflow. Project definitions provi
 - Exact repository-relative file and line-range context for source-authored selections.
 - A nearest-authored-ancestor fallback for elements created dynamically at runtime.
 - Focused edits that may update supporting CSS or JavaScript outside the selected element when required.
+- A persistent per-design focused-feedback queue and one-generation batch submission.
 
 ### Deferred
 
@@ -41,7 +42,7 @@ AI-directed work remains the primary editing workflow. Project definitions provi
 - Multiple configurations or accounts for one provider.
 - Provider setup, credential storage, and automatic configuration testing.
 - Enforceable external-root write denial that requires replacing or materially extending provider-owned harness behavior. Direct read-write repository access is accepted for now; revisiting that access remains part of the future provider-infrastructure milestone.
-- Multiple selected elements or range/lasso selection.
+- Simultaneous multiple-element selection or range/lasso selection. A user may still queue comments for individually selected elements one at a time.
 - Selection in Canvas preview mode.
 - Pixel-level controls, direct style handles, drag-to-layout editing, or a general developer-tools inspector.
 - Editing generated HTML directly inside OmniDesign.
@@ -149,8 +150,9 @@ AI application defaults to the design's most recently used available provider, m
 - While selection mode is active, pointer activation is used for inspection: authored clicks, navigation, submission, and other page actions are suppressed.
 - Hover and keyboard focus expose a restrained outline and a concise semantic label without restyling the design itself.
 - Selecting one element exits selection mode and attaches a focused-target chip to the composer.
+- With a target and comment attached, the composer exposes two explicit actions: **Submit & fix** sends that one edit immediately, while **Queue** stores it for a later batch.
 
-Selection is ephemeral. It clears after prompt submission, page or revision changes, leaving the design workspace, or application restart. The user can clear it explicitly before submission. It is not restored as draft state.
+The live selection is ephemeral. It clears after immediate submission, queueing, page or revision changes, leaving the design workspace, or application restart. The user can clear it explicitly before submission. It is not restored as draft state. Once queued, however, the comment and its trusted resolved target are durable records rather than live selection state.
 
 ### Source Mapping
 
@@ -188,8 +190,11 @@ Focused selection extends the existing injected preview shim and validated `post
 ### Prompting and History
 
 - A focused target augments an ordinary user prompt; it does not create a separate conversation or provider session.
-- The original user wording remains visible in the conversation, accompanied by a compact target reference.
-- The persisted message and generation attempt retain the resolved target so later history explains what was edited.
+- **Submit & fix** preserves the original user wording in the conversation, accompanied by a compact target reference.
+- **Queue** adds the comment and exact target to a bounded, removable list pinned above the conversation composer. The queue survives navigation and restart.
+- **Fix all** atomically converts the selected queue items into one user message and one generation attempt. The provider receives every comment and exact target in a single coordinated turn, and successful generation creates at most one new revision for the batch.
+- Submitted batch history lists every original comment and its exact target reference. Retry and Continue preserve the whole batch.
+- A newly created revision invalidates and clears any still-pending focused-feedback queue because its source ranges belong to the previous immutable revision.
 - The agent may modify supporting styles, scripts, shared components, or adjacent markup when necessary.
 - Normal Git change detection, validation, repair, cancellation, queueing, and revision creation apply.
 - Focused prompting from a historical revision remains disabled until the user restores that revision to a new head.
@@ -213,6 +218,8 @@ Persist at minimum:
 - Per-design applied, kept, and pending definition-version state.
 - Definition-application attempts, diagnostics, provider/model choice when AI is used, and resulting revision pointers.
 - Resolved focused-target metadata on submitted messages and generation attempts.
+- Pending focused-feedback queue items, including their original comments, order, revision, exact source targets, and creation times.
+- Submitted focused-feedback batches on their conversation messages and generation attempts.
 
 Definition editing drafts may remain renderer-owned in the first slice, but a saved version and every pending decision must survive restart. Active definition-application jobs recover through the existing interrupted-job behavior.
 
@@ -282,6 +289,11 @@ Each track lands in small, testable commits. Track C may be prototyped while Tra
 - A source-authored selection resolves to the exact repository-relative HTML file and inclusive line range.
 - A runtime-generated element resolves to the nearest authored ancestor or produces a clear unmappable state.
 - Submitted target metadata survives in conversation and attempt history while the live selection clears.
+- A selected target and comment expose **Submit & fix** and **Queue** actions.
+- Queued comments remain visible and removable in the conversation area and survive restart.
+- **Fix all** sends every queued comment and exact target in one provider turn and creates one generation attempt rather than one attempt per comment.
+- Submitted batch history and Retry/Continue retain every comment and exact target in order.
+- A revision change cannot apply stale queued source ranges.
 - The existing installed provider thread receives the focused target without starting a separate conversation.
 - Supporting CSS and JavaScript changes are permitted and validated through the normal pipeline.
 - Switching page, revision, workspace, or submitting clears the live target.

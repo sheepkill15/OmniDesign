@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { Attachment, FocusedTarget, Message } from '../workspace/contracts.js'
+import type { Attachment, FocusedFeedback, FocusedTarget, Message } from '../workspace/contracts.js'
 import { PREVIEW_ALLOWED_HOSTS } from '../workspace/previewPolicy.js'
 
 const RECAP_MAX_MESSAGES = 16
@@ -34,6 +34,26 @@ export function createFocusedEditPrompt(prompt: string, target: FocusedTarget): 
     target.excerpt,
     '```',
   ].join('\n')
+}
+
+export function createFocusedFeedbackBatchPrompt(feedback: readonly FocusedFeedback[]): string {
+  if (!feedback.length) throw new Error('Focused feedback is required.')
+  return [
+    `Apply all ${feedback.length} queued focused feedback item${feedback.length === 1 ? '' : 's'} together in one coordinated update. Address every item and preserve the intent of the others while making each change.`,
+    '',
+    ...feedback.flatMap((item, index) => [
+      `Feedback ${index + 1}: ${item.comment}`,
+      `- Source: ${item.target.path}:${item.target.startLine}-${item.target.endLine}`,
+      `- Element: ${item.target.label}${item.target.stableId ? ` (stable identifier: ${item.target.stableId})` : ''}`,
+      ...(item.target.dynamicDescription ? [`- The clicked runtime element was ${item.target.dynamicDescription}; the source location above is its nearest authored ancestor.`] : []),
+      '- You may update supporting CSS, JavaScript, shared components, or adjacent markup when necessary.',
+      '- Source excerpt:',
+      '```html',
+      item.target.excerpt,
+      '```',
+      '',
+    ]),
+  ].join('\n').trim()
 }
 
 const MAX_RESPONSE_LENGTH = 100_000

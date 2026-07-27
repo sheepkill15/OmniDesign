@@ -2095,7 +2095,7 @@ button[aria-expanded="true"] .dropdown-caret {
 .conversation-pane {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   border-right: 1px solid var(--border);
   background: var(--surface-1);
 }
@@ -2440,6 +2440,52 @@ button[aria-expanded="true"] .dropdown-caret {
 .workspace-composer .submit-prompt {
   margin-left: auto;
 }
+
+.workspace-composer-footer:has(.focused-feedback-actions) {
+  height: auto;
+  min-height: 46px;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.focused-feedback-actions { margin-left: auto; }
+
+.focused-feedback-queue {
+  margin: 0 16px 10px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-surface);
+  background: var(--surface-2);
+}
+
+.focused-feedback-queue > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.focused-feedback-queue > header > span { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.focused-feedback-queue > header > span > svg { width: 18px; flex: 0 0 auto; color: var(--accent); }
+.focused-feedback-queue > header > span > span { display: grid; gap: 2px; min-width: 0; }
+.focused-feedback-queue header strong { color: var(--text); font-size: 12px; font-weight: 600; }
+.focused-feedback-queue header small { color: var(--text-faint); font-size: 11px; }
+.focused-feedback-queue-list { max-height: 190px; overflow: auto; }
+.focused-feedback-queue article { display: grid; grid-template-columns: 22px minmax(0, 1fr) 32px; align-items: center; gap: 9px; padding: 9px 10px 9px 12px; }
+.focused-feedback-queue article + article { border-top: 1px solid var(--border); }
+.focused-feedback-queue article > span:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
+.focused-feedback-queue article strong { overflow: hidden; color: var(--text-subtle); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.focused-feedback-queue article small { overflow: hidden; color: var(--text-faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.focused-feedback-index { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 50%; color: var(--text-faint); font-size: 10px; }
+.focused-feedback-queue article .icon-button { width: 30px; height: 30px; }
+
+.focused-feedback-history { display: grid; gap: 7px; margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); text-align: left; }
+.focused-feedback-history > div { display: grid; gap: 2px; }
+.focused-feedback-history strong { color: var(--text); font-size: 12px; font-weight: 500; line-height: 1.45; }
+.focused-feedback-history small { color: var(--text-faint); font-size: 10px; }
 
 .preview-pane {
   min-width: 0;
@@ -3392,5 +3438,9 @@ button[aria-expanded="true"] .dropdown-caret {
   .definition-setup-option,
   .definition-setup-symbol,
   .definition-setup-option-icon,
-  .definition-status { border-color: ButtonText; }
+  .definition-status,
+  .focused-feedback-queue,
+  .focused-feedback-queue > header,
+  .focused-feedback-queue article + article,
+  .focused-feedback-index { border-color: ButtonText; }
 }

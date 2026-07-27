@@ -184,6 +184,13 @@ export const focusedTargetSchema = z.object({
   dynamicDescription: z.string().max(500).nullable(),
 }).refine((value) => value.endLine >= value.startLine, { message: 'Focused target line range is invalid.' })
 
+export const focusedFeedbackSchema = z.object({
+  id: z.string().uuid(),
+  comment: z.string().trim().min(1).max(100_000),
+  target: focusedTargetSchema,
+  createdAt: z.string().datetime(),
+})
+
 export const resolveFocusedTargetRequestSchema = z.object({
   designId: z.string().min(1).max(100),
   revisionId: z.string().min(1).max(100),
@@ -200,6 +207,7 @@ export const messageSchema = z.object({
   text: z.string(),
   attachments: z.array(attachmentSchema).default([]),
   focusedTarget: focusedTargetSchema.nullable().default(null),
+  focusedFeedback: z.array(focusedFeedbackSchema).max(50).optional(),
   createdAt: z.string().datetime(),
 })
 
@@ -324,6 +332,7 @@ export const generationJobSchema = z.object({
   providerSessionId: z.string().min(1).nullable().default(null),
   definitionTargetVersion: z.number().int().positive().nullable().default(null),
   focusedTarget: focusedTargetSchema.nullable().default(null),
+  focusedFeedback: z.array(focusedFeedbackSchema).max(50).optional(),
   state: generationJobStateSchema,
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),
@@ -399,6 +408,22 @@ export const generateRequestSchema = designIdRequestSchema.extend({
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   attachments: z.array(attachmentSchema).max(100).default([]),
   focusedTarget: focusedTargetSchema.nullable().optional(),
+})
+
+export const queueFocusedFeedbackRequestSchema = designIdRequestSchema.extend({
+  comment: z.string().trim().min(1).max(100_000),
+  target: focusedTargetSchema,
+})
+
+export const removeFocusedFeedbackRequestSchema = designIdRequestSchema.extend({
+  feedbackId: z.string().uuid(),
+})
+
+export const submitFocusedFeedbackBatchRequestSchema = designIdRequestSchema.extend({
+  feedbackIds: z.array(z.string().uuid()).min(1).max(50).refine((ids) => new Set(ids).size === ids.length, 'Focused feedback identifiers must be unique.'),
+  providerId: z.enum(['mock', 'codex', 'claude']).default('mock'),
+  modelId: z.string().trim().min(1).max(200).default('mock-v1'),
+  effort: z.string().trim().min(1).max(100).nullable().optional(),
 })
 
 export const selectRevisionRequestSchema = designIdRequestSchema.extend({
@@ -509,12 +534,16 @@ export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>
 export type Attachment = z.infer<typeof attachmentSchema>
 export type FocusedTarget = z.infer<typeof focusedTargetSchema>
+export type FocusedFeedback = z.infer<typeof focusedFeedbackSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
 export type Message = z.infer<typeof messageSchema>
 export type PreviewDiagnostic = z.infer<typeof previewDiagnosticSchema>
 export type InvalidCandidate = z.infer<typeof invalidCandidateSchema>
 export type CreateDesignRequest = z.infer<typeof createDesignRequestSchema>
 export type GenerateRequest = z.infer<typeof generateRequestSchema>
+export type QueueFocusedFeedbackRequest = z.infer<typeof queueFocusedFeedbackRequestSchema>
+export type RemoveFocusedFeedbackRequest = z.infer<typeof removeFocusedFeedbackRequestSchema>
+export type SubmitFocusedFeedbackBatchRequest = z.infer<typeof submitFocusedFeedbackBatchRequestSchema>
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
 export type RenameDesignRequest = z.infer<typeof renameDesignRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>

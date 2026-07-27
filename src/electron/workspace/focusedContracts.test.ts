@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { focusedTargetSchema, resolveFocusedTargetRequestSchema } from './contracts.js'
+import { focusedTargetSchema, queueFocusedFeedbackRequestSchema, resolveFocusedTargetRequestSchema, submitFocusedFeedbackBatchRequestSchema } from './contracts.js'
 
 const target = {
   designId: 'design-1', revisionId: 'revision-1', path: 'pages/pricing.html',
@@ -27,5 +27,18 @@ describe('focused selection contracts', () => {
     expect(resolveFocusedTargetRequestSchema.safeParse({ ...request, locationId: 'forged' }).success).toBe(false)
     expect(resolveFocusedTargetRequestSchema.safeParse({ ...request, clickedLabel: 'x'.repeat(201) }).success).toBe(false)
     expect(resolveFocusedTargetRequestSchema.safeParse({ ...request, page: '../../outside.html' }).success).toBe(false)
+  })
+
+  it('bounds queued comments and requires a unique, nonempty batch', () => {
+    const queueRequest = { designId: 'design-1', comment: 'Make this calmer.', target }
+    expect(queueFocusedFeedbackRequestSchema.parse(queueRequest)).toEqual(queueRequest)
+    expect(queueFocusedFeedbackRequestSchema.safeParse({ ...queueRequest, comment: '  ' }).success).toBe(false)
+    expect(queueFocusedFeedbackRequestSchema.safeParse({ ...queueRequest, comment: 'x'.repeat(100_001) }).success).toBe(false)
+
+    const feedbackId = '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885'
+    const batch = { designId: 'design-1', feedbackIds: [feedbackId], providerId: 'mock', modelId: 'mock-v1' }
+    expect(submitFocusedFeedbackBatchRequestSchema.parse(batch)).toEqual(batch)
+    expect(submitFocusedFeedbackBatchRequestSchema.safeParse({ ...batch, feedbackIds: [] }).success).toBe(false)
+    expect(submitFocusedFeedbackBatchRequestSchema.safeParse({ ...batch, feedbackIds: [feedbackId, feedbackId] }).success).toBe(false)
   })
 })

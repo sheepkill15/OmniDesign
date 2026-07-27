@@ -124,6 +124,10 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       renameProject: vi.fn(async (projectId: string, name: string) => ({ ...(projects.find((project) => project.id === projectId) ?? projectFromDesign(createdDesign)), name })),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
+      listFocusedFeedback: vi.fn().mockResolvedValue([]),
+      queueFocusedFeedback: vi.fn().mockResolvedValue([]),
+      removeFocusedFeedback: vi.fn().mockResolvedValue([]),
+      submitFocusedFeedbackBatch: vi.fn().mockResolvedValue(design),
       chooseProjectFolder: vi.fn().mockResolvedValue(null),
       chooseAttachments: vi.fn().mockResolvedValue([]),
       openAttachment: vi.fn().mockResolvedValue(undefined),
@@ -1214,12 +1218,80 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText('pages/pricing.html:24-31')).toBeInTheDocument()
     const followUp = screen.getByRole('textbox', { name: 'Request a design change' })
     fireEvent.change(followUp, { target: { value: 'Make this call to action calmer' } })
-    fireEvent.keyDown(followUp, { key: 'Enter' })
+    expect(screen.getByRole('button', { name: 'Queue' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Submit & fix' }))
 
     await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith(
       'design-1', 'Make this call to action calmer', 'mock', 'mock-v1', undefined, [], target,
     ))
     expect(screen.queryByText('pages/pricing.html:24-31')).not.toBeInTheDocument()
+  })
+
+  it('queues multiple focused comments in the conversation and submits them as one batch', async () => {
+    const bridge = installBridge()
+    const firstTarget: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const secondTarget: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 28, endLine: 31,
+      label: '<button.primary>', stableId: 'hero-action', excerpt: '<button>Get started</button>', dynamicDescription: null,
+    }
+    const firstFeedback: FocusedFeedback = {
+      id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885', comment: 'Make the heading feel more grounded.', target: firstTarget, createdAt: '2026-07-27T10:00:00.000Z',
+    }
+    const secondFeedback: FocusedFeedback = {
+      id: 'a91b71b4-8a42-4fb8-b93e-bf398c19329d', comment: 'Give this action more breathing room.', target: secondTarget, createdAt: '2026-07-27T10:01:00.000Z',
+    }
+    vi.mocked(bridge.preview.resolveFocusedTarget)
+      .mockResolvedValueOnce(firstTarget)
+      .mockResolvedValueOnce(secondTarget)
+    vi.mocked(bridge.workspace.queueFocusedFeedback)
+      .mockResolvedValueOnce([firstFeedback])
+      .mockResolvedValueOnce([firstFeedback, secondFeedback])
+    render(<App />)
+
+    const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(initialPrompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(initialPrompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+    const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
+    const selectTarget = async (locationId: string, label: string, expectedReference: string) => {
+      const selectButton = screen.getByRole('button', { name: 'Select element' })
+      fireEvent.keyDown(selectButton, { key: 'Enter' })
+      fireEvent.keyUp(selectButton, { key: 'Enter' })
+      await screen.findByRole('button', { name: 'Selecting…' })
+      window.dispatchEvent(new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: {
+          source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html', locationId,
+          clickedLabel: label, usedAncestor: false,
+        },
+      }))
+      await screen.findByText(expectedReference)
+    }
+
+    await selectTarget('6c81c254-bf06-4a04-8b3c-4c39779b2466', '<h1.hero-title>', 'index.html:12-16')
+    const followUp = screen.getByRole('textbox', { name: 'Request a design change' })
+    fireEvent.change(followUp, { target: { value: firstFeedback.comment } })
+    fireEvent.click(screen.getByRole('button', { name: 'Queue' }))
+    await waitFor(() => expect(bridge.workspace.queueFocusedFeedback).toHaveBeenCalledWith('design-1', firstFeedback.comment, firstTarget))
+    expect(await screen.findByText('1 focused note queued')).toBeInTheDocument()
+
+    await selectTarget('fb57d30b-fc27-4edc-b6ad-b5d0886ae152', '<button.primary>', 'index.html:28-31')
+    fireEvent.change(followUp, { target: { value: secondFeedback.comment } })
+    fireEvent.click(screen.getByRole('button', { name: 'Queue' }))
+    expect(await screen.findByText('2 focused notes queued')).toBeInTheDocument()
+    expect(screen.getByText(firstFeedback.comment)).toBeInTheDocument()
+    expect(screen.getByText(secondFeedback.comment)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fix all' }))
+    await waitFor(() => expect(bridge.workspace.submitFocusedFeedbackBatch).toHaveBeenCalledWith(
+      'design-1', [firstFeedback.id, secondFeedback.id], 'mock', 'mock-v1', undefined,
+    ))
+    expect(screen.queryByRole('region', { name: 'Focused feedback queue' })).not.toBeInTheDocument()
+    expect(bridge.workspace.submitFocusedFeedbackBatch).toHaveBeenCalledTimes(1)
+    expect(bridge.workspace.generate).not.toHaveBeenCalled()
   })
 
   it('drops a focused resolution that becomes stale while the preview mode changes', async () => {

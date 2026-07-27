@@ -508,23 +508,45 @@ test('completes the Phase 3 definitions and exact focused-edit journey across re
     await firstRun.window.frameLocator('.preview-focused-fill iframe').locator('h1').click()
     const targetReference = firstRun.window.locator('.focused-target-chip small')
     await expect(targetReference).toHaveText(/^index\.html:\d+-\d+$/)
-    const exactReference = await targetReference.textContent()
+    const firstExactReference = await targetReference.textContent()
     const followUp = firstRun.window.getByRole('textbox', { name: 'Request a design change' })
     await followUp.fill('Make this heading feel more grounded')
-    await followUp.press('Enter')
+    await firstRun.window.getByRole('button', { name: 'Queue', exact: true }).click()
     await expect(firstRun.window.locator('.focused-target-chip')).toHaveCount(0)
+    await expect(firstRun.window.getByText('1 focused note queued')).toBeVisible()
+
+    await firstRun.window.getByRole('button', { name: 'Select element' }).click()
+    await firstRun.window.frameLocator('.preview-focused-fill iframe').locator('section').nth(1).click()
+    await expect(targetReference).toHaveText(/^index\.html:\d+-\d+$/)
+    const secondExactReference = await targetReference.textContent()
+    await followUp.fill('Give this feature block more breathing room')
+    await firstRun.window.getByRole('button', { name: 'Queue', exact: true }).click()
+    await expect(firstRun.window.getByText('2 focused notes queued')).toBeVisible()
+    await expect(firstRun.window.getByText('Make this heading feel more grounded')).toBeVisible()
+    await expect(firstRun.window.getByText('Give this feature block more breathing room')).toBeVisible()
+    await firstRun.window.getByRole('button', { name: 'Fix all' }).click()
+    await expect(firstRun.window.getByRole('region', { name: 'Focused feedback queue' })).toHaveCount(0)
     await expect(firstRun.window.getByRole('button', { name: /History · 3/ })).toBeVisible()
 
     const persisted = await firstRun.window.evaluate(async () => {
       const current = (await window.omnidesign!.workspace.list()).find((design) => design.title === 'A focused-edit product page')!
+      const submitted = [...current.messages].reverse().find((message) => message.focusedFeedback?.length)
       return {
         definitionVersion: current.definitionVersion,
-        target: [...current.messages].reverse().find((message) => message.focusedTarget)?.focusedTarget,
+        focusedFeedback: submitted?.focusedFeedback,
         revisions: current.revisions.length,
       }
     })
-    expect(persisted).toMatchObject({ definitionVersion: 2, target: { path: 'index.html', startLine: expect.any(Number), endLine: expect.any(Number) }, revisions: 3 })
-    expect(exactReference).toBe(`index.html:${persisted.target!.startLine}-${persisted.target!.endLine}`)
+    expect(persisted).toMatchObject({
+      definitionVersion: 2,
+      focusedFeedback: [
+        { comment: 'Make this heading feel more grounded', target: { path: 'index.html', startLine: expect.any(Number), endLine: expect.any(Number) } },
+        { comment: 'Give this feature block more breathing room', target: { path: 'index.html', startLine: expect.any(Number), endLine: expect.any(Number) } },
+      ],
+      revisions: 3,
+    })
+    expect(firstExactReference).toBe(`index.html:${persisted.focusedFeedback![0].target.startLine}-${persisted.focusedFeedback![0].target.endLine}`)
+    expect(secondExactReference).toBe(`index.html:${persisted.focusedFeedback![1].target.startLine}-${persisted.focusedFeedback![1].target.endLine}`)
     await firstRun.app.close()
     activeApp = null
 
@@ -539,7 +561,10 @@ test('completes the Phase 3 definitions and exact focused-edit journey across re
     const secondRun = await launchWorkspace(userDataDirectory)
     activeApp = secondRun.app
     await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
-    await expect(secondRun.window.getByText(`Target · ${exactReference} ·`, { exact: false })).toBeVisible()
+    await expect(secondRun.window.locator('[aria-label="Submitted focused feedback"]')).toBeVisible()
+    await expect(secondRun.window.getByText('Make this heading feel more grounded', { exact: false })).toBeVisible()
+    await expect(secondRun.window.getByText(firstExactReference!, { exact: false })).toBeVisible()
+    await expect(secondRun.window.getByText(secondExactReference!, { exact: false })).toBeVisible()
     await expect(secondRun.window.getByText('Definitions: Current version 2')).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: /History · 3/ })).toBeVisible()
   } finally {

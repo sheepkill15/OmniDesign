@@ -707,6 +707,15 @@ no preload, Node.js access, same-origin permission, filesystem access, or generi
 to generated code. Exact target metadata is retained on the submitted message and
 generation attempt, while the live selection remains ephemeral.
 
+Focused feedback may also be staged as trusted queue records. Each record binds the
+original comment to its privileged resolved target and source revision; it is not stored
+as renderer draft text. Batch submission validates every target again, copies the ordered
+records onto one message and one generation job, and removes them from the pending queue
+in the same database transaction. The provider receives the batch in one resumed turn,
+so normal validation and Git-backed revision creation apply once to the coordinated
+result. A new head revision clears any unsubmitted records whose immutable source ranges
+have become stale.
+
 ## Rules for Changing This Architecture
 
 - Distinguish accepted decisions from proposals and experiments.

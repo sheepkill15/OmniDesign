@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConversationRecap, createDesignAgentInstructions, createFocusedEditPrompt, normalizeAgentReply } from './agentHarness.js'
+import { buildConversationRecap, createDesignAgentInstructions, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from './agentHarness.js'
 
 describe('conversation recap', () => {
   it('recaps recent user and assistant turns and skips system notices and blanks', () => {
@@ -101,5 +101,35 @@ describe('focused edit prompt', () => {
 
     expect(result).toContain('clicked runtime element was <span.runtime-item>')
     expect(result).toContain('nearest authored ancestor')
+  })
+
+  it('combines queued feedback into one coordinated edit with every exact target', () => {
+    const result = createFocusedFeedbackBatchPrompt([
+      {
+        id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885',
+        comment: 'Make the heading feel more grounded.',
+        target: {
+          designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 12, endLine: 16,
+          label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+        },
+        createdAt: '2026-07-27T10:00:00.000Z',
+      },
+      {
+        id: 'a91b71b4-8a42-4fb8-b93e-bf398c19329d',
+        comment: 'Give this action more breathing room.',
+        target: {
+          designId: 'design-1', revisionId: 'revision-1', path: 'pages/pricing.html', startLine: 24, endLine: 31,
+          label: '<button#buy.primary>', stableId: 'pricing-cta', excerpt: '<button>Buy now</button>', dynamicDescription: null,
+        },
+        createdAt: '2026-07-27T10:01:00.000Z',
+      },
+    ])
+
+    expect(result).toContain('one coordinated update')
+    expect(result).toContain('Make the heading feel more grounded.')
+    expect(result).toContain('index.html:12-16')
+    expect(result).toContain('Give this action more breathing room.')
+    expect(result).toContain('pages/pricing.html:24-31')
+    expect(result).toContain('supporting CSS, JavaScript, shared components, or adjacent markup')
   })
 })

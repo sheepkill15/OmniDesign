@@ -35,12 +35,14 @@ safety copies.
 | Trust boundary | The sandboxed preview still has no preload, Node access, same-origin permission, filesystem access, or generic IPC. Only the active registered frame and token are accepted. Privileged resolution revalidates design, revision, page, opaque location key, message shape, and size. |
 | Prompt and provider continuity | Focus metadata augments the ordinary prompt while the original user wording remains visible. The existing provider session is resumed; no focused-edit conversation is created. Supporting CSS and JavaScript changes remain permitted through normal validation. |
 | Persistence and clearing | Resolved targets persist on submitted messages and generation attempts, including retry/continue history. The live target clears on submit, page/revision/layout/workspace changes, restore, and restart. Historical revisions remain non-editable until restored to a new head. |
+| Immediate and queued actions | A selected target exposes **Submit & fix** and **Queue**. Immediate submission retains the single-target path. Queueing persists the comment and trusted exact target, clears the live selection, and shows a removable ordered list above the conversation composer. |
+| One-turn batch generation | **Fix all** revalidates every queued target and atomically moves the ordered items onto one conversation message and one generation job. The installed provider receives one coordinated prompt, Retry/Continue retain the complete batch, and a new head clears stale pending items. |
 
 ## Security and quality evidence
 
 - Contract and source-map tests cover malformed, oversized, forged-token,
   forged-path, stale-frame, stale-page, and cross-revision inputs.
-- Persistence tests cover migration, exact focused metadata, interrupted
+- Persistence tests cover migration, durable focused-feedback queue and batch metadata, exact focused metadata, interrupted
   definition attempts, deterministic result pointers, unavailable AI work, and
   failed queue work.
 - React coverage exercises critical definition and focused-edit interactions in
@@ -50,7 +52,7 @@ safety copies.
   is absent from source, revisions, thumbnails, screenshots, and exports.
 - A built-Electron Playwright journey covers linked-project creation, setup,
   manual definitions, keep/apply decisions, deterministic revision creation,
-  exact `index.html:start-end` selection, focused generation, application-attempt
+  two exact `index.html:start-end` selections, queued comments, one batch generation, application-attempt
   persistence, restart, and recovered conversation/history.
 
 ## Verification gates
@@ -58,7 +60,7 @@ safety copies.
 Verified on Windows on 2026-07-27:
 
 - `pnpm typecheck`
-- `pnpm test` — 25 files, 253 tests
+- `pnpm test` — 25 files, 258 tests
 - `pnpm build`
 - `pnpm test:e2e` — 9 built-Electron journeys
 

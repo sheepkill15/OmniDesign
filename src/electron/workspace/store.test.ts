@@ -623,6 +623,71 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('persists queued focused feedback and submits it atomically as one generation batch', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const withRevision = store.addRevision(created.id, 'First')
+    const revisionId = withRevision.activeRevisionId!
+    const firstTarget = {
+      designId: created.id, revisionId, path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const secondTarget = {
+      designId: created.id, revisionId, path: 'index.html', startLine: 28, endLine: 31,
+      label: '<button.primary>', stableId: 'hero-action', excerpt: '<button>Get started</button>', dynamicDescription: null,
+    }
+
+    store.queueFocusedFeedback(created.id, 'Make the heading feel more grounded.', firstTarget)
+    const queued = store.queueFocusedFeedback(created.id, 'Give this action more breathing room.', secondTarget)
+    expect(queued.map((item) => item.comment)).toEqual([
+      'Make the heading feel more grounded.',
+      'Give this action more breathing room.',
+    ])
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    const persistedQueue = reopened.listFocusedFeedback(created.id)
+    expect(persistedQueue).toEqual(queued)
+    const job = reopened.enqueueGenerationJob(
+      created.id,
+      'Apply 2 queued focused feedback items as one coordinated update.',
+      'mock',
+      'mock-v1',
+      null,
+      [],
+      'fresh',
+      null,
+      null,
+      persistedQueue,
+    )
+
+    expect(reopened.listFocusedFeedback(created.id)).toEqual([])
+    expect(reopened.getGenerationJob(job.id)?.focusedFeedback).toEqual(persistedQueue)
+    expect(reopened.getDesign(created.id)?.messages.at(-1)).toMatchObject({ focusedFeedback: persistedQueue })
+    reopened.setGenerationJobState(job.id, 'running')
+    reopened.setGenerationJobState(job.id, 'failed', 'Stopped for test.')
+    expect(reopened.retryGenerationJob(job.id).focusedFeedback).toEqual(persistedQueue)
+    expect(reopened.continueGenerationJob(job.id).focusedFeedback).toEqual(persistedQueue)
+    reopened.close()
+  })
+
+  it('rejects stale focused feedback and clears pending feedback when a new revision lands', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const firstRevision = store.addRevision(created.id, 'First')
+    const target = {
+      designId: created.id, revisionId: firstRevision.activeRevisionId!, path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1>', stableId: null, excerpt: '<h1>First</h1>', dynamicDescription: null,
+    }
+
+    store.queueFocusedFeedback(created.id, 'Make this calmer.', target)
+    store.addRevision(created.id, 'Unrelated change')
+
+    expect(store.listFocusedFeedback(created.id)).toEqual([])
+    expect(() => store.queueFocusedFeedback(created.id, 'This target is stale.', target)).toThrow('stale')
+    store.close()
+  })
+
   it('removes the persisted prompt message when queued work is removed', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')

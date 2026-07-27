@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, designSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
-import type { Attachment, Design, DesignPage, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import { attachmentSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import type { Attachment, Design, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -158,6 +158,7 @@ interface MessageRow {
   text: string
   attachments_json: string
   focused_target_json: string | null
+  focused_feedback_json: string
   created_at: string
 }
 
@@ -191,6 +192,7 @@ interface GenerationJobRow {
   provider_session_id: string | null
   definition_target_version: number | null
   focused_target_json: string | null
+  focused_feedback_json: string
   state: GenerationJobState
   created_at: string
   started_at: string | null
@@ -579,6 +581,20 @@ CREATE INDEX project_definition_application_attempts_by_design ON project_defini
 CREATE INDEX project_definition_application_attempts_by_job ON project_definition_application_attempts(generation_job_id);
 `
 
+const migrationThirtyNine = `
+CREATE TABLE focused_feedback_queue (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  revision_id TEXT NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
+  comment TEXT NOT NULL,
+  target_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX focused_feedback_queue_by_design ON focused_feedback_queue(design_id, created_at);
+ALTER TABLE messages ADD COLUMN focused_feedback_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE generation_jobs ADD COLUMN focused_feedback_json TEXT NOT NULL DEFAULT '[]';
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -835,6 +851,41 @@ export class WorkspaceStore {
       FROM project_definition_application_attempts WHERE design_id = ? ORDER BY created_at, rowid
     `).all(designId) as unknown as ProjectDefinitionApplicationAttemptRow[]
     return rows.map((row) => this.hydrateProjectDefinitionApplicationAttempt(row))
+  }
+
+  public listFocusedFeedback(designId: string): FocusedFeedback[] {
+    this.requireDesign(designId)
+    const rows = this.database.prepare(`
+      SELECT id, comment, target_json, created_at
+      FROM focused_feedback_queue WHERE design_id = ? ORDER BY created_at, rowid
+    `).all(designId) as unknown as Array<{ id: string; comment: string; target_json: string; created_at: string }>
+    return rows.map((row) => focusedFeedbackSchema.parse({
+      id: row.id,
+      comment: row.comment,
+      target: focusedTargetSchema.parse(safeParseJson(row.target_json)),
+      createdAt: row.created_at,
+    }))
+  }
+
+  public queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): FocusedFeedback[] {
+    const design = this.requireDesign(designId)
+    const parsedTarget = focusedTargetSchema.parse(target)
+    if (!design.activeRevisionId || design.activeRevisionId !== design.selectedRevisionId || parsedTarget.designId !== designId || parsedTarget.revisionId !== design.activeRevisionId) {
+      throw new Error('The selected element is stale or does not belong to the current design revision.')
+    }
+    if (this.listFocusedFeedback(designId).length >= 50) throw new Error('A design can queue at most 50 focused feedback items.')
+    const item = focusedFeedbackSchema.parse({ id: randomUUID(), comment, target: parsedTarget, createdAt: new Date().toISOString() })
+    this.database.prepare(`
+      INSERT INTO focused_feedback_queue (id, design_id, revision_id, comment, target_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(item.id, designId, parsedTarget.revisionId, item.comment, JSON.stringify(parsedTarget), item.createdAt)
+    return this.listFocusedFeedback(designId)
+  }
+
+  public removeFocusedFeedback(designId: string, feedbackId: string): FocusedFeedback[] {
+    const result = this.database.prepare('DELETE FROM focused_feedback_queue WHERE id = ? AND design_id = ?').run(feedbackId, designId)
+    if (result.changes !== 1) throw new Error('Focused feedback item not found.')
+    return this.listFocusedFeedback(designId)
   }
 
   public renameDesign(designId: string, title: string): Design {
@@ -1160,6 +1211,7 @@ export class WorkspaceStore {
       }
       this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, definition_version = ?, updated_at = ?, draft = ? WHERE id = ?')
         .run(revisionId, revisionId, definitionVersion, now, '', designId)
+      this.database.prepare('DELETE FROM focused_feedback_queue WHERE design_id = ?').run(designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, design.projectId)
     })
 
@@ -1366,17 +1418,30 @@ export class WorkspaceStore {
     `).run(randomUUID(), designId, jobId, stage, label, detail, new Date().toISOString())
   }
 
-  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null): GenerationJob {
-    this.requireDesign(designId)
+  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = []): GenerationJob {
+    const design = this.requireDesign(designId)
+    const parsedFocusedFeedback = focusedFeedback.map((item) => focusedFeedbackSchema.parse(item))
+    if (parsedFocusedFeedback.length > 50) throw new Error('A focused feedback batch can contain at most 50 items.')
+    if (parsedFocusedFeedback.some((item) => item.target.designId !== designId || item.target.revisionId !== design.activeRevisionId || design.activeRevisionId !== design.selectedRevisionId)) {
+      throw new Error('Queued focused feedback is stale or does not belong to the current design revision.')
+    }
+    if (parsedFocusedFeedback.length) {
+      const queuedIds = new Set(this.listFocusedFeedback(designId).map((item) => item.id))
+      if (parsedFocusedFeedback.some((item) => !queuedIds.has(item.id))) throw new Error('Queued focused feedback changed before it could be submitted.')
+    }
     const id = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, focused_target_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, id, now)
+        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), now)
+      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, focused_target_json, focused_feedback_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), id, now)
+      if (parsedFocusedFeedback.length) {
+        const placeholders = parsedFocusedFeedback.map(() => '?').join(', ')
+        this.database.prepare(`DELETE FROM focused_feedback_queue WHERE design_id = ? AND id IN (${placeholders})`).run(designId, ...parsedFocusedFeedback.map((item) => item.id))
+      }
       // Sending any new prompt resolves a pending "adapt to project" decision.
       this.database.prepare('UPDATE designs SET updated_at = ?, adaptation_pending = 0 WHERE id = ?').run(now, designId)
     })
@@ -1387,7 +1452,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1395,7 +1460,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -1453,9 +1518,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -1485,9 +1550,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
     const continueId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
     return this.requireGenerationJob(continueId)
   }
 
@@ -1573,7 +1638,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1594,7 +1659,7 @@ export class WorkspaceStore {
   }
 
   private hydrateDesign(row: DesignRow): Design {
-    const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, focused_target_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
+    const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, focused_target_json, focused_feedback_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
       SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at
@@ -1636,7 +1701,7 @@ export class WorkspaceStore {
       },
       generationSteps: this.listGenerationStepsForDesign(row.id),
       layout: layoutSchema.parse(JSON.parse(row.layout_json)),
-      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), createdAt: message.created_at })),
+      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), focusedFeedback: this.hydrateFocusedFeedback(message.focused_feedback_json), createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
         id: candidate.id,
         prompt: candidate.prompt,
@@ -1781,7 +1846,7 @@ export class WorkspaceStore {
 
   private listGenerationJobsForDesign(designId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
     `).all(designId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1800,6 +1865,7 @@ export class WorkspaceStore {
       providerSessionId: row.provider_session_id,
       definitionTargetVersion: row.definition_target_version,
       focusedTarget: this.hydrateFocusedTarget(row.focused_target_json),
+      focusedFeedback: this.hydrateFocusedFeedback(row.focused_feedback_json),
       state: row.state,
       createdAt: row.created_at,
       startedAt: row.started_at,
@@ -1831,6 +1897,15 @@ export class WorkspaceStore {
     if (!value) return null
     const parsed = focusedTargetSchema.safeParse(safeParseJson(value))
     return parsed.success ? parsed.data : null
+  }
+
+  private hydrateFocusedFeedback(value: string | null): FocusedFeedback[] {
+    const parsed = safeParseJson(value ?? '[]')
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((candidate) => {
+      const result = focusedFeedbackSchema.safeParse(candidate)
+      return result.success ? [result.data] : []
+    })
   }
 
   private purgeExpiredTrash(): void {

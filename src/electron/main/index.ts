@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
-import { buildConversationRecap, createFocusedEditPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
+import { buildConversationRecap, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
@@ -33,12 +33,14 @@ import {
   lastOpenDesignSchema,
   projectIdRequestSchema,
   projectDefinitionDecisionRequestSchema,
+  queueFocusedFeedbackRequestSchema,
   renameDesignRequestSchema,
   renameProjectRequestSchema,
   reconnectProjectRequestSchema,
   registerLinkedProjectRequestSchema,
   revisionPagesRequestSchema,
   resolveFocusedTargetRequestSchema,
+  removeFocusedFeedbackRequestSchema,
   savePageMetadataRequestSchema,
   saveProjectDesignDefinitionsRequestSchema,
   saveDesignSelectionRequestSchema,
@@ -47,6 +49,7 @@ import {
   selectRevisionRequestSchema,
   setEntryPageRequestSchema,
   setProjectDefinitionPromptSuppressedRequestSchema,
+  submitFocusedFeedbackBatchRequestSchema,
   themeSchema,
   trashItemRequestSchema,
 } from '../workspace/contracts.js'
@@ -538,21 +541,50 @@ function registerIpc(): void {
     popWindow = null
     requireWorkspace().purgeTrashItem(request.kind, request.id)
   })
+  const validateCurrentFocusedTarget = (designId: string, target: import('../workspace/contracts.js').FocusedTarget) => {
+    const design = requireWorkspace().getDesign(designId)
+    if (!design
+      || target.designId !== designId
+      || design.activeRevisionId !== target.revisionId
+      || design.selectedRevisionId !== target.revisionId
+      || !requirePreviewServer().validatesFocusedTarget(target)) {
+      throw new Error('The selected element is stale or does not belong to the current design revision.')
+    }
+  }
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
-    if (request.focusedTarget) {
-      const design = requireWorkspace().getDesign(request.designId)
-      if (!design
-        || request.focusedTarget.designId !== request.designId
-        || design.activeRevisionId !== request.focusedTarget.revisionId
-        || design.selectedRevisionId !== request.focusedTarget.revisionId
-        || !requirePreviewServer().validatesFocusedTarget(request.focusedTarget)) {
-        throw new Error('The selected element is stale or does not belong to the current design revision.')
-      }
-    }
+    if (request.focusedTarget) validateCurrentFocusedTarget(request.designId, request.focusedTarget)
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
     requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null)
+    return requireWorkspace().getDesign(request.designId)
+  })
+  ipcMain.handle('workspace:list-focused-feedback', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspaceStore().listFocusedFeedback(designIdRequestSchema.parse(value).designId)
+  })
+  ipcMain.handle('workspace:queue-focused-feedback', (event, value: unknown) => {
+    authorize(event)
+    const request = queueFocusedFeedbackRequestSchema.parse(value)
+    validateCurrentFocusedTarget(request.designId, request.target)
+    return requireWorkspaceStore().queueFocusedFeedback(request.designId, request.comment, request.target)
+  })
+  ipcMain.handle('workspace:remove-focused-feedback', (event, value: unknown) => {
+    authorize(event)
+    const request = removeFocusedFeedbackRequestSchema.parse(value)
+    return requireWorkspaceStore().removeFocusedFeedback(request.designId, request.feedbackId)
+  })
+  ipcMain.handle('workspace:submit-focused-feedback-batch', (event, value: unknown) => {
+    authorize(event)
+    const request = submitFocusedFeedbackBatchRequestSchema.parse(value)
+    const byId = new Map(requireWorkspaceStore().listFocusedFeedback(request.designId).map((item) => [item.id, item]))
+    const feedback = request.feedbackIds.map((id) => byId.get(id))
+    if (feedback.some((item) => !item)) throw new Error('Queued focused feedback changed before it could be submitted.')
+    const resolved = feedback.map((item) => item!)
+    for (const item of resolved) validateCurrentFocusedTarget(request.designId, item.target)
+    requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
+    const prompt = `Apply ${resolved.length} queued focused edit${resolved.length === 1 ? '' : 's'}.`
+    requireGenerationQueue().enqueue(request.designId, prompt, request.providerId, request.modelId, request.effort, [], null, null, resolved)
     return requireWorkspace().getDesign(request.designId)
   })
   ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
@@ -773,7 +805,8 @@ void app.whenReady().then(() => {
         const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId)
         if (definitionContext) agentPrompt = `${agentPrompt}\n\n${definitionContext}`
       }
-      if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
+      if (job.focusedFeedback?.length) agentPrompt = createFocusedFeedbackBatchPrompt(job.focusedFeedback)
+      else if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
       // Resume the design's own provider conversation when the selected provider matches the stored
       // session; otherwise this is a fresh session (first prompt, a provider switch, or a stale session).
       let providerSessionId = job.providerSessionId ?? (storedSession && storedSession.providerId === job.providerId ? storedSession.sessionId : undefined)
@@ -844,7 +877,8 @@ void app.whenReady().then(() => {
         }
         const diagnostic = saved.invalidCandidates.at(-1)?.diagnostic ?? 'The candidate did not pass validation.'
         agentPrompt = `Repair the current design in place and finish the original request. Validation feedback: ${diagnostic}`
-        if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
+        if (job.focusedFeedback?.length) agentPrompt = createFocusedFeedbackBatchPrompt(job.focusedFeedback)
+        else if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
       }
     },
     recordActivity,

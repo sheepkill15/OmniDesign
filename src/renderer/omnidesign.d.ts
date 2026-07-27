@@ -61,6 +61,7 @@ interface DesignMessage {
   readonly text: string
   readonly attachments?: readonly DesignAttachment[]
   readonly focusedTarget?: FocusedTarget | null
+  readonly focusedFeedback?: readonly FocusedFeedback[]
   readonly createdAt: string
 }
 
@@ -74,6 +75,13 @@ interface FocusedTarget {
   readonly stableId: string | null
   readonly excerpt: string
   readonly dynamicDescription: string | null
+}
+
+interface FocusedFeedback {
+  readonly id: string
+  readonly comment: string
+  readonly target: FocusedTarget
+  readonly createdAt: string
 }
 
 interface DesignPage {
@@ -138,6 +146,7 @@ interface GenerationJob {
   readonly providerSessionId?: string | null
   readonly definitionTargetVersion?: number | null
   readonly focusedTarget?: FocusedTarget | null
+  readonly focusedFeedback?: readonly FocusedFeedback[]
   readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   readonly createdAt: string
   readonly startedAt: string | null
@@ -347,6 +356,10 @@ interface Window {
       renameProject(projectId: string, name: string): Promise<ProjectSummary>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
       generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null): Promise<OmniDesignDocument>
+      listFocusedFeedback(designId: string): Promise<FocusedFeedback[]>
+      queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): Promise<FocusedFeedback[]>
+      removeFocusedFeedback(designId: string, feedbackId: string): Promise<FocusedFeedback[]>
+      submitFocusedFeedbackBatch(designId: string, feedbackIds: readonly string[], providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>
       chooseAttachments(kind: 'files' | 'folder'): Promise<DesignAttachment[]>
       openAttachment(attachment: DesignAttachment): Promise<void>
