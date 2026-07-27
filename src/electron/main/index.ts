@@ -36,11 +36,13 @@ import {
   registerLinkedProjectRequestSchema,
   revisionPagesRequestSchema,
   savePageMetadataRequestSchema,
+  saveProjectDesignDefinitionsRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
   setEntryPageRequestSchema,
+  setProjectDefinitionPromptSuppressedRequestSchema,
   themeSchema,
   trashItemRequestSchema,
 } from '../workspace/contracts.js'
@@ -320,6 +322,20 @@ function registerIpc(): void {
   ipcMain.handle('workspace:get-project', (event, value: unknown) => {
     authorize(event)
     return requireWorkspace().getProject(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:get-project-design-definitions', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().getProjectDesignDefinitionState(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:save-project-design-definitions', (event, value: unknown) => {
+    authorize(event)
+    const request = saveProjectDesignDefinitionsRequestSchema.parse(value)
+    return requireWorkspace().saveProjectDesignDefinitions(request.projectId, request.definitions)
+  })
+  ipcMain.handle('workspace:set-project-definition-prompt-suppressed', (event, value: unknown) => {
+    authorize(event)
+    const request = setProjectDefinitionPromptSuppressedRequestSchema.parse(value)
+    return requireWorkspace().setProjectDefinitionPromptSuppressed(request.projectId, request.suppressed)
   })
   ipcMain.handle('workspace:rename-project', (event, value: unknown) => {
     authorize(event)

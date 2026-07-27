@@ -1049,6 +1049,82 @@ button:not(:disabled):active {
   margin-top: 42px;
 }
 
+.page-heading-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.definitions-main {
+  min-width: 0;
+  overflow: auto;
+  background: var(--background);
+}
+
+.definitions-content {
+  width: min(1080px, 100%);
+  box-sizing: border-box;
+  padding: 34px 44px 72px;
+}
+
+.definitions-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.definitions-heading h1 { margin: 0; color: var(--text); font-size: 24px; font-weight: 500; letter-spacing: -.02em; }
+.definitions-heading p { margin: 5px 0 0; color: var(--text-subtle); font-size: 12px; }
+.definition-editor { display: grid; }
+
+.definition-section {
+  padding: 30px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.definition-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
+.definition-section-heading h2 { margin: 0; color: var(--text); font-size: 16px; font-weight: 600; }
+.definition-section-heading p { max-width: 680px; margin: 6px 0 0; color: var(--text-subtle); font-size: 12px; line-height: 1.55; }
+.definition-token-list { display: grid; gap: 8px; }
+.definition-token-row { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(160px, .8fr) minmax(220px, 1.4fr) 36px; align-items: end; gap: 9px; }
+.definition-typography-row { display: grid; grid-template-columns: repeat(6, minmax(92px, 1fr)) 36px; align-items: end; gap: 9px; padding: 12px 0; }
+.definition-typography-row + .definition-typography-row { border-top: 1px solid var(--border); }
+.definition-description-field { grid-column: 1 / -2; }
+.definition-section [data-rac] { min-width: 0; }
+.definition-section label { display: block; margin: 0 0 6px; color: var(--text-faint); font-size: 10px; font-weight: 600; letter-spacing: .045em; text-transform: uppercase; }
+.definition-section input,
+.definition-section textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); color: var(--text); font: inherit; }
+.definition-section input { height: 38px; padding: 0 11px; }
+.definition-section textarea { min-height: 132px; padding: 11px 12px; resize: vertical; line-height: 1.55; }
+.definition-section input:focus,
+.definition-section textarea:focus { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 26%, transparent); }
+.definition-remove { width: 36px; height: 38px; color: var(--text-subtle); }
+.definition-remove:hover { color: var(--danger); }
+.definition-empty { margin: 0; padding: 13px 0; color: var(--text-faint); font-size: 12px; }
+.definition-setup-modal { width: min(520px, calc(100vw - 32px)); }
+.definition-setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 22px; }
+.definition-setup-actions .text-button { margin-left: auto; }
+
+@media (max-width: 1050px) {
+  .definitions-content { padding-inline: 28px; }
+  .definition-token-row { grid-template-columns: minmax(120px, .7fr) minmax(140px, .8fr) minmax(180px, 1.2fr) 36px; }
+  .definition-typography-row { grid-template-columns: repeat(3, minmax(120px, 1fr)) 36px; }
+  .definition-description-field { grid-column: 1 / -2; }
+}
+
+@media (max-width: 760px) {
+  .definitions-content { padding: 24px 20px 56px; }
+  .definitions-heading { grid-template-columns: auto minmax(0, 1fr); }
+  .definitions-heading .primary-action { grid-column: 2; justify-self: start; }
+  .definition-section-heading { align-items: stretch; flex-direction: column; }
+  .definition-section-heading .secondary-action { align-self: flex-start; }
+  .definition-token-row,
+  .definition-typography-row { grid-template-columns: 1fr 36px; }
+  .definition-token-row [data-rac],
+  .definition-typography-row [data-rac] { grid-column: 1; }
+  .definition-token-row .definition-remove,
+  .definition-typography-row .definition-remove { grid-column: 2; grid-row: 1; }
+}
+
 .editable-title { min-width: 0; }
 .editable-title-field { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .editable-title > small { display: block; margin-top: 6px; color: var(--danger); font-size: 11px; }

@@ -199,6 +199,45 @@ interface ProjectDetail {
   readonly designs: readonly OmniDesignDocument[]
 }
 
+interface NamedDesignDefinition {
+  readonly name: string
+  readonly value: string
+  readonly description: string | null
+}
+
+interface TypographyDesignDefinition {
+  readonly name: string
+  readonly fontFamily: string
+  readonly fontSize: string
+  readonly fontWeight: string
+  readonly lineHeight: string
+  readonly letterSpacing: string | null
+  readonly description: string | null
+}
+
+interface ProjectDesignDefinitions {
+  readonly schemaVersion: 1
+  readonly colors: readonly NamedDesignDefinition[]
+  readonly typography: readonly TypographyDesignDefinition[]
+  readonly spacing: readonly NamedDesignDefinition[]
+  readonly shape: readonly NamedDesignDefinition[]
+  readonly visualGuidance: string
+  readonly aiAgentInstructions: string
+}
+
+interface ProjectDesignDefinitionVersion {
+  readonly id: string
+  readonly projectId: string
+  readonly version: number
+  readonly definitions: ProjectDesignDefinitions
+  readonly createdAt: string
+}
+
+interface ProjectDesignDefinitionState {
+  readonly current: ProjectDesignDefinitionVersion | null
+  readonly promptSuppressed: boolean
+}
+
 interface TrashItem {
   readonly id: string
   readonly kind: 'project' | 'design'
@@ -253,6 +292,9 @@ interface Window {
       list(): Promise<OmniDesignDocument[]>
       listProjects(): Promise<ProjectSummary[]>
       getProject(projectId: string): Promise<ProjectDetail | null>
+      getProjectDesignDefinitions(projectId: string): Promise<ProjectDesignDefinitionState | null>
+      saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): Promise<ProjectDesignDefinitionVersion>
+      setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): Promise<ProjectDesignDefinitionState>
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
       duplicateDesign(designId: string): Promise<OmniDesignDocument>
       associateAndRestart(designId: string, projectId: string): Promise<OmniDesignDocument | null>

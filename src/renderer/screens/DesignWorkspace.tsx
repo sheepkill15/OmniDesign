@@ -18,6 +18,7 @@ import {
   SparklesIcon,
   Squares2X2Icon,
   StopIcon,
+  SwatchIcon,
   TrashIcon,
   ViewColumnsIcon,
   WindowIcon,
@@ -121,7 +122,7 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
   )
 }
 
-export function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders }: {
+export function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders, onOpenDefinitions }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
   readonly projects: readonly ProjectSummary[]
@@ -137,6 +138,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   readonly onAssociateAndRestart: (design: OmniDesignDocument, projectId: string) => Promise<void>
   readonly onDismissAssociation: () => void
   readonly onOpenProviders: () => void
+  readonly onOpenDefinitions: () => void
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
@@ -568,6 +570,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
+          <Button className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions</Button>
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>

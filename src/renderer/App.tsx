@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Button } from 'react-aria-components'
 import { promptMentionsProject } from './promptMatch'
 import { Library } from './screens/Library'
 import { Sidebar } from './screens/Sidebar'
@@ -9,6 +10,8 @@ import { Providers } from './screens/Providers'
 import { Trash } from './screens/Trash'
 import { Settings } from './screens/Settings'
 import { DesignWorkspace } from './screens/DesignWorkspace'
+import { DesignDefinitions } from './screens/DesignDefinitions'
+import { AppModal } from './components/AppModal'
 import type { ProviderId } from './components/composer'
 
 const developmentProvider: ProviderStatus = {
@@ -64,6 +67,8 @@ export function App() {
   const [generationsOpen, setGenerationsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  const [definitionsProject, setDefinitionsProject] = useState<ProjectSummary | null>(null)
+  const [definitionPromptProject, setDefinitionPromptProject] = useState<ProjectSummary | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [generationDetail, setGenerationDetail] = useState<'full' | 'concise'>('full')
@@ -76,6 +81,7 @@ export function App() {
   // before we have read and applied it.
   const initStarted = useRef(false)
   const restoreDone = useRef(false)
+  const definitionPromptsSeen = useRef(new Set<string>())
 
   const updateDesign = useCallback((design: OmniDesignDocument) => {
     // Ignore a snapshot older than what we already hold. Async refreshes (e.g. a generation `get` that
@@ -166,6 +172,16 @@ export function App() {
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The generated thumbnail could not refresh the design.'))
   }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
 
+  useEffect(() => {
+    if (definitionsProject || definitionPromptProject) return
+    const project = activeDesign ? projects.find((candidate) => candidate.id === activeDesign.projectId) : activeProject
+    if (!project || project.currentDefinitionVersion !== null || project.definitionPromptSuppressed || definitionPromptsSeen.current.has(project.id)) return
+    const hasActiveWork = activeDesign?.projectId === project.id && activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')
+    if (hasActiveWork) return
+    definitionPromptsSeen.current.add(project.id)
+    setDefinitionPromptProject(project)
+  }, [activeDesign, activeProject, definitionPromptProject, definitionsProject, projects])
+
   const create = async (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => {
     if (!workspaceApi) return
     setCreating(true)
@@ -197,7 +213,7 @@ export function App() {
       throw reason
     }
   }
-  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false); setLibraryOpen(false) }
+  const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false); setLibraryOpen(false); setDefinitionsProject(null); setDefinitionPromptProject(null) }
   const home = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
   const openLibrary = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
@@ -206,6 +222,16 @@ export function App() {
   const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
   const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
   const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
+  const openDefinitions = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDefinitionsProject(project) }
+  const suppressDefinitionPrompt = async (project: ProjectSummary) => {
+    try {
+      await workspaceApi?.setProjectDefinitionPromptSuppressed(project.id, true)
+      setDefinitionPromptProject(null)
+      await refresh()
+    } catch (reason) {
+      setWorkspaceError(reason instanceof Error && reason.message ? reason.message : 'The definition prompt preference could not be saved.')
+    }
+  }
   const openDesign = (design: OmniDesignDocument) => {
     closePanels()
     const project = projects.find((candidate) => candidate.id === design.projectId)
@@ -352,7 +378,7 @@ export function App() {
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} designs={designs} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen && !libraryOpen} libraryOpen={libraryOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onLibrary={openLibrary} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
+      <Sidebar projects={projects} designs={designs} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen && !libraryOpen && !definitionsProject} libraryOpen={libraryOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onLibrary={openLibrary} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
       {libraryOpen
         ? <Library projects={projects} designs={designs} folders={folders} tags={tags} onOpenProject={openProject} onOpenDesign={openDesign} onCreateFolder={createFolder} onRenameFolder={renameFolder} onDeleteFolder={deleteFolder} onMoveProjectToFolder={moveProjectToFolder} onCreateTag={createLibraryTag} onDeleteTag={deleteLibraryTag} onToggleTag={toggleLibraryTag} onDuplicateDesign={duplicateDesign} onMoveDesign={moveDesign} onTrashDesign={trashDesign} />
         : generationsOpen
@@ -363,11 +389,23 @@ export function App() {
         ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} onRefresh={providerState.refresh} />
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} initialError={settingsError} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
+        : definitionsProject
+        ? <DesignDefinitions project={definitionsProject} onBack={() => setDefinitionsProject(null)} onSaved={(version) => { setDefinitionsProject((current) => current ? { ...current, currentDefinitionVersion: version.version } : current); void refresh() }} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
         : activeProject
-        ? <ProjectPage project={activeProject} projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onRefresh={async () => { await refresh() }} onOpenProviders={openProviders} />
+        ? <ProjectPage project={activeProject} projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onRefresh={async () => { await refresh() }} onOpenProviders={openProviders} onOpenDefinitions={() => openDefinitions(activeProject)} />
         : <Home projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}
+      <AppModal isOpen={definitionPromptProject !== null} onOpenChange={(open) => { if (!open) setDefinitionPromptProject(null) }} className="definition-setup-modal" title={`Set up design definitions for ${definitionPromptProject?.name ?? 'this project'}?`}>
+        {(close) => <>
+          <p>Define shared colors, typography, spacing, shape, and project guidance before creating or refining designs. You can also continue without them.</p>
+          <div className="definition-setup-actions">
+            <Button className="primary-action" onPress={() => { const project = definitionPromptProject; close(); if (project) openDefinitions(project) }}>Set up now</Button>
+            <Button className="secondary-action" onPress={close}>Not now</Button>
+            <Button className="text-button" onPress={() => { const project = definitionPromptProject; if (project) void suppressDefinitionPrompt(project) }}>Don't show again for this project</Button>
+          </div>
+        </>}
+      </AppModal>
     </div>
   )
 }

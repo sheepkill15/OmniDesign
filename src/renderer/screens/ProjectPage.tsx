@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Button, Menu, MenuItem } from 'react-aria-components'
-import { ArrowPathIcon, DocumentDuplicateIcon, FolderIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { ArrowPathIcon, DocumentDuplicateIcon, FolderIcon, SwatchIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { DropdownButton } from '../components/DropdownButton'
 import { EditableTitle, ProjectThumbnail } from '../components/common'
 import { NewDesignComposer, type ProviderId } from '../components/composer'
 
-export function ProjectPage({ project, projects, designs, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onDesignRenamed, onReconnect, onConvertToStandalone, onTrashProject, onRefresh, onOpenProviders }: {
+export function ProjectPage({ project, projects, designs, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onDesignRenamed, onReconnect, onConvertToStandalone, onTrashProject, onRefresh, onOpenProviders, onOpenDefinitions }: {
   readonly project: ProjectSummary
   readonly projects: readonly ProjectSummary[]
   readonly designs: readonly OmniDesignDocument[]
@@ -21,6 +21,7 @@ export function ProjectPage({ project, projects, designs, providers, busy, activ
   readonly onTrashProject: (project: ProjectSummary) => Promise<void>
   readonly onRefresh: () => Promise<void>
   readonly onOpenProviders: () => void
+  readonly onOpenDefinitions: () => void
 }) {
   const [pendingAction, setPendingAction] = useState<'reconnect' | 'convert' | 'remove' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -73,7 +74,7 @@ export function ProjectPage({ project, projects, designs, providers, busy, activ
           <EditableTitle value={project.name} label="project" variant="page" onSave={(name) => onRenameProject(project, name)} />
           <p>{project.kind === 'linked' ? (project.sourceAvailable ? project.sourceProjectPath ?? 'Linked project' : 'Linked source folder is unavailable') : 'Standalone project'}</p>
           {project.kind === 'linked' && !project.sourceAvailable && <div className="generation-recovery" role="status"><span><strong>Source folder unavailable.</strong> Your saved designs are safe; reconnect the folder or keep this project standalone.</span><Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runProjectAction('reconnect', () => onReconnect(project), 'The project folder could not be reconnected.')}>{pendingAction === 'reconnect' ? 'Reconnecting…' : 'Reconnect folder'}</Button><Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runProjectAction('convert', () => onConvertToStandalone(project), 'The project could not be converted.')}>{pendingAction === 'convert' ? 'Converting…' : 'Convert to standalone'}</Button></div>}
-          <Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runProjectAction('remove', () => onTrashProject(project), 'The project could not be moved to Trash.')}><TrashIcon aria-hidden="true" />{pendingAction === 'remove' ? 'Removing…' : 'Remove project'}</Button>
+          <div className="page-heading-actions"><Button className="secondary-action" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Design definitions</Button><Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runProjectAction('remove', () => onTrashProject(project), 'The project could not be moved to Trash.')}><TrashIcon aria-hidden="true" />{pendingAction === 'remove' ? 'Removing…' : 'Remove project'}</Button></div>
         </header>
         {actionError && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Project action failed.</strong><small>{actionError}</small></span><Button className="text-button" onPress={() => setActionError(null)}>Dismiss</Button></div>}
         <NewDesignComposer providers={providers} busy={busy} fixedProject={project} onCreate={onCreate} onOpenProviders={onOpenProviders} />

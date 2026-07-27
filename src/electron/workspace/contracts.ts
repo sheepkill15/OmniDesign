@@ -177,6 +177,14 @@ export const projectIdRequestSchema = z.object({
   projectId: z.string().min(1).max(100),
 })
 
+export const saveProjectDesignDefinitionsRequestSchema = projectIdRequestSchema.extend({
+  definitions: projectDesignDefinitionsSchema,
+})
+
+export const setProjectDefinitionPromptSuppressedRequestSchema = projectIdRequestSchema.extend({
+  suppressed: z.boolean(),
+})
+
 export const renameProjectRequestSchema = projectIdRequestSchema.extend({
   name: z.string().trim().min(1).max(200),
 })
@@ -416,6 +424,7 @@ export type ProjectDesignDefinitions = z.infer<typeof projectDesignDefinitionsSc
 export type ProjectDesignDefinitionVersion = z.infer<typeof projectDesignDefinitionVersionSchema>
 export type ProjectDesignDefinitionState = z.infer<typeof projectDesignDefinitionStateSchema>
 export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
+export type SaveProjectDesignDefinitionsRequest = z.infer<typeof saveProjectDesignDefinitionsRequestSchema>
 export type RenameProjectRequest = z.infer<typeof renameProjectRequestSchema>
 export type ReconnectProjectRequest = z.infer<typeof reconnectProjectRequestSchema>
 export type CloneProjectRequest = z.infer<typeof cloneProjectRequestSchema>

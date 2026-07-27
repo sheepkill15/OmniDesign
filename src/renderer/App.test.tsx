@@ -58,7 +58,7 @@ function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
     lastProviderId: candidate.lastSelection.providerId,
     folderId: null,
     tags: [],
-    currentDefinitionVersion: null,
+    currentDefinitionVersion: 1,
     definitionPromptSuppressed: false,
   }
 }
@@ -88,6 +88,9 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
         const project = projects.find((candidate) => candidate.id === projectId)
         return project ? { project, designs: initialDesigns.filter((candidate) => candidate.projectId === projectId) } : null
       }),
+      getProjectDesignDefinitions: vi.fn().mockResolvedValue({ current: null, promptSuppressed: false }),
+      saveProjectDesignDefinitions: vi.fn(async (projectId: string, definitions: ProjectDesignDefinitions) => ({ id: '4ecde3a1-3d43-4db9-a8f4-6da2c8d8d5ab', projectId, version: 1, definitions, createdAt: '2026-07-20T10:00:00.000Z' })),
+      setProjectDefinitionPromptSuppressed: vi.fn().mockResolvedValue({ current: null, promptSuppressed: true }),
       listTrash: vi.fn().mockResolvedValue([]),
       listFolders: vi.fn().mockResolvedValue([]),
       listTags: vi.fn().mockResolvedValue([]),
@@ -695,11 +698,50 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A linked dashboard', 'mock', 'mock-v1', undefined, { sourceProjectPath: 'C:\\Projects\\Aurora' }))
   })
 
+  it('offers design-definition setup for an empty project and can hide the prompt permanently', async () => {
+    const bridge = installBridge([design], design)
+    const project = { ...projectFromDesign(design), currentDefinitionVersion: null }
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    render(<App />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Set up design definitions for Calm dashboard?' })
+    expect(within(dialog).getByText(/shared colors, typography, spacing, shape/i)).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: "Don't show again for this project" }))
+
+    await waitFor(() => expect(bridge.workspace.setProjectDefinitionPromptSuppressed).toHaveBeenCalledWith('project-1', true))
+    expect(screen.queryByRole('dialog', { name: /Set up design definitions/ })).not.toBeInTheDocument()
+  })
+
+  it('edits and saves structured project definitions from a design workspace', async () => {
+    const bridge = installBridge([design], design)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    vi.mocked(bridge.workspace.getProjectDesignDefinitions).mockResolvedValue({ current: null, promptSuppressed: false })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
+    expect(await screen.findByRole('heading', { name: 'Design definitions' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Add color' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'primary' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: '#725d78' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'Primary actions' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Visual guidance' }), { target: { value: 'Quiet and spacious.' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'AI Agent instructions' }), { target: { value: 'Use semantic HTML.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save definitions' }))
+
+    await waitFor(() => expect(bridge.workspace.saveProjectDesignDefinitions).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      colors: [{ name: 'primary', value: '#725d78', description: 'Primary actions' }],
+      visualGuidance: 'Quiet and spacious.',
+      aiAgentInstructions: 'Use semantic HTML.',
+    })))
+    expect(await screen.findByText('Definitions saved.')).toBeInTheDocument()
+  })
+
   it('offers only linked projects as reuse targets in the composer selector', async () => {
     const bridge = installBridge()
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([
-      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: null, definitionPromptSuppressed: false },
-      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: null, definitionPromptSuppressed: false },
+      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false },
+      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false },
     ])
     render(<App />)
 
@@ -721,7 +763,7 @@ describe('Phase 1 walking skeleton UI', () => {
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{
       id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1,
       createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page',
-      lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: null, definitionPromptSuppressed: false,
+      lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false,
     }])
     vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(associatedDesign)
     render(<App />)
@@ -744,7 +786,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', updatedAt: '2026-07-20T10:00:00.000Z', adaptationPending: false, generationJobs: [runningJob] }
     const movedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora', updatedAt: '2026-07-20T10:05:00.000Z', adaptationPending: true }
     const bridge = installBridge([], createdDesign)
-    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: null, definitionPromptSuppressed: false }])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false }])
     vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(movedDesign)
     // A generation refresh that resolves after the move still carries the pre-move snapshot.
     vi.mocked(bridge.workspace.get).mockResolvedValue(createdDesign)
@@ -767,7 +809,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const queuedJob: GenerationJob = { id: '7e3670bd-2f6c-444d-afd0-a26e178399664', designId: 'new-design', prompt: 'Create a dashboard for Aurora', providerId: 'mock', modelId: 'mock-v1', state: 'queued', createdAt: '2026-07-20T10:00:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [] }
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', generationJobs: [queuedJob] }
     const bridge = installBridge([], createdDesign)
-    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: null, definitionPromptSuppressed: false }])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false }])
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
