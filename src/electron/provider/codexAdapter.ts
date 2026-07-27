@@ -175,7 +175,6 @@ export class CodexAdapter implements ProviderAdapter {
           : { type: 'readOnly', networkAccess: true },
         ...(request.workspacePath ? { cwd: request.workspacePath } : {}),
         ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
-        ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
         input: [{ type: 'text', text: request.prompt }],
       }).catch((error: unknown) => done(error instanceof Error ? error : new Error('Codex failed to start the turn.')))
     })

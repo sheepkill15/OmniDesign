@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collectTailwindCandidates, compileTailwindCss, validateCompiledDesign } from './compiler.js'
+import { collectTailwindCandidates, collectTailwindCandidatesForFiles, compileTailwindCss, compileTailwindCssForFiles, validateCompiledDesign, validateDesignFiles } from './compiler.js'
 
 describe('design compiler', () => {
   it('collects complete Tailwind candidates and compiles a standalone stylesheet', async () => {
@@ -44,5 +44,36 @@ describe('design compiler', () => {
     expect(() => validateCompiledDesign('<html><head><link rel="stylesheet" href=".build/tailwind.css"><script defer src=".build/alpine.js"></script></head><body></body></html>')).not.toThrow()
     // Local filesystem access stays blocked.
     expect(() => validateCompiledDesign('<html><body><img src="file:///C:/secret.png"></body></html>')).toThrow(/file:/)
+  })
+
+  it('compiles one shared stylesheet across every page and script of a multi-page design', async () => {
+    const files = {
+      'index.html': '<html><head></head><body class="bg-stone-950"><a href="about.html" class="underline">About</a></body></html>',
+      'about.html': '<html><head></head><body class="text-white"><h1 class="text-5xl">About</h1></body></html>',
+      'assets/app.js': 'const cls = "grid gap-4"',
+      '.build/tailwind.css': '',
+    }
+    expect(collectTailwindCandidatesForFiles(files)).toEqual(expect.arrayContaining(['bg-stone-950', 'underline', 'text-white', 'text-5xl', 'grid', 'gap-4']))
+
+    const css = await compileTailwindCssForFiles(files)
+    expect(css).toContain('.bg-stone-950')
+    expect(css).toContain('.text-5xl')
+    expect(css).toContain('.gap-4')
+  })
+
+  it('rejects a multi-page design where a page is not a well-formed document', async () => {
+    await expect(compileTailwindCssForFiles({ 'index.html': '<html><body>ok</body></html>', 'broken.html': '<main>no doc</main>' }))
+      .rejects.toThrow(/broken\.html/)
+  })
+
+  it('requires at least one page to compile', async () => {
+    await expect(compileTailwindCssForFiles({ '.build/tailwind.css': '' })).rejects.toThrow(/at least one/)
+  })
+
+  it('validates portability across every source file', () => {
+    expect(() => validateDesignFiles({ 'index.html': '<html><body>ok</body></html>', 'about.html': '<html><body><img src="file:///c:/x.png"></body></html>' }))
+      .toThrow(/file:/)
+    // The compiled stylesheet and vendored runtime under .build are not re-validated as source.
+    expect(() => validateDesignFiles({ 'index.html': '<html><body>ok</body></html>', '.build/alpine.js': 'file:whatever' })).not.toThrow()
   })
 })

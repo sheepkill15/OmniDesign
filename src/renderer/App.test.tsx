@@ -30,9 +30,12 @@ const design: OmniDesignDocument = {
   queuePaused: false,
   titlePending: false,
   adaptationPending: false,
+  entryPagePath: null,
+  pages: [],
+  tags: [],
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
-  layout: { conversationWidth: 43, mode: 'split' },
+  layout: { conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewCustomWidth: 1280, previewCustomHeight: 800, previewPage: null },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
@@ -52,6 +55,9 @@ function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
     thumbnailDataUrl: candidate.thumbnailDataUrl,
     latestDesignTitle: candidate.title,
     latestPrompt: candidate.messages.find((message) => message.role === 'user')?.text ?? null,
+    lastProviderId: candidate.lastSelection.providerId,
+    folderId: null,
+    tags: [],
   }
 }
 
@@ -81,6 +87,17 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
         return project ? { project, designs: initialDesigns.filter((candidate) => candidate.projectId === projectId) } : null
       }),
       listTrash: vi.fn().mockResolvedValue([]),
+      listFolders: vi.fn().mockResolvedValue([]),
+      listTags: vi.fn().mockResolvedValue([]),
+      createFolder: vi.fn().mockResolvedValue({ id: 'folder-1', name: 'Folder', parentFolderId: null, sortOrder: 0, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z' }),
+      renameFolder: vi.fn().mockResolvedValue(undefined),
+      deleteFolder: vi.fn().mockResolvedValue(undefined),
+      moveProjectToFolder: vi.fn().mockResolvedValue(undefined),
+      createTag: vi.fn().mockResolvedValue({ id: 'tag-1', name: 'Tag', color: 'neutral', createdAt: '2026-07-20T10:00:00.000Z' }),
+      deleteTag: vi.fn().mockResolvedValue(undefined),
+      tag: vi.fn().mockResolvedValue(undefined),
+      untag: vi.fn().mockResolvedValue(undefined),
+      duplicateDesign: vi.fn().mockResolvedValue(createdDesign),
       cloneProject: vi.fn(),
       registerLinkedProject: vi.fn(),
       reconnectProject: vi.fn(),
@@ -111,17 +128,19 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       saveDraft: vi.fn().mockResolvedValue(undefined),
       saveLayout: vi.fn().mockResolvedValue(undefined),
       exportRevision: vi.fn().mockResolvedValue({ canceled: true }),
+      revisionPages: vi.fn().mockResolvedValue({ pages: [], entryPagePath: null }),
+      setEntryPage: vi.fn().mockResolvedValue(design),
+      savePageMetadata: vi.fn().mockResolvedValue(design),
       onActivity: vi.fn((listener: (activity: GenerationActivity) => void) => { listeners.push(listener); return () => undefined }),
       onChanged: vi.fn((listener: (event: { readonly designId: string }) => void) => { changeListeners.push(listener); return () => undefined }),
       onCloneActivity: vi.fn().mockReturnValue(() => undefined),
     },
     preview: {
-      show: vi.fn().mockResolvedValue(undefined),
-      resize: vi.fn().mockResolvedValue(undefined),
-      hide: vi.fn().mockResolvedValue(undefined),
+      register: vi.fn().mockResolvedValue({ token: 'token-1', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' }),
+      reportDiagnostic: vi.fn().mockResolvedValue(undefined),
+      capture: vi.fn().mockResolvedValue(true),
       popOut: vi.fn().mockResolvedValue(undefined),
-      setSuspended: vi.fn().mockResolvedValue(undefined),
-      freeze: vi.fn().mockResolvedValue('data:image/png;base64,iVBORw=='),
+      closePopOut: vi.fn().mockResolvedValue(undefined),
       onDiagnostic: vi.fn().mockReturnValue(() => undefined),
       onThumbnail: vi.fn().mockReturnValue(() => undefined),
       onPoppedIn: vi.fn().mockReturnValue(() => undefined),
@@ -133,6 +152,8 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       saveNotificationsEnabled: vi.fn().mockResolvedValue(undefined),
       getGenerationDetail: vi.fn().mockResolvedValue('full'),
       saveGenerationDetail: vi.fn().mockResolvedValue(undefined),
+      getLastOpenDesignId: vi.fn().mockResolvedValue(null),
+      saveLastOpenDesignId: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as Window['omnidesign']
   Object.defineProperty(window, 'omnidesign', { value: bridge, configurable: true })
@@ -200,18 +221,39 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.workspace.create).not.toHaveBeenCalled()
   })
 
-  it('keeps the current screen intact when a project cannot be opened', async () => {
+  it('reopens the last-open design on launch and keeps persisting which design is open', async () => {
+    const bridge = installBridge([design])
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    vi.mocked(bridge.workspace.get).mockResolvedValue(design)
+    render(<App />)
+
+    // Restored straight into the design workspace rather than Home.
+    expect(await screen.findByRole('button', { name: 'Back' })).toBeInTheDocument()
+    // Leaving the design back to Home records that nothing is open now.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await waitFor(() => expect(bridge.settings.saveLastOpenDesignId).toHaveBeenCalledWith(null))
+  })
+
+  it('starts on Home and clears the stored id when the last-open design is gone', async () => {
+    const bridge = installBridge([design])
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue('deleted-design')
+    vi.mocked(bridge.workspace.get).mockResolvedValue(null)
+    render(<App />)
+
+    expect(await screen.findByRole('textbox', { name: 'What would you like to design?' })).toBeInTheDocument()
+    await waitFor(() => expect(bridge.settings.saveLastOpenDesignId).toHaveBeenCalledWith(null))
+  })
+
+  it('opens a project from the shared design collection without a per-project fetch', async () => {
     const secondDesign = { ...design, id: 'design-2', title: 'Calm settings' }
     const bridge = installBridge([design, secondDesign])
-    vi.mocked(bridge.workspace.getProject).mockRejectedValueOnce(new Error('Project record is unavailable.'))
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
 
-    const alert = await within(sidebar).findByRole('alert')
-    expect(alert).toHaveTextContent('Project record is unavailable.')
-    expect(screen.getByRole('heading', { name: 'Start with an idea.' })).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: 'Designs in this project' })).toBeInTheDocument()
+    expect(bridge.workspace.getProject).not.toHaveBeenCalled()
   })
 
   it('reports project-page action failures without leaving the project', async () => {
@@ -538,7 +580,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
     await waitFor(() => expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-1'))
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
-    expect(bridge.preview.hide).not.toHaveBeenCalled()
+    expect(bridge.preview.closePopOut).not.toHaveBeenCalled()
   })
 
   it('restores a follow-up draft and explains when submission fails', async () => {
@@ -654,8 +696,8 @@ describe('Phase 1 walking skeleton UI', () => {
   it('offers only linked projects as reuse targets in the composer selector', async () => {
     const bridge = installBridge()
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([
-      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' },
-      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea' },
+      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] },
+      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea', lastProviderId: 'mock', folderId: null, tags: [] },
     ])
     render(<App />)
 
@@ -677,6 +719,7 @@ describe('Phase 1 walking skeleton UI', () => {
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{
       id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1,
       createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page',
+      lastProviderId: 'mock', folderId: null, tags: [],
     }])
     vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(associatedDesign)
     render(<App />)
@@ -699,7 +742,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', updatedAt: '2026-07-20T10:00:00.000Z', adaptationPending: false, generationJobs: [runningJob] }
     const movedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora', updatedAt: '2026-07-20T10:05:00.000Z', adaptationPending: true }
     const bridge = installBridge([], createdDesign)
-    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' }])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] }])
     vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(movedDesign)
     // A generation refresh that resolves after the move still carries the pre-move snapshot.
     vi.mocked(bridge.workspace.get).mockResolvedValue(createdDesign)
@@ -722,7 +765,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const queuedJob: GenerationJob = { id: '7e3670bd-2f6c-444d-afd0-a26e178399664', designId: 'new-design', prompt: 'Create a dashboard for Aurora', providerId: 'mock', modelId: 'mock-v1', state: 'queued', createdAt: '2026-07-20T10:00:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [] }
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', generationJobs: [queuedJob] }
     const bridge = installBridge([], createdDesign)
-    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page' }])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] }])
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -749,7 +792,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('Another screen', 'mock', 'mock-v1', undefined, { projectId: 'project-1' }))
   })
 
-  it('keeps the native preview visible while revision history stays in the conversation-side toolbar', async () => {
+  it('registers the preview and keeps it mounted while revision history opens in the toolbar', async () => {
     const bridge = installBridge()
     render(<App />)
 
@@ -760,8 +803,8 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
     expect(screen.getByLabelText('Revision history')).toBeInTheDocument()
-    expect(bridge.preview.show).toHaveBeenCalled()
-    expect(bridge.preview.hide).not.toHaveBeenCalled()
+    await waitFor(() => expect(bridge.preview.register).toHaveBeenCalled())
+    expect(bridge.preview.closePopOut).not.toHaveBeenCalled()
   })
 
   it('attaches references to the first generation', async () => {
@@ -917,7 +960,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const divider = await screen.findByRole('separator', { name: 'Resize conversation and preview panels' })
     fireEvent.keyDown(divider, { key: 'ArrowRight' })
     expect(divider).toHaveAttribute('aria-valuenow', '45')
-    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', { conversationWidth: 45, mode: 'split' }))
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({ conversationWidth: 45, mode: 'split' })))
   })
 
   it('switches to a conversation-only layout and hides the preview', async () => {
@@ -934,7 +977,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
-    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', { conversationWidth: 43, mode: 'conversation' }))
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({ conversationWidth: 43, mode: 'conversation' })))
   })
 
   it('switches to a preview-only layout and hides the conversation', async () => {
@@ -965,14 +1008,14 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
 
-    await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith({ designId: 'design-1', revisionId: 'revision-1' }))
+    await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith(expect.objectContaining({ designId: 'design-1', revisionId: 'revision-1' })))
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dock preview' }))
     expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
   })
 
-  it('freezes and suspends the native preview layer while a header overlay covers it', async () => {
-    const bridge = installBridge()
+  it('offers canvas and focused preview modes in the preview toolbar', async () => {
+    installBridge()
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -980,17 +1023,36 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
 
-    fireEvent.click(screen.getByRole('button', { name: /History/ }))
-    await waitFor(() => expect(bridge.preview.freeze).toHaveBeenCalled())
-    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenCalledWith(true))
-    // Selecting a revision closes the React Aria menu, which restores the live preview layer.
-    fireEvent.click(screen.getByRole('menuitem', { name: /Current head/ }))
-    expect(bridge.workspace.selectRevision).not.toHaveBeenCalled()
-    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenLastCalledWith(false))
+    expect(screen.getByRole('group', { name: 'Preview layout' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Canvas' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Focused' })).toBeInTheDocument()
+    // Device size and fit controls apply to canvas only; focused mode just fills the pane.
+    expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    expect(await screen.findByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
   })
 
-  it('suspends the native preview through the shared dropdown behavior for generation settings', async () => {
+  it('configures and persists a custom canvas size while focused mode stays unconstrained', async () => {
     const bridge = installBridge()
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    expect(screen.queryByRole('button', { name: 'Device size' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Device size' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Custom/ }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Custom preview width' }), { target: { value: '1440' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Custom preview height' }), { target: { value: '960' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply size' }))
+
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({ previewDevice: 'custom', previewCustomWidth: 1440, previewCustomHeight: 960 })))
+  })
+
+  it('opens a page in focused mode by double-clicking its filename on the canvas', async () => {
+    installBridge()
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -998,8 +1060,15 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Generation settings' }))
-    await waitFor(() => expect(bridge.preview.setSuspended).toHaveBeenCalledWith(true))
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    const caption = await screen.findByTitle('Double-click to open in focused view')
+    // A single click stays on the canvas; only a double-click opens the page.
+    fireEvent.click(caption)
+    expect(screen.getByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
+    fireEvent.dblClick(caption)
+
+    // Back in focused mode: the canvas-only fit controls are gone.
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument())
   })
 
   it('recovers saved designs into the home list', async () => {
@@ -1126,9 +1195,9 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
 
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
-    vi.mocked(bridge.preview.hide).mockClear()
+    vi.mocked(bridge.preview.closePopOut).mockClear()
     fireEvent.click(within(sidebar).getByRole('button', { name: 'Calm dashboard' }))
-    expect(bridge.preview.hide).not.toHaveBeenCalled()
+    expect(bridge.preview.closePopOut).not.toHaveBeenCalled()
   })
 
   it('lets the user disable system notifications', async () => {
@@ -1225,21 +1294,58 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
   })
 
-  it('offers an inline retry when sidebar project designs cannot load', async () => {
+  it('multi-selects designs in the project grid and bulk-removes them', async () => {
     const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
     const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
     const bridge = installBridge([first, second])
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
-    vi.mocked(bridge.workspace.getProject).mockRejectedValueOnce(new Error('Database read failed.'))
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
+    const grid = await screen.findByRole('group', { name: 'Designs in this project' })
+
+    fireEvent.click(within(grid).getByRole('checkbox', { name: 'Select Overview' }))
+    fireEvent.click(within(grid).getByRole('checkbox', { name: 'Select Settings screen' }))
+    const bulkBar = await screen.findByRole('group', { name: 'Bulk design actions' })
+    expect(bulkBar).toHaveTextContent('2 selected')
+
+    fireEvent.click(within(bulkBar).getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-1'))
+    expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-2')
+  })
+
+  it('moves selected designs to any other project, including a standalone project', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio', sourceProjectPath: 'C:\\Projects\\Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio', sourceProjectPath: 'C:\\Projects\\Studio' }
+    const destination: OmniDesignDocument = { ...design, id: 'destination-design', title: 'Solo destination', projectId: 'destination', projectName: 'Solo destination' }
+    const bridge = installBridge([first, second, destination])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
+    const grid = await screen.findByRole('group', { name: 'Designs in this project' })
+    fireEvent.click(within(grid).getByRole('checkbox', { name: 'Select Overview' }))
+    const bulkBar = await screen.findByRole('group', { name: 'Bulk design actions' })
+    fireEvent.click(within(bulkBar).getByRole('button', { name: 'Move selected to project' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Solo destination' }))
+
+    await waitFor(() => expect(bridge.workspace.associateDesign).toHaveBeenCalledWith('design-1', 'destination'))
+  })
+
+  it('renders sidebar project designs from shared state without a per-project request', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
+    const bridge = installBridge([first, second])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Expand Studio' }))
     const sublist = await within(sidebar).findByRole('group', { name: 'Studio designs' })
-    expect(within(sublist).getByRole('alert')).toHaveTextContent('Could not load designs.')
-    fireEvent.click(within(sublist).getByRole('button', { name: 'Retry' }))
-
+    expect(within(sublist).getByRole('button', { name: 'Overview' })).toBeInTheDocument()
     expect(await within(sublist).findByRole('button', { name: 'Settings screen' })).toBeInTheDocument()
+    expect(bridge.workspace.getProject).not.toHaveBeenCalled()
   })
 
   it('renames a design without opening it from a multi-design project card', async () => {
@@ -1269,5 +1375,76 @@ describe('Phase 1 walking skeleton UI', () => {
     await within(sidebar).findByRole('button', { name: 'Calm dashboard' })
     expect(within(sidebar).queryByRole('button', { name: 'Expand Calm dashboard' })).not.toBeInTheDocument()
     expect(within(sidebar).queryByRole('button', { name: 'New design in Calm dashboard' })).not.toBeInTheDocument()
+  })
+
+  it('opens the Library from the sidebar and lists projects and designs', async () => {
+    installBridge([design])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Library' }))
+
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Designs' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Folders' })).toBeInTheDocument()
+    // The existing design appears in the browse grid.
+    const grid = screen.getByRole('group', { name: 'Designs' })
+    expect(within(grid).getByRole('button', { name: 'Open Calm dashboard' })).toBeInTheDocument()
+  })
+
+  it('creates a folder from the Library rail through the folder dialog', async () => {
+    const bridge = installBridge([design])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Library' }))
+    await screen.findByRole('heading', { name: 'Library' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+    const nameField = await screen.findByRole('textbox', { name: 'Folder name' })
+    fireEvent.change(nameField, { target: { value: 'Client work' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create folder' }))
+
+    await waitFor(() => expect(bridge.workspace.createFolder).toHaveBeenCalledWith('Client work', null))
+  })
+
+  it('files a project into a folder by drag and drop', async () => {
+    const bridge = installBridge([design])
+    vi.mocked(bridge.workspace.listFolders).mockResolvedValue([{ id: 'folder-1', name: 'Client work', parentFolderId: null, sortOrder: 0, createdAt: design.createdAt, updatedAt: design.updatedAt }])
+    render(<App />)
+    fireEvent.click(within(screen.getByRole('complementary', { name: 'Primary navigation' })).getByRole('button', { name: 'Library' }))
+    await screen.findByRole('heading', { name: 'Library' })
+
+    const dataTransfer = { setData: vi.fn(), effectAllowed: 'none', dropEffect: 'none' }
+    fireEvent.dragStart(screen.getByRole('img', { name: 'Drag Calm dashboard to a folder' }), { dataTransfer })
+    const folderRow = screen.getByRole('button', { name: 'Client work' }).closest('.library-folder-row')
+    expect(folderRow).not.toBeNull()
+    fireEvent.dragOver(folderRow as HTMLElement, { dataTransfer })
+    fireEvent.drop(folderRow as HTMLElement, { dataTransfer })
+
+    await waitFor(() => expect(bridge.workspace.moveProjectToFolder).toHaveBeenCalledWith('project-1', 'folder-1'))
+  })
+
+  it('filters the Library by project type and provider', async () => {
+    const standalone = { ...design, id: 'standalone-design', title: 'Solo concept', projectId: 'standalone-project', projectName: 'Solo concept' }
+    const linked: OmniDesignDocument = { ...design, id: 'linked-design', title: 'Team dashboard', projectId: 'team-project', projectName: 'Team', sourceProjectPath: 'C:\\Projects\\Team', lastSelection: { providerId: 'codex', modelId: 'gpt-5.6', effort: null } }
+    const bridge = installBridge([standalone, linked])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([
+      projectFromDesign(standalone),
+      { ...projectFromDesign(linked), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Team' },
+    ])
+    render(<App />)
+    fireEvent.click(within(screen.getByRole('complementary', { name: 'Primary navigation' })).getByRole('button', { name: 'Library' }))
+    await screen.findByRole('heading', { name: 'Library' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by project type' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Linked' }))
+    expect(screen.queryByRole('button', { name: 'Open Solo concept' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Team dashboard' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by provider' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Codex' }))
+    expect(screen.getByRole('button', { name: 'Open Team dashboard' })).toBeInTheDocument()
   })
 })

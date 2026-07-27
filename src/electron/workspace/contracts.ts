@@ -31,9 +31,54 @@ export const invalidCandidateSchema = z.object({
 
 export const layoutModeSchema = z.enum(['split', 'conversation', 'preview', 'popped'])
 
+export const previewViewModeSchema = z.enum(['canvas', 'focused'])
+export const previewFitSchema = z.enum(['artboard', 'fixed'])
+export const previewDeviceSchema = z.enum(['phone', 'tablet', 'desktop', 'custom'])
+
+// Preview view mode, device size, and fit are global preview settings honored by both the canvas and
+// focused modes and persisted per design alongside the pane layout. New fields carry defaults so a
+// layout row saved before Phase 2 still parses.
 export const layoutSchema = z.object({
   conversationWidth: z.number().min(35).max(65),
   mode: layoutModeSchema.default('split'),
+  previewViewMode: previewViewModeSchema.default('focused'),
+  previewFit: previewFitSchema.default('artboard'),
+  previewDevice: previewDeviceSchema.default('desktop'),
+  previewCustomWidth: z.number().int().min(240).max(3840).default(1280),
+  previewCustomHeight: z.number().int().min(320).max(4320).default(800),
+  previewPage: z.string().min(1).nullable().default(null),
+})
+
+export const designPageSchema = z.object({
+  path: z.string().min(1).max(1_000),
+  title: z.string().max(200).nullable(),
+  order: z.number().int().nonnegative(),
+  isHome: z.boolean(),
+})
+
+export const revisionPagesSchema = z.object({
+  pages: z.array(designPageSchema),
+  entryPagePath: z.string().min(1).nullable(),
+})
+
+// A curated set of muted tag colors that harmonize with the brand palette. The trusted UI maps each
+// to semantic surface/text tokens; tags always pair the color with their label, never hue alone.
+export const tagColorSchema = z.enum(['neutral', 'mauve', 'sand', 'olive', 'lavender', 'blue', 'rose', 'amber'])
+
+export const tagSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(60),
+  color: tagColorSchema,
+  createdAt: z.string().datetime(),
+})
+
+export const folderSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(120),
+  parentFolderId: z.string().nullable(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
 })
 
 export const projectKindSchema = z.enum(['standalone', 'linked'])
@@ -69,6 +114,9 @@ export const projectSummarySchema = z.object({
   thumbnailDataUrl: z.string().nullable(),
   latestDesignTitle: z.string().nullable(),
   latestPrompt: z.string().nullable(),
+  lastProviderId: z.string().nullable(),
+  folderId: z.string().nullable(),
+  tags: z.array(tagSchema).default([]),
 })
 
 export const projectIdRequestSchema = z.object({
@@ -114,6 +162,9 @@ export const trashItemRequestSchema = z.object({
 })
 
 export const themeSchema = z.enum(['dark', 'light'])
+
+// The id of the design open in the workspace when the app last closed, or null when nothing was open.
+export const lastOpenDesignSchema = z.string().min(1).max(100).nullable()
 
 export const generationSelectionSchema = z.object({
   providerId: z.enum(['mock', 'codex', 'claude']).catch('mock'),
@@ -165,6 +216,9 @@ export const designSchema = z.object({
   queuePaused: z.boolean(),
   titlePending: z.boolean().default(false),
   adaptationPending: z.boolean().default(false),
+  entryPagePath: z.string().min(1).nullable().default(null),
+  pages: z.array(designPageSchema).default([]),
+  tags: z.array(tagSchema).default([]),
   lastSelection: generationSelectionSchema,
   generationSteps: z.array(generationStepSchema),
   layout: layoutSchema,
@@ -234,9 +288,74 @@ export const previewRequestSchema = selectRevisionRequestSchema.extend({
     width: z.number().int().positive(),
     height: z.number().int().positive(),
   }),
+  page: z.string().min(1).max(1_000).optional(),
 })
 
 export const exportRequestSchema = selectRevisionRequestSchema
+
+export const previewRegisterRequestSchema = selectRevisionRequestSchema
+
+export const previewPopOutRequestSchema = selectRevisionRequestSchema.extend({
+  page: z.string().min(1).max(1_000).optional(),
+})
+
+export const previewDiagnosticReportSchema = selectRevisionRequestSchema.extend({
+  diagnostic: z.object({
+    level: z.enum(['warning', 'error']),
+    message: z.string().min(1).max(4_000),
+    source: z.string().max(4_000).nullable().default(null),
+    line: z.number().int().nullable().default(null),
+  }),
+})
+
+// The thumbnail is rendered off-screen from the revision's entry page, so the request only needs to
+// identify the revision — no on-screen rectangle.
+export const previewCaptureRequestSchema = selectRevisionRequestSchema
+
+export const revisionPagesRequestSchema = selectRevisionRequestSchema
+
+export const setEntryPageRequestSchema = designIdRequestSchema.extend({
+  entryPagePath: z.string().min(1).max(1_000).nullable(),
+})
+
+export const savePageMetadataRequestSchema = designIdRequestSchema.extend({
+  path: z.string().min(1).max(1_000),
+  title: z.string().trim().min(1).max(200).nullable(),
+  order: z.number().int().nonnegative().default(0),
+})
+
+export const createFolderRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  parentFolderId: z.string().min(1).max(100).nullable().optional(),
+})
+
+export const folderIdRequestSchema = z.object({
+  folderId: z.string().min(1).max(100),
+})
+
+export const renameFolderRequestSchema = folderIdRequestSchema.extend({
+  name: z.string().trim().min(1).max(120),
+})
+
+export const moveProjectToFolderRequestSchema = z.object({
+  projectId: z.string().min(1).max(100),
+  folderId: z.string().min(1).max(100).nullable(),
+})
+
+export const createTagRequestSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  color: tagColorSchema.default('neutral'),
+})
+
+export const tagIdRequestSchema = z.object({
+  tagId: z.string().min(1).max(100),
+})
+
+export const tagTargetRequestSchema = z.object({
+  targetKind: z.enum(['project', 'design']),
+  targetId: z.string().min(1).max(100),
+  tagId: z.string().min(1).max(100),
+})
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>
 export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
@@ -268,6 +387,19 @@ export type GenerationStep = z.infer<typeof generationStepSchema>
 export type SaveDesignSelectionRequest = z.infer<typeof saveDesignSelectionRequestSchema>
 export type PreviewRequest = z.infer<typeof previewRequestSchema>
 export type ExportRequest = z.infer<typeof exportRequestSchema>
+export type DesignPage = z.infer<typeof designPageSchema>
+export type RevisionPages = z.infer<typeof revisionPagesSchema>
+export type Tag = z.infer<typeof tagSchema>
+export type TagColor = z.infer<typeof tagColorSchema>
+export type Folder = z.infer<typeof folderSchema>
+export type CreateFolderRequest = z.infer<typeof createFolderRequestSchema>
+export type RenameFolderRequest = z.infer<typeof renameFolderRequestSchema>
+export type MoveProjectToFolderRequest = z.infer<typeof moveProjectToFolderRequestSchema>
+export type CreateTagRequest = z.infer<typeof createTagRequestSchema>
+export type TagTargetRequest = z.infer<typeof tagTargetRequestSchema>
+export type RevisionPagesRequest = z.infer<typeof revisionPagesRequestSchema>
+export type SetEntryPageRequest = z.infer<typeof setEntryPageRequestSchema>
+export type SavePageMetadataRequest = z.infer<typeof savePageMetadataRequestSchema>
 
 export interface GenerationActivity {
   readonly designId: string

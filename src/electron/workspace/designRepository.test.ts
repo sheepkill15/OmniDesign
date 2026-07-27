@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -69,5 +69,35 @@ describe('DesignRepositoryManager', () => {
     expect(files['index.html']).toBe(html)
     expect(files['.build/tailwind.css']).toBe('.p-4{padding:1rem}')
     expect(files['.build/alpine.js']).toContain('Alpine')
+  })
+
+  it('reads back every file of a multi-file, multi-page revision', () => {
+    const manager = newManager()
+    const repositoryPath = manager.initialize('design-5')
+    writeFileSync(path.join(repositoryPath, 'index.html'), '<html><body>Home</body></html>', 'utf8')
+    writeFileSync(path.join(repositoryPath, 'about.html'), '<html><body>About</body></html>', 'utf8')
+    mkdirSync(path.join(repositoryPath, 'assets'), { recursive: true })
+    writeFileSync(path.join(repositoryPath, 'assets', 'app.js'), 'console.log("hi")', 'utf8')
+
+    const commit = manager.commitRevision('design-5', null, '.p-4{padding:1rem}', 'Multi-file revision')
+    expect(commit).not.toBeNull()
+
+    const files = manager.readRevisionFiles('design-5', commit as string)
+    expect(files['index.html']).toBe('<html><body>Home</body></html>')
+    expect(files['about.html']).toBe('<html><body>About</body></html>')
+    expect(files['assets/app.js']).toBe('console.log("hi")')
+    expect(files['.build/tailwind.css']).toBe('.p-4{padding:1rem}')
+  })
+
+  it('reads the current working tree (all agent-authored files) before a commit', () => {
+    const manager = newManager()
+    const repositoryPath = manager.initialize('design-6')
+    writeFileSync(path.join(repositoryPath, 'about.html'), '<html><body>About</body></html>', 'utf8')
+
+    const files = manager.readWorkingTreeFiles('design-6')
+    expect(files['index.html']).toContain('<!doctype html>')
+    expect(files['about.html']).toBe('<html><body>About</body></html>')
+    // The .git directory is never surfaced as a design file.
+    expect(Object.keys(files).some((relativePath) => relativePath.startsWith('.git/'))).toBe(false)
   })
 })

@@ -62,6 +62,18 @@ interface DesignMessage {
   readonly createdAt: string
 }
 
+interface DesignPage {
+  readonly path: string
+  readonly title: string | null
+  readonly order: number
+  readonly isHome: boolean
+}
+
+interface RevisionPages {
+  readonly pages: readonly DesignPage[]
+  readonly entryPagePath: string | null
+}
+
 interface InvalidCandidate {
   readonly id: string
   readonly prompt: string
@@ -71,6 +83,20 @@ interface InvalidCandidate {
 }
 
 type LayoutMode = 'split' | 'conversation' | 'preview' | 'popped'
+type PreviewViewMode = 'canvas' | 'focused'
+type PreviewFit = 'artboard' | 'fixed'
+type PreviewDevice = 'phone' | 'tablet' | 'desktop' | 'custom'
+
+interface Layout {
+  readonly conversationWidth: number
+  readonly mode: LayoutMode
+  readonly previewViewMode: PreviewViewMode
+  readonly previewFit: PreviewFit
+  readonly previewDevice: PreviewDevice
+  readonly previewCustomWidth: number
+  readonly previewCustomHeight: number
+  readonly previewPage: string | null
+}
 
 interface GenerationSelection {
   readonly providerId: 'mock' | 'codex' | 'claude'
@@ -119,13 +145,34 @@ interface OmniDesignDocument {
   readonly queuePaused: boolean
   readonly titlePending: boolean
   readonly adaptationPending: boolean
+  readonly entryPagePath: string | null
+  readonly pages: readonly DesignPage[]
+  readonly tags: readonly Tag[]
   readonly lastSelection: GenerationSelection
   readonly generationSteps: readonly GenerationStep[]
-  readonly layout: { readonly conversationWidth: number; readonly mode: LayoutMode }
+  readonly layout: Layout
   readonly messages: readonly DesignMessage[]
   readonly invalidCandidates: readonly InvalidCandidate[]
   readonly generationJobs: readonly GenerationJob[]
   readonly revisions: readonly DesignRevision[]
+}
+
+type TagColor = 'neutral' | 'mauve' | 'sand' | 'olive' | 'lavender' | 'blue' | 'rose' | 'amber'
+
+interface Tag {
+  readonly id: string
+  readonly name: string
+  readonly color: TagColor
+  readonly createdAt: string
+}
+
+interface Folder {
+  readonly id: string
+  readonly name: string
+  readonly parentFolderId: string | null
+  readonly sortOrder: number
+  readonly createdAt: string
+  readonly updatedAt: string
 }
 
 interface ProjectSummary {
@@ -140,6 +187,9 @@ interface ProjectSummary {
   readonly thumbnailDataUrl: string | null
   readonly latestDesignTitle: string | null
   readonly latestPrompt: string | null
+  readonly lastProviderId: string | null
+  readonly folderId: string | null
+  readonly tags: readonly Tag[]
 }
 
 interface ProjectDetail {
@@ -202,8 +252,19 @@ interface Window {
       listProjects(): Promise<ProjectSummary[]>
       getProject(projectId: string): Promise<ProjectDetail | null>
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
+      duplicateDesign(designId: string): Promise<OmniDesignDocument>
       associateAndRestart(designId: string, projectId: string): Promise<OmniDesignDocument | null>
       dismissAdaptation(designId: string): Promise<OmniDesignDocument | null>
+      listFolders(): Promise<Folder[]>
+      createFolder(name: string, parentFolderId?: string | null): Promise<Folder>
+      renameFolder(folderId: string, name: string): Promise<Folder>
+      deleteFolder(folderId: string): Promise<void>
+      moveProjectToFolder(projectId: string, folderId: string | null): Promise<ProjectSummary>
+      listTags(): Promise<Tag[]>
+      createTag(name: string, color: TagColor): Promise<Tag>
+      deleteTag(tagId: string): Promise<void>
+      tag(targetKind: 'project' | 'design', targetId: string, tagId: string): Promise<void>
+      untag(targetKind: 'project' | 'design', targetId: string, tagId: string): Promise<void>
       listTrash(): Promise<TrashItem[]>
       cloneProject(remoteUrl: string, destinationPath: string): Promise<ProjectSummary>
       registerLinkedProject(sourceProjectPath: string): Promise<ProjectSummary>
@@ -228,9 +289,12 @@ interface Window {
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
-      saveLayout(designId: string, layout: { readonly conversationWidth: number; readonly mode: LayoutMode }): Promise<void>
+      saveLayout(designId: string, layout: Layout): Promise<void>
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
+      revisionPages(designId: string, revisionId: string): Promise<RevisionPages>
+      setEntryPage(designId: string, entryPagePath: string | null): Promise<OmniDesignDocument>
+      savePageMetadata(designId: string, path: string, title: string | null, order: number): Promise<OmniDesignDocument>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
       onChanged(listener: (event: { readonly designId: string }) => void): () => void
       onCloneActivity(listener: (detail: string) => void): () => void
@@ -244,14 +308,15 @@ interface Window {
       saveGenerationDetail(detail: 'full' | 'concise'): Promise<void>
       getGenerationDefaults(): Promise<GenerationSelection>
       saveGenerationDefaults(selection: GenerationSelection): Promise<void>
+      getLastOpenDesignId(): Promise<string | null>
+      saveLastOpenDesignId(designId: string | null): Promise<void>
     }
     readonly preview: {
-      show(request: { readonly designId: string; readonly revisionId: string; readonly bounds: PreviewBounds }): Promise<void>
-      resize(bounds: PreviewBounds): Promise<void>
-      hide(): Promise<void>
-      popOut(request: { readonly designId: string; readonly revisionId: string }): Promise<void>
-      setSuspended(suspended: boolean): Promise<void>
-      freeze(): Promise<string | null>
+      register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>
+      reportDiagnostic(designId: string, revisionId: string, diagnostic: { readonly level: 'warning' | 'error'; readonly message: string; readonly source: string | null; readonly line: number | null }): Promise<void>
+      capture(designId: string, revisionId: string): Promise<boolean>
+      popOut(request: { readonly designId: string; readonly revisionId: string; readonly page?: string }): Promise<void>
+      closePopOut(): Promise<void>
       onDiagnostic(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
       onThumbnail(listener: (event: { readonly designId: string; readonly revisionId: string }) => void): () => void
       onPoppedIn(listener: (event: { readonly designId: string }) => void): () => void

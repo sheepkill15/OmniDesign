@@ -1,7 +1,8 @@
-import { compileTailwindCss, validateCompiledDesign } from './compiler.js'
-import type { Attachment, Design, GenerationActivity, GenerationSelection, Layout, ProjectSummary, Theme, TrashItem } from './contracts.js'
+import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
+import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectSummary, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
+import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 import { cloneRepository } from './gitClone.js'
@@ -44,6 +45,36 @@ export class WorkspaceService {
   public setAdaptationPending(designId: string, pending: boolean): void { this.store.setAdaptationPending(designId, pending) }
   public associateDesignWithProject(designId: string, projectId: string): Design { return this.store.associateDesignWithProject(designId, projectId) }
 
+  /** Duplicate a design (head revision + metadata) and clone its Git repository into the copy. */
+  public duplicateDesign(designId: string): Design {
+    const source = this.store.getDesign(designId)
+    if (!source) throw new Error('Design not found.')
+    const duplicate = this.store.duplicateDesign(designId, `${source.title} copy`)
+    try {
+      this.repositories.duplicateRepository(designId, duplicate.id)
+    } catch (error) {
+      // If the repository could not be cloned the duplicate cannot preview or export, so remove it
+      // rather than leaving a broken design behind.
+      try {
+        this.store.moveDesignToTrash(duplicate.id)
+        this.store.purgeTrashItem('design', duplicate.id)
+      } catch { /* best-effort cleanup */ }
+      throw error
+    }
+    return this.store.getDesign(duplicate.id) ?? duplicate
+  }
+
+  public listFolders(): Folder[] { return this.store.listFolders() }
+  public createFolder(name: string, parentFolderId: string | null = null): Folder { return this.store.createFolder(name, parentFolderId) }
+  public renameFolder(folderId: string, name: string): Folder { return this.store.renameFolder(folderId, name) }
+  public deleteFolder(folderId: string): void { this.store.deleteFolder(folderId) }
+  public moveProjectToFolder(projectId: string, folderId: string | null): ProjectSummary { return this.store.moveProjectToFolder(projectId, folderId) }
+  public listTags(): Tag[] { return this.store.listTags() }
+  public createTag(name: string, color: TagColor): Tag { return this.store.createTag(name, color) }
+  public deleteTag(tagId: string): void { this.store.deleteTag(tagId) }
+  public setTag(kind: 'project' | 'design', targetId: string, tagId: string): void { this.store.setTag(kind, targetId, tagId) }
+  public removeTag(kind: 'project' | 'design', targetId: string, tagId: string): void { this.store.removeTag(kind, targetId, tagId) }
+
   public listTrash(): TrashItem[] { return this.store.listTrash() }
   public registerLinkedProject(sourceProjectPath: string): ProjectSummary { return this.store.registerLinkedProject(sourceProjectPath) }
   public async cloneProject(remoteUrl: string, destinationDirectory: string, onActivity: (detail: string) => void): Promise<ProjectSummary> {
@@ -73,7 +104,7 @@ export class WorkspaceService {
     const design = this.createDesignRecord(prompt, generated.title, target, attachments)
     onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up your design…' })
     this.repositories.initialize(design.id)
-    return this.generate(design.id, prompt, onActivity, generated.html, false)
+    return this.generate(design.id, prompt, onActivity, generated.html, false, undefined, 0, generated.files)
   }
 
   public createAgentDesignShell(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget, title = generateMockDesign(prompt).title): Design {
@@ -83,25 +114,26 @@ export class WorkspaceService {
     return design
   }
 
-  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0): Promise<Design> {
+  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0, generatedFiles?: RevisionFiles): Promise<Design> {
     this.throwIfCancelled(signal)
     if (savePrompt) this.store.addPrompt(designId, prompt)
     onActivity({ designId, stage: 'generating', detail: 'Mock provider is shaping the requested direction.' })
     const current = this.store.getDesign(designId)
     if (!current) throw new Error('Design not found.')
     const isIteration = current.activeRevisionId ?? undefined
-    let candidate = generatedHtml ?? generateMockDesign(prompt, isIteration).html
+    let generated = generatedFiles ? { html: generatedHtml ?? generatedFiles['index.html'] ?? '', files: generatedFiles } : generateMockDesign(prompt, isIteration)
+    if (generatedHtml && !generatedFiles) generated = { html: generatedHtml, files: { 'index.html': generatedHtml } }
 
     for (let repairAttempt = 0; repairAttempt <= maxRepairAttempts; repairAttempt += 1) {
       try {
         this.throwIfCancelled(signal)
         onActivity({ designId, stage: 'compiling', detail: 'Compiling the generated Tailwind classes.' })
-        const tailwindCss = await compileTailwindCss(candidate)
+        const tailwindCss = await compileTailwindCssForFiles(generated.files)
         this.throwIfCancelled(signal)
         onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
-        validateCompiledDesign(candidate)
+        validateDesignFiles(generated.files)
         onActivity({ designId, stage: 'saving', detail: 'Committing the revision to the design repository.' })
-        const gitCommit = this.repositories.commitRevision(designId, candidate, tailwindCss, `Apply design revision: ${prompt}`)
+        const gitCommit = this.repositories.commitGeneratedRevision(designId, generated.files, tailwindCss, `Apply design revision: ${prompt}`)
         const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved
@@ -109,12 +141,12 @@ export class WorkspaceService {
         if (signal?.aborted) return this.cancelledDesign(designId, onActivity)
         const diagnostic = error instanceof Error ? error.message : 'Generation failed.'
         if (repairAttempt === maxRepairAttempts) {
-          const rejected = this.store.addInvalidCandidate(designId, prompt, candidate, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
+          const rejected = this.store.addInvalidCandidate(designId, prompt, generated.html, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
           onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
           return rejected
         }
         onActivity({ designId, stage: 'repairing', detail: 'Making a few improvements…' })
-        candidate = generateMockDesign(`Repair this design without unsafe code or external resources: ${diagnostic}`, isIteration).html
+        generated = generateMockDesign(`Repair this design without unsafe code or external resources: ${diagnostic}`, isIteration)
       }
     }
 
@@ -146,13 +178,35 @@ export class WorkspaceService {
     return this.store.restoreRevision(designId, revisionId, gitCommit)
   }
 
-  /** Read a revision's committed files (entry page + build assets) for preview and export. */
+  /** Read a revision's committed files (all pages + shared build assets) for preview and export. */
   public getRevisionFiles(designId: string, revisionId: string): RevisionFiles {
     const design = this.store.getDesign(designId)
     const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
     if (!revision) throw new Error('Revision not found.')
     if (!revision.gitCommit) throw new Error('Revision has no committed content.')
     return this.repositories.readRevisionFiles(designId, revision.gitCommit)
+  }
+
+  /**
+   * Discover a revision's pages from its committed files and resolve which one is the home page,
+   * merging any persisted per-path metadata (display title, order, home override) the design carries.
+   */
+  public getRevisionPages(designId: string, revisionId: string): RevisionPages {
+    const design = this.store.getDesign(designId)
+    if (!design) throw new Error('Design not found.')
+    const files = this.getRevisionFiles(designId, revisionId)
+    const discovered = discoverPages(files)
+    const metadata = new Map(design.pages.map((page) => [page.path, page]))
+    const entryPagePath = resolveEntryPage(discovered, design.entryPagePath)
+    const pages: DesignPage[] = discovered.map((page, index) => ({
+      path: page,
+      // A user-set display title wins; otherwise fall back to the page's own <title>, then the path.
+      title: metadata.get(page)?.title ?? extractPageTitle(files[page] ?? '') ?? null,
+      order: metadata.get(page)?.order ?? index,
+      isHome: page === entryPagePath,
+    }))
+    pages.sort((a, b) => a.order - b.order)
+    return { pages, entryPagePath }
   }
 
   public async saveAgentWorkspaceResult(
@@ -168,11 +222,11 @@ export class WorkspaceService {
     if (!current) throw new Error('Design not found.')
 
     try {
-      const indexHtml = this.repositories.readIndexHtml(designId)
+      const sourceFiles = this.repositories.readWorkingTreeFiles(designId)
       onActivity({ designId, stage: 'compiling', detail: 'Preparing the design’s styles.' })
-      const tailwindCss = await compileTailwindCss(indexHtml)
+      const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
-      validateCompiledDesign(indexHtml)
+      validateDesignFiles(sourceFiles)
       onActivity({ designId, stage: 'saving', detail: 'Saving your design.' })
       const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`)
       if (gitCommit === null) {
@@ -188,11 +242,11 @@ export class WorkspaceService {
       // conversation: only a final, unrecoverable failure posts a system message and the agent's reply,
       // so a design that is fixed on a later attempt shows no leftover rejection.
       if (allowRepair) {
-        const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic)
+        const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId), diagnostic)
         onActivity({ designId, stage: 'repairing', detail: 'Making a few improvements…' })
         return rejected
       }
-      const rejected = this.store.addInvalidCandidate(designId, prompt, this.repositories.readIndexHtml(designId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
+      const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
       this.store.addAssistantResponse(designId, response)
       onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
       return rejected
@@ -209,6 +263,14 @@ export class WorkspaceService {
 
   public saveLayout(designId: string, layout: Layout): void {
     this.store.saveLayout(designId, layout)
+  }
+
+  public setDesignEntryPage(designId: string, entryPagePath: string | null): Design {
+    return this.store.setDesignEntryPage(designId, entryPagePath)
+  }
+
+  public saveDesignPageMetadata(designId: string, path: string, title: string | null, order: number): Design {
+    return this.store.saveDesignPageMetadata(designId, path, title, order)
   }
 
   public getTheme(): Theme {
@@ -232,6 +294,9 @@ export class WorkspaceService {
     this.store.saveGenerationDefaults(selection)
   }
 
+  public getLastOpenDesignId(): string | null { return this.store.getLastOpenDesignId() }
+  public saveLastOpenDesignId(designId: string | null): void { this.store.saveLastOpenDesignId(designId) }
+
   public saveDesignSelection(designId: string, selection: GenerationSelection): void {
     this.store.saveDesignSelection(designId, selection)
   }
@@ -240,6 +305,15 @@ export class WorkspaceService {
   public rememberSelection(designId: string, selection: GenerationSelection): void {
     this.store.saveDesignSelection(designId, selection)
     this.store.saveGenerationDefaults(selection)
+  }
+
+  // The entry page's current working-tree HTML, for storing a rejected candidate. Falls back to any
+  // discovered page, then to index.html, so a design whose home page is not index.html still records.
+  private readEntryPageForDiagnostics(designId: string): string {
+    const files = this.repositories.readWorkingTreeFiles(designId)
+    const entry = resolveEntryPage(discoverPages(files))
+    if (entry && files[entry] !== undefined) return files[entry]
+    return this.repositories.readIndexHtml(designId)
   }
 
   private throwIfCancelled(signal: AbortSignal | undefined): void {

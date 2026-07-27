@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ProviderActivity, ProviderPrompt } from '../provider/types.js'
-import type { GenerationActivity, GenerationSelection, Layout, PreviewRequest } from '../workspace/contracts.js'
+import type { GenerationActivity, GenerationSelection, Layout } from '../workspace/contracts.js'
 
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
@@ -18,8 +18,19 @@ contextBridge.exposeInMainWorld('omnidesign', {
     listProjects: () => ipcRenderer.invoke('workspace:list-projects'),
     getProject: (projectId: string) => ipcRenderer.invoke('workspace:get-project', { projectId }),
     associateDesign: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-design', { designId, projectId }),
+    duplicateDesign: (designId: string) => ipcRenderer.invoke('workspace:duplicate-design', { designId }),
     associateAndRestart: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-and-restart', { designId, projectId }),
     dismissAdaptation: (designId: string) => ipcRenderer.invoke('workspace:dismiss-adaptation', { designId }),
+    listFolders: () => ipcRenderer.invoke('workspace:list-folders'),
+    createFolder: (name: string, parentFolderId?: string | null) => ipcRenderer.invoke('workspace:create-folder', { name, parentFolderId: parentFolderId ?? null }),
+    renameFolder: (folderId: string, name: string) => ipcRenderer.invoke('workspace:rename-folder', { folderId, name }),
+    deleteFolder: (folderId: string) => ipcRenderer.invoke('workspace:delete-folder', { folderId }),
+    moveProjectToFolder: (projectId: string, folderId: string | null) => ipcRenderer.invoke('workspace:move-project-to-folder', { projectId, folderId }),
+    listTags: () => ipcRenderer.invoke('workspace:list-tags'),
+    createTag: (name: string, color: string) => ipcRenderer.invoke('workspace:create-tag', { name, color }),
+    deleteTag: (tagId: string) => ipcRenderer.invoke('workspace:delete-tag', { tagId }),
+    tag: (targetKind: 'project' | 'design', targetId: string, tagId: string) => ipcRenderer.invoke('workspace:tag', { targetKind, targetId, tagId }),
+    untag: (targetKind: 'project' | 'design', targetId: string, tagId: string) => ipcRenderer.invoke('workspace:untag', { targetKind, targetId, tagId }),
     listTrash: () => ipcRenderer.invoke('workspace:list-trash'),
     cloneProject: (remoteUrl: string, destinationPath: string) => ipcRenderer.invoke('workspace:clone-project', { remoteUrl, destinationPath }),
     registerLinkedProject: (sourceProjectPath: string) => ipcRenderer.invoke('workspace:register-linked-project', { sourceProjectPath }),
@@ -47,6 +58,9 @@ contextBridge.exposeInMainWorld('omnidesign', {
     saveLayout: (designId: string, layout: Layout) => ipcRenderer.invoke('workspace:save-layout', { designId, layout }),
     saveSelection: (designId: string, selection: GenerationSelection) => ipcRenderer.invoke('workspace:save-design-selection', { designId, selection }),
     exportRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:export', { designId, revisionId }),
+    revisionPages: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:revision-pages', { designId, revisionId }),
+    setEntryPage: (designId: string, entryPagePath: string | null) => ipcRenderer.invoke('workspace:set-entry-page', { designId, entryPagePath }),
+    savePageMetadata: (designId: string, path: string, title: string | null, order: number) => ipcRenderer.invoke('workspace:save-page-metadata', { designId, path, title, order }),
     onActivity: (listener: (activity: GenerationActivity) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, activity: GenerationActivity) => listener(activity)
       ipcRenderer.on('workspace:activity', handler)
@@ -72,14 +86,15 @@ contextBridge.exposeInMainWorld('omnidesign', {
     saveGenerationDetail: (detail: 'full' | 'concise') => ipcRenderer.invoke('settings:save-generation-detail', detail),
     getGenerationDefaults: () => ipcRenderer.invoke('settings:get-generation-defaults'),
     saveGenerationDefaults: (selection: GenerationSelection) => ipcRenderer.invoke('settings:save-generation-defaults', selection),
+    getLastOpenDesignId: () => ipcRenderer.invoke('settings:get-last-open-design'),
+    saveLastOpenDesignId: (designId: string | null) => ipcRenderer.invoke('settings:save-last-open-design', designId),
   },
   preview: {
-    show: (request: PreviewRequest) => ipcRenderer.invoke('preview:show', request),
-    resize: (bounds: PreviewRequest['bounds']) => ipcRenderer.invoke('preview:resize', bounds),
-    hide: () => ipcRenderer.invoke('preview:hide'),
-    popOut: (request: { designId: string; revisionId: string }) => ipcRenderer.invoke('preview:pop-out', request),
-    setSuspended: (suspended: boolean) => ipcRenderer.invoke('preview:set-suspended', suspended),
-    freeze: () => ipcRenderer.invoke('preview:freeze'),
+    register: (designId: string, revisionId: string) => ipcRenderer.invoke('preview:register', { designId, revisionId }),
+    reportDiagnostic: (designId: string, revisionId: string, diagnostic: { level: 'warning' | 'error'; message: string; source: string | null; line: number | null }) => ipcRenderer.invoke('preview:report-diagnostic', { designId, revisionId, diagnostic }),
+    capture: (designId: string, revisionId: string): Promise<boolean> => ipcRenderer.invoke('preview:capture', { designId, revisionId }),
+    popOut: (request: { designId: string; revisionId: string; page?: string }) => ipcRenderer.invoke('preview:pop-out', request),
+    closePopOut: () => ipcRenderer.invoke('preview:close-pop-out'),
     onDiagnostic: (listener: (event: { designId: string; revisionId: string }) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, diagnostic: { designId: string; revisionId: string }) => listener(diagnostic)
       ipcRenderer.on('preview:diagnostic', handler)

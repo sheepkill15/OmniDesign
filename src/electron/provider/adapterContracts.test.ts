@@ -14,6 +14,7 @@ vi.mock('./jsonRpcProcess.js', () => ({ startJsonRpcProcess: mocks.startJsonRpcP
 
 import { ClaudeAdapter } from './claudeAdapter.js'
 import { CodexAdapter } from './codexAdapter.js'
+import { createDesignAgentInstructions } from './agentHarness.js'
 
 describe('real provider adapter contracts', () => {
   beforeEach(() => vi.resetAllMocks())
@@ -87,9 +88,11 @@ describe('real provider adapter contracts', () => {
     mocks.startJsonRpcProcess.mockReturnValue(rpc)
     const activity = vi.fn()
 
-    await expect(new CodexAdapter().prompt({ modelId: 'gpt-5.6', prompt: 'Name this design', workspacePath: 'C:\\workspace\\design', referencePaths: ['C:\\projects\\aurora'] }, activity)).resolves.toEqual({ modelId: 'gpt-5.6', text: 'Short answer', sessionId: 'thread-1' })
+    const instructions = createDesignAgentInstructions('C:\\workspace\\design')
+    await expect(new CodexAdapter().prompt({ modelId: 'gpt-5.6', prompt: 'Build a multi-page site', instructions, workspacePath: 'C:\\workspace\\design', referencePaths: ['C:\\projects\\aurora'] }, activity)).resolves.toEqual({ modelId: 'gpt-5.6', text: 'Short answer', sessionId: 'thread-1' })
 
-    expect(rpc.request).toHaveBeenCalledWith('thread/start', expect.objectContaining({ sandbox: 'workspace-write', approvalPolicy: 'never', runtimeWorkspaceRoots: ['C:\\workspace\\design', 'C:\\projects\\aurora'] }))
+    expect(instructions).toContain('Every *.html file you commit outside the .build/ folder is a page')
+    expect(rpc.request).toHaveBeenCalledWith('thread/start', expect.objectContaining({ sandbox: 'workspace-write', approvalPolicy: 'never', developerInstructions: instructions, runtimeWorkspaceRoots: ['C:\\workspace\\design', 'C:\\projects\\aurora'] }))
     expect(rpc.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({ sandboxPolicy: { type: 'workspaceWrite', networkAccess: true, writableRoots: [] }, runtimeWorkspaceRoots: ['C:\\workspace\\design', 'C:\\projects\\aurora'] }))
     expect(activity).toHaveBeenCalledWith(expect.objectContaining({ kind: 'text', detail: 'Short answer' }))
     expect(activity).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'thread-1' }))
@@ -130,9 +133,11 @@ describe('real provider adapter contracts', () => {
     const controller = new AbortController()
     const activity = vi.fn()
 
-    await expect(new ClaudeAdapter().prompt({ modelId: 'haiku', prompt: 'Name this design', signal: controller.signal, workspacePath: 'C:\\workspace\\design', referencePaths: ['C:\\projects\\aurora'] }, activity)).resolves.toEqual({ modelId: 'haiku', text: 'Short answer', sessionId: 'claude-session-1' })
+    const instructions = createDesignAgentInstructions('C:\\workspace\\design')
+    await expect(new ClaudeAdapter().prompt({ modelId: 'haiku', prompt: 'Build a multi-page site', instructions, signal: controller.signal, workspacePath: 'C:\\workspace\\design', referencePaths: ['C:\\projects\\aurora'] }, activity)).resolves.toEqual({ modelId: 'haiku', text: 'Short answer', sessionId: 'claude-session-1' })
 
-    expect(mocks.runCommand).toHaveBeenCalledWith('claude', expect.arrayContaining(['--permission-mode', 'acceptEdits', '--add-dir', 'C:\\projects\\aurora']), expect.objectContaining({ signal: controller.signal }))
+    expect(instructions).toContain('Every *.html file you commit outside the .build/ folder is a page')
+    expect(mocks.runCommand).toHaveBeenCalledWith('claude', expect.arrayContaining(['--permission-mode', 'acceptEdits', '--add-dir', 'C:\\projects\\aurora', '--append-system-prompt', instructions]), expect.objectContaining({ signal: controller.signal }))
     expect(mocks.runCommand.mock.calls[0][1]).not.toContain('--no-session-persistence')
     expect(activity).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'claude-session-1' }))
     expect(activity).toHaveBeenCalledWith(expect.objectContaining({

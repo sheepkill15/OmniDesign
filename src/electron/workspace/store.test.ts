@@ -39,6 +39,56 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('organizes projects into nested folders and re-roots them when a folder is deleted', () => {
+    const { store } = createStore()
+    const design = store.createStandaloneDesign('A dashboard', 'Dashboard')
+    const projectId = store.getDesign(design.id)!.projectId
+
+    const parent = store.createFolder('Work')
+    const child = store.createFolder('Client A', parent.id)
+    expect(store.listFolders().map((folder) => folder.name).sort()).toEqual(['Client A', 'Work'])
+    expect(child.parentFolderId).toBe(parent.id)
+
+    store.moveProjectToFolder(projectId, child.id)
+    expect(store.getProjectSummary(projectId)?.folderId).toBe(child.id)
+
+    // Deleting the parent cascades to the child folder but re-roots the project (folder_id SET NULL),
+    // never trashing the design.
+    store.deleteFolder(parent.id)
+    expect(store.listFolders()).toHaveLength(0)
+    expect(store.getProjectSummary(projectId)?.folderId).toBeNull()
+    expect(store.getDesign(design.id)).not.toBeNull()
+    store.close()
+  })
+
+  it('tags projects and designs, de-duplicates names, and cleans links on delete', () => {
+    const { store } = createStore()
+    const design = store.createStandaloneDesign('A dashboard', 'Dashboard')
+    const projectId = store.getDesign(design.id)!.projectId
+
+    const marketing = store.createTag('Marketing', 'blue')
+    // Same name (case-insensitive) returns the same tag and updates its color rather than duplicating.
+    const again = store.createTag('marketing', 'rose')
+    expect(again.id).toBe(marketing.id)
+    expect(store.listTags()).toHaveLength(1)
+    expect(store.listTags()[0].color).toBe('rose')
+
+    store.setTag('design', design.id, marketing.id)
+    store.setTag('project', projectId, marketing.id)
+    store.setTag('design', design.id, marketing.id) // idempotent
+    expect(store.getDesign(design.id)?.tags.map((tag) => tag.name)).toEqual(['Marketing'])
+    expect(store.getProjectSummary(projectId)?.tags.map((tag) => tag.name)).toEqual(['Marketing'])
+
+    store.removeTag('design', design.id, marketing.id)
+    expect(store.getDesign(design.id)?.tags).toHaveLength(0)
+
+    // Deleting a tag cascades its remaining links away.
+    store.deleteTag(marketing.id)
+    expect(store.listTags()).toHaveLength(0)
+    expect(store.getProjectSummary(projectId)?.tags).toHaveLength(0)
+    store.close()
+  })
+
   it('tracks a pending background title and clears it on rename or reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Create a calm')
@@ -170,15 +220,30 @@ describe('WorkspaceStore', () => {
     store.close()
 
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id)?.layout).toEqual({ conversationWidth: 57, mode: 'preview' })
+    expect(reopened.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 57, mode: 'preview' })
     reopened.close()
   })
 
   it('defaults the layout mode to split for designs saved before the mode existed', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    expect(store.getDesign(created.id)?.layout).toEqual({ conversationWidth: 43, mode: 'split' })
+    // Preview settings gain sensible defaults for rows saved before Phase 2 added them.
+    expect(store.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop' })
     store.close()
+  })
+
+  it('persists the last-open design across reopen and clears it on request', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    expect(store.getLastOpenDesignId()).toBeNull()
+    store.saveLastOpenDesignId(created.id)
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getLastOpenDesignId()).toBe(created.id)
+    reopened.saveLastOpenDesignId(null)
+    expect(reopened.getLastOpenDesignId()).toBeNull()
+    reopened.close()
   })
 
   it('stores a generated thumbnail outside the immutable revision snapshot', () => {
@@ -458,6 +523,22 @@ describe('WorkspaceStore', () => {
     expect(associated.revisions).toHaveLength(1)
     expect(associated.activeRevisionId).toBe(revision.activeRevisionId)
     expect(store.getProjectSummary(standalone.projectId)).toBeNull()
+    store.close()
+  })
+
+  it('moves a design into a standalone project without coupling sibling removal', () => {
+    const { store } = createStore()
+    const source = store.createLinkedDesign('Source', 'Source design', 'C:\\projects\\source-app')
+    const destination = store.createStandaloneDesign('Destination', 'Destination')
+
+    const moved = store.associateDesignWithProject(source.id, destination.projectId)
+    expect(moved.projectId).toBe(destination.projectId)
+    expect(store.getProjectSummary(destination.projectId)?.designCount).toBe(2)
+
+    store.moveDesignToTrash(source.id)
+    expect(store.getDesign(destination.id)).not.toBeNull()
+    expect(store.getProjectSummary(destination.projectId)?.designCount).toBe(1)
+    expect(store.listTrash()).toMatchObject([{ id: source.id, kind: 'design' }])
     store.close()
   })
 
