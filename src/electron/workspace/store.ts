@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, designSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
-import type { Attachment, Design, DesignPage, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import { attachmentSchema, designSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import type { Attachment, Design, DesignPage, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -58,6 +58,16 @@ interface ProjectRow {
   design_count: number
   last_design_activity: string | null
   folder_id: string | null
+  current_definition_version: number | null
+  definition_prompt_suppressed: number
+}
+
+interface ProjectDefinitionVersionRow {
+  id: string
+  project_id: string
+  version: number
+  definitions_json: string
+  created_at: string
 }
 
 interface TagRow {
@@ -470,6 +480,23 @@ const migrationThirtyTwo = `
 ALTER TABLE designs ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
 `
 
+// Phase 3 project-level definitions are immutable versioned JSON records. Projects point to the
+// current version number and retain a separate per-project choice for suppressing automatic setup
+// prompts. Design-level applied/kept/pending state lands with the propagation slice.
+const migrationThirtyThree = `
+ALTER TABLE projects ADD COLUMN current_definition_version INTEGER CHECK (current_definition_version IS NULL OR current_definition_version > 0);
+ALTER TABLE projects ADD COLUMN definition_prompt_suppressed INTEGER NOT NULL DEFAULT 0 CHECK (definition_prompt_suppressed IN (0, 1));
+CREATE TABLE project_definition_versions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL CHECK (version > 0),
+  definitions_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (project_id, version)
+) STRICT;
+CREATE INDEX project_definition_versions_by_project ON project_definition_versions(project_id, version DESC);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -528,6 +555,7 @@ export class WorkspaceStore {
   public listProjects(): ProjectSummary[] {
     const rows = this.database.prepare(`
       SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at, p.folder_id,
+             p.current_definition_version, p.definition_prompt_suppressed,
              COUNT(d.id) AS design_count,
              MAX(d.updated_at) AS last_design_activity
       FROM projects p
@@ -542,6 +570,7 @@ export class WorkspaceStore {
   public getProjectSummary(projectId: string): ProjectSummary | null {
     const row = this.database.prepare(`
       SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at, p.folder_id,
+             p.current_definition_version, p.definition_prompt_suppressed,
              COUNT(d.id) AS design_count,
              MAX(d.updated_at) AS last_design_activity
       FROM projects p
@@ -574,6 +603,57 @@ export class WorkspaceStore {
     const result = this.database.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ? AND trashed_at IS NULL').run(name, now, projectId)
     if (result.changes !== 1) throw new Error('Project not found.')
     return this.getProjectSummary(projectId)!
+  }
+
+  public getProjectDesignDefinitionState(projectId: string): ProjectDesignDefinitionState | null {
+    const project = this.database.prepare(`
+      SELECT current_definition_version, definition_prompt_suppressed
+      FROM projects WHERE id = ? AND trashed_at IS NULL
+    `).get(projectId) as { current_definition_version: number | null; definition_prompt_suppressed: number } | undefined
+    if (!project) return null
+    const current = project.current_definition_version === null
+      ? null
+      : this.readProjectDesignDefinitionVersion(projectId, project.current_definition_version)
+    if (project.current_definition_version !== null && !current) throw new Error('The current project design definitions are missing.')
+    return projectDesignDefinitionStateSchema.parse({ current, promptSuppressed: project.definition_prompt_suppressed === 1 })
+  }
+
+  public listProjectDesignDefinitionVersions(projectId: string): ProjectDesignDefinitionVersion[] {
+    const rows = this.database.prepare(`
+      SELECT id, project_id, version, definitions_json, created_at
+      FROM project_definition_versions WHERE project_id = ? ORDER BY version
+    `).all(projectId) as unknown as ProjectDefinitionVersionRow[]
+    return rows.map((row) => this.hydrateProjectDesignDefinitionVersion(row))
+  }
+
+  public saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): ProjectDesignDefinitionVersion {
+    const parsed = projectDesignDefinitionsSchema.parse(definitions)
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    let version = 0
+    this.transaction(() => {
+      const project = this.database.prepare(`
+        SELECT current_definition_version FROM projects WHERE id = ? AND trashed_at IS NULL
+      `).get(projectId) as { current_definition_version: number | null } | undefined
+      if (!project) throw new Error('Project not found.')
+      version = (project.current_definition_version ?? 0) + 1
+      this.database.prepare(`
+        INSERT INTO project_definition_versions (id, project_id, version, definitions_json, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(id, projectId, version, JSON.stringify(parsed), now)
+      this.database.prepare(`
+        UPDATE projects SET current_definition_version = ?, updated_at = ? WHERE id = ?
+      `).run(version, now, projectId)
+    })
+    return projectDesignDefinitionVersionSchema.parse({ id, projectId, version, definitions: parsed, createdAt: now })
+  }
+
+  public setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): ProjectDesignDefinitionState {
+    const result = this.database.prepare(`
+      UPDATE projects SET definition_prompt_suppressed = ? WHERE id = ? AND trashed_at IS NULL
+    `).run(suppressed ? 1 : 0, projectId)
+    if (result.changes !== 1) throw new Error('Project not found.')
+    return this.getProjectDesignDefinitionState(projectId)!
   }
 
   public renameDesign(designId: string, title: string): Design {
@@ -1301,7 +1381,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1409,6 +1489,26 @@ export class WorkspaceStore {
       lastProviderId: latest?.last_provider_id ?? null,
       folderId: row.folder_id,
       tags: this.listTagsForTarget('project', row.id),
+      currentDefinitionVersion: row.current_definition_version,
+      definitionPromptSuppressed: row.definition_prompt_suppressed === 1,
+    })
+  }
+
+  private readProjectDesignDefinitionVersion(projectId: string, version: number): ProjectDesignDefinitionVersion | null {
+    const row = this.database.prepare(`
+      SELECT id, project_id, version, definitions_json, created_at
+      FROM project_definition_versions WHERE project_id = ? AND version = ?
+    `).get(projectId, version) as unknown as ProjectDefinitionVersionRow | undefined
+    return row ? this.hydrateProjectDesignDefinitionVersion(row) : null
+  }
+
+  private hydrateProjectDesignDefinitionVersion(row: ProjectDefinitionVersionRow): ProjectDesignDefinitionVersion {
+    return projectDesignDefinitionVersionSchema.parse({
+      id: row.id,
+      projectId: row.project_id,
+      version: row.version,
+      definitions: safeParseJson(row.definitions_json),
+      createdAt: row.created_at,
     })
   }
 

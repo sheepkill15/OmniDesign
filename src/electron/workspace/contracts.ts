@@ -83,6 +83,58 @@ export const folderSchema = z.object({
 
 export const projectKindSchema = z.enum(['standalone', 'linked'])
 
+const definitionNameSchema = z.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, 'Use lowercase semantic names separated by hyphens.')
+const definitionDescriptionSchema = z.string().trim().max(500).nullable().default(null)
+
+function uniqueDefinitionNames<T extends { readonly name: string }>(items: readonly T[], context: z.RefinementCtx): void {
+  const names = new Set<string>()
+  items.forEach((item, index) => {
+    if (names.has(item.name)) context.addIssue({ code: 'custom', path: [index, 'name'], message: `Duplicate definition name: ${item.name}` })
+    names.add(item.name)
+  })
+}
+
+const namedDefinitionValueSchema = z.object({
+  name: definitionNameSchema,
+  value: z.string().trim().min(1).max(500),
+  description: definitionDescriptionSchema,
+})
+
+const namedDefinitionValuesSchema = z.array(namedDefinitionValueSchema).max(100).superRefine(uniqueDefinitionNames)
+
+export const typographyDefinitionSchema = z.object({
+  name: definitionNameSchema,
+  fontFamily: z.string().trim().min(1).max(500),
+  fontSize: z.string().trim().min(1).max(100),
+  fontWeight: z.string().trim().min(1).max(100),
+  lineHeight: z.string().trim().min(1).max(100),
+  letterSpacing: z.string().trim().min(1).max(100).nullable().default(null),
+  description: definitionDescriptionSchema,
+})
+
+export const projectDesignDefinitionsSchema = z.object({
+  schemaVersion: z.literal(1).default(1),
+  colors: namedDefinitionValuesSchema.default([]),
+  typography: z.array(typographyDefinitionSchema).max(100).superRefine(uniqueDefinitionNames).default([]),
+  spacing: namedDefinitionValuesSchema.default([]),
+  shape: namedDefinitionValuesSchema.default([]),
+  visualGuidance: z.string().trim().max(20_000).default(''),
+  aiAgentInstructions: z.string().trim().max(50_000).default(''),
+})
+
+export const projectDesignDefinitionVersionSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().min(1),
+  version: z.number().int().positive(),
+  definitions: projectDesignDefinitionsSchema,
+  createdAt: z.string().datetime(),
+})
+
+export const projectDesignDefinitionStateSchema = z.object({
+  current: projectDesignDefinitionVersionSchema.nullable(),
+  promptSuppressed: z.boolean(),
+})
+
 export const attachmentSchema = z.object({
   id: z.string().uuid(),
   path: z.string().min(1).max(32_000),
@@ -117,6 +169,8 @@ export const projectSummarySchema = z.object({
   lastProviderId: z.string().nullable(),
   folderId: z.string().nullable(),
   tags: z.array(tagSchema).default([]),
+  currentDefinitionVersion: z.number().int().positive().nullable().default(null),
+  definitionPromptSuppressed: z.boolean().default(false),
 })
 
 export const projectIdRequestSchema = z.object({
@@ -358,6 +412,9 @@ export const tagTargetRequestSchema = z.object({
 })
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>
+export type ProjectDesignDefinitions = z.infer<typeof projectDesignDefinitionsSchema>
+export type ProjectDesignDefinitionVersion = z.infer<typeof projectDesignDefinitionVersionSchema>
+export type ProjectDesignDefinitionState = z.infer<typeof projectDesignDefinitionStateSchema>
 export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
 export type RenameProjectRequest = z.infer<typeof renameProjectRequestSchema>
 export type ReconnectProjectRequest = z.infer<typeof reconnectProjectRequestSchema>

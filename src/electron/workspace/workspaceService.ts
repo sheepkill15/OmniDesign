@@ -1,5 +1,5 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectSummary, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
@@ -40,6 +40,10 @@ export class WorkspaceService {
     return this.store.getDesign(designId)
   }
   public renameProject(projectId: string, name: string): ProjectSummary { return this.store.renameProject(projectId, name) }
+  public getProjectDesignDefinitionState(projectId: string): ProjectDesignDefinitionState | null { return this.store.getProjectDesignDefinitionState(projectId) }
+  public listProjectDesignDefinitionVersions(projectId: string): ProjectDesignDefinitionVersion[] { return this.store.listProjectDesignDefinitionVersions(projectId) }
+  public saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): ProjectDesignDefinitionVersion { return this.store.saveProjectDesignDefinitions(projectId, definitions) }
+  public setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): ProjectDesignDefinitionState { return this.store.setProjectDefinitionPromptSuppressed(projectId, suppressed) }
   public renameDesign(designId: string, title: string): Design { return this.store.renameDesign(designId, title) }
   public setTitlePending(designId: string, pending: boolean): void { this.store.setTitlePending(designId, pending) }
   public setAdaptationPending(designId: string, pending: boolean): void { this.store.setAdaptationPending(designId, pending) }

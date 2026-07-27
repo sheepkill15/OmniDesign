@@ -18,6 +18,67 @@ afterEach(() => {
 })
 
 describe('WorkspaceStore', () => {
+  it('versions project design definitions and persists prompt suppression across reopen', () => {
+    const { directory, store } = createStore()
+    const design = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
+    const projectId = design.projectId
+    const firstDefinitions = {
+      schemaVersion: 1 as const,
+      colors: [{ name: 'primary', value: '#5f4b66', description: 'Primary actions and emphasis' }],
+      typography: [{ name: 'body', fontFamily: 'Oak Sans', fontSize: '1rem', fontWeight: '400', lineHeight: '1.5', letterSpacing: null, description: null }],
+      spacing: [{ name: 'panel-gap', value: '1.5rem', description: null }],
+      shape: [{ name: 'control-radius', value: '0.625rem', description: null }],
+      visualGuidance: 'Quiet, low-chrome, and spacious.',
+      aiAgentInstructions: 'Use semantic HTML and keep controls keyboard accessible.',
+    }
+
+    expect(store.getProjectDesignDefinitionState(projectId)).toEqual({ current: null, promptSuppressed: false })
+    expect(store.getProjectSummary(projectId)?.currentDefinitionVersion).toBeNull()
+
+    const first = store.saveProjectDesignDefinitions(projectId, firstDefinitions)
+    const second = store.saveProjectDesignDefinitions(projectId, {
+      ...firstDefinitions,
+      colors: [{ name: 'primary', value: '#725d78', description: 'Primary actions and emphasis' }],
+    })
+    expect(first.version).toBe(1)
+    expect(second.version).toBe(2)
+    expect(store.listProjectDesignDefinitionVersions(projectId).map((version) => version.version)).toEqual([1, 2])
+    expect(store.getProjectDesignDefinitionState(projectId)?.current).toEqual(second)
+    expect(store.setProjectDefinitionPromptSuppressed(projectId, true).promptSuppressed).toBe(true)
+    expect(store.getProjectSummary(projectId)).toMatchObject({ currentDefinitionVersion: 2, definitionPromptSuppressed: true })
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getProjectDesignDefinitionState(projectId)).toMatchObject({
+      current: { version: 2, definitions: { colors: [{ name: 'primary', value: '#725d78' }] } },
+      promptSuppressed: true,
+    })
+    expect(reopened.listProjectDesignDefinitionVersions(projectId)).toHaveLength(2)
+    reopened.close()
+  })
+
+  it('rejects invalid or duplicate project definition names without creating a version', () => {
+    const { store } = createStore()
+    const projectId = store.createStandaloneDesign('First', 'Design').projectId
+    const invalidDefinitions = {
+      schemaVersion: 1 as const,
+      colors: [
+        { name: 'Primary Color', value: '#fff', description: null },
+        { name: 'Primary Color', value: '#000', description: null },
+      ],
+      typography: [],
+      spacing: [],
+      shape: [],
+      visualGuidance: '',
+      aiAgentInstructions: '',
+    }
+
+    expect(() => store.saveProjectDesignDefinitions(projectId, invalidDefinitions)).toThrow()
+    expect(store.listProjectDesignDefinitionVersions(projectId)).toHaveLength(0)
+    expect(store.getProjectSummary(projectId)?.currentDefinitionVersion).toBeNull()
+    store.close()
+  })
+
   it('persists conversations, drafts, and immutable revision files across reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')

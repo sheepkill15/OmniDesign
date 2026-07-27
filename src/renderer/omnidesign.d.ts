@@ -190,6 +190,8 @@ interface ProjectSummary {
   readonly lastProviderId: string | null
   readonly folderId: string | null
   readonly tags: readonly Tag[]
+  readonly currentDefinitionVersion: number | null
+  readonly definitionPromptSuppressed: boolean
 }
 
 interface ProjectDetail {
