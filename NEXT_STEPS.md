@@ -4,7 +4,7 @@ This is a working plan, not a finalized product specification. The project owner
 
 ## Immediate Objective
 
-Phase 2 project and design organization is complete on `feature/phase-2`. Keep it green and documented while defining the Phase 3 contract; do not silently pull focused editing or provider-configuration scope backward.
+Phase 2 project and design organization is complete and merged into `develop`. Phase 3 is defined in `docs/PHASE_3_SPEC.md`: implement project-level design definitions first, then reliable single-element focused editing. API-key providers, direct provider APIs, an OmniDesign-owned harness, multiple provider configurations, and setup/testing remain outside Phase 3 in an unassigned provider-infrastructure milestone.
 
 The first complete user journey should be:
 
@@ -146,7 +146,7 @@ The narrow installed-subscription pilot is implemented behind a provider-neutral
 - Preserving the provider-neutral contracts described in `ARCHITECTURE.md` and keeping provider-specific concepts in adapters.
 - Preserve the mock provider for automated tests and local development.
 - Add Codex and Claude contract and integration tests appropriate to their supported capabilities.
-- Add the deferred cancellation, continuation, configuration, and API-key behavior when its Phase 1 contract is defined.
+- Add remaining deferred cancellation and continuation behavior when its contract is defined. Provider API, harness, configuration, and API-key work belong to the unassigned provider-infrastructure milestone, not Phase 3.
 - Implement the managed design-repository lifecycle and provider-harness working-directory contract.
 - Define and validate the remaining JSON completion-payload schema with the product owner. `response` is required for the agent's conversational reply and may be returned without a design change. Keep Git state, validation and diagnostics harness-owned, and usage adapter-owned; no agent field may inventory changed files or choose an entry point.
 
@@ -179,13 +179,13 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 ## Current Handoff State
 
-- Active work is on `feature/phase-2`; `docs/PHASE_2_PLAN.md` is the Phase 2 implementation and completion ledger.
+- Active work is on `codex/feature/phase-3`; `docs/PHASE_3_SPEC.md` is the Phase 3 product contract and implementation sequence. `docs/PHASE_2_PLAN.md` remains the completed Phase 2 ledger.
 - Phase 2 now provides the complete project/design Library with nested folders, drag and accessible moves, tags, search, project-kind/provider/tag/folder filters, and shared sorting.
 - Multiple-design organization includes duplication, moves between any projects, project-grid multi-select, and bulk move/remove. App owns one shared design collection; Sidebar and ProjectPage no longer fetch their own copies.
 - Multiple-page designs are discovered from Git, compiled into one shared Tailwind stylesheet, previewed in Focused or Canvas mode, exported in full, and controlled through home/title/order metadata. Canvas persists preset or custom device dimensions and Artboard/Fixed fit; Focused intentionally fills the available pane.
 - The iframe preview's Phase 2 security floor combines opaque-origin sandboxing, restrictive CSP, guarded navigation, a curated external-resource allowlist, and matching session-level HTTP(S) request filtering.
 - Verification on 2026-07-27: `pnpm typecheck`, 221 unit tests, production build, and all eight Playwright Electron journeys pass. The Phase 2 journey covers multi-page creation, page/view switching, custom Canvas sizing, fit, offline export, restart, and restored settings.
-- Do not begin Phase 3 implementation until its product behavior is specified. The older Phase 1 audit gaps moved there by owner decision remain visible rather than being retroactively counted as Phase 2 work.
+- Phase 3 product behavior is now specified. Begin with the versioned project-definition foundation, preserve Phase 2's security and history boundaries, and land each track in small tested slices.
 
 ## Historical Handoff Notes (superseded where they conflict with the status above)
 
@@ -205,7 +205,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - Dropdown controls are shared components in `src/renderer/components/`. There are two, chosen by context:
   All four dropdowns (layout, revision-history, generation-settings, project-selector) use one shared React Aria component: `src/renderer/components/DropdownButton.tsx` — a `MenuTrigger`/`Popover` with a caret that rotates while open (via the `[aria-expanded]` rule). It is uncontrolled and **modal** by default: a modal popover dismisses on any outside click (via its underlay) and on Escape, and provides consistent keyboard/focus behavior. The trade-off — the rest of the workspace is inert while a menu is open — is accepted (product-owner decision, 2026-07-21). Its `onOpenChange` drives the preview freeze so the two header dropdowns (layout, history) that open over the preview detach the native layer while open, which removes both occlusion and the focus contention that would otherwise disrupt React Aria's focus-driven menu behavior. (An earlier plain-DOM variant and a non-modal RA variant were both tried and rejected: non-modal RA only dismisses on focus-out, which left the menu stuck.)
 - The isolated preview is a native layer composited above the DOM, so trusted-UI overlays that sit over a docked preview (the header layout menu and revision-history dropdown) would otherwise be hidden behind it. The fix keeps the accepted `WebContentsView` isolation (dedicated session partition, sandboxed process, no preload) and uses a freeze-frame: while such an overlay is open, the main process `capturePage()`s the docked preview, the renderer shows that still image on the preview surface, and only then is the native layer hidden via `setVisible(false)` — so the overlay paints over a frozen frame with no visible gap. Closing the overlay restores the live layer. Only a docked preview is affected (detached/popped-out views are untouched). An in-renderer `<iframe>`/`<webview>` was considered and rejected: a plain iframe shares the trusted renderer's session and lives inside it (an isolation downgrade the spec forbids without an explicit ARCHITECTURE change). If future overlays sit over the preview, drive them through the same `overlayCoversPreview` signal in `DesignWorkspace`.
-- Full provider configuration is deferred to Phase 3 by product-owner decision (2026-07-21): API-key configuration, the provider setup UI, multiple configurations per provider, and configuration testing. Phase 1 continues to reach Codex and Claude through the installed-CLI discovery pilot. `AGENTS.md`, `docs/PHASE_1_SPEC.md`, and this file record the deferral.
+- The earlier 2026-07-21 assignment of full provider configuration to Phase 3 is superseded by product-owner decision (2026-07-27). API-key providers, direct provider APIs, an OmniDesign-owned harness, multiple configurations, setup UI, credential storage, and configuration testing are deferred to an unassigned provider-infrastructure milestone. Phase 3 continues using the installed Codex and Claude CLI harnesses.
 - The temporary concept switcher and rejected Visual Gallery and Project Workbench implementations have been removed. Representative project/design data remains non-functional placeholder content until persistence is connected.
 - The project charter and roadmap are recorded in `AGENTS.md`.
 - Accepted and proposed technical direction is recorded in `ARCHITECTURE.md`.

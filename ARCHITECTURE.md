@@ -33,7 +33,7 @@ The following generation decision is provisional and must be benchmarked before 
 - Generated designs use HTML and Tailwind CSS, with Alpine.js as the default minimal interaction layer.
 - A bundled compiler produces offline, self-contained or small-folder exports.
 
-The installed-subscription pilot uses locally installed, already authenticated Codex and Claude Code CLIs behind a provider-neutral adapter gateway. It does not store credentials. This remains a narrow implementation pilot rather than the complete Phase 1 provider system; see `docs/PROVIDER_SUBSCRIPTION_PILOT.md` for its current scope and deferrals.
+The installed-subscription pilot uses locally installed, already authenticated Codex and Claude Code CLIs behind a provider-neutral adapter gateway. It does not store credentials. Phase 3 continues using these provider-owned harnesses. API-key providers, direct provider API integrations, an OmniDesign-owned harness, multiple provider configurations, and setup/testing are deferred to an unassigned provider-infrastructure milestone (product-owner decision, 2026-07-27); see `docs/PROVIDER_SUBSCRIPTION_PILOT.md` for the installed pilot's current scope.
 
 ## Architectural Goals
 
@@ -655,6 +655,40 @@ and custom dimensions plus Artboard/Fixed fit. Focused mode is for inspecting an
 one page in all available workspace space; it intentionally fills the preview pane and
 does not apply simulated device dimensions. The selected page and view mode still
 persist per design.
+
+## Phase 3 Architecture Decisions
+
+### ADR 2026-07-27: Version project definitions and materialize portable tokens (accepted)
+
+Project-level design definitions are immutable versioned records in OmniDesign's
+local persistence. A project points to its current version, while each design records
+the version it applied or explicitly kept. Saving definitions never mutates completed
+design revisions. Applying definitions creates an ordinary Git-backed, validated
+revision so historical preview, restoration, and offline export remain deterministic.
+
+Prefer semantic CSS custom properties in ordinary design working files for colors,
+typography, spacing, and shape. Exact changes to an unambiguously managed token may be
+applied programmatically. Broad source rewriting is forbidden; designs without a safe
+managed representation use the existing installed-provider generation pipeline for
+migration or interpretation. Linked source projects remain read-only and never receive
+OmniDesign's definition files.
+
+### ADR 2026-07-27: Resolve focused selections through immutable source maps (accepted)
+
+Single-element selection extends the Phase 2 sandboxed-iframe preview shim and its
+validated `postMessage` channel. When a revision is registered for preview, the
+privileged workspace derives an HTML source-location map from the immutable revision.
+The untrusted frame reports an opaque location identifier plus bounded display
+metadata; it never supplies an authoritative path, line range, revision identifier, or
+source excerpt. The privileged side resolves the identifier only against the active
+registered revision and returns a validated repository-relative HTML path and inclusive
+line range.
+
+Selection is limited to Focused preview mode and the current head. Runtime-created
+nodes resolve to the nearest source-authored ancestor when possible. The feature adds
+no preload, Node.js access, same-origin permission, filesystem access, or generic IPC
+to generated code. Exact target metadata is retained on the submitted message and
+generation attempt, while the live selection remains ephemeral.
 
 ## Rules for Changing This Architecture
 
