@@ -6,7 +6,7 @@ import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 import { cloneRepository } from './gitClone.js'
-import { createProjectDefinitionPromptContext, materializeProjectTheme } from './projectTheme.js'
+import { canUpdateProjectThemeDeterministically, createProjectDefinitionPromptContext, materializeProjectTheme } from './projectTheme.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
 
@@ -45,6 +45,50 @@ export class WorkspaceService {
   public listProjectDesignDefinitionVersions(projectId: string): ProjectDesignDefinitionVersion[] { return this.store.listProjectDesignDefinitionVersions(projectId) }
   public saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): ProjectDesignDefinitionVersion { return this.store.saveProjectDesignDefinitions(projectId, definitions) }
   public setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): ProjectDesignDefinitionState { return this.store.setProjectDefinitionPromptSuppressed(projectId, suppressed) }
+  public keepProjectDesignDefinitions(designId: string, targetVersion: number): Design { return this.store.keepProjectDesignDefinitions(designId, targetVersion) }
+
+  public async applyProjectDesignDefinitions(designId: string, targetVersion: number): Promise<Design> {
+    const design = this.store.getDesign(designId)
+    if (!design || design.pendingDefinitionVersion !== targetVersion) throw new Error('The requested project-definition decision is no longer pending.')
+    const target = this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === targetVersion)
+    if (!target) throw new Error('The requested project definitions are missing.')
+    const current = design.definitionVersion
+      ? this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === design.definitionVersion) ?? null
+      : null
+    if (design.activeRevisionId && (!current || !canUpdateProjectThemeDeterministically(current.definitions, target.definitions))) {
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, 'This change needs AI interpretation. Choose an available provider to apply it.', true)
+    }
+    if (design.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')) {
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, 'Finish or stop the design’s active work before applying project definitions.')
+    }
+
+    this.store.beginProjectDefinitionApplication(designId, targetVersion)
+    try {
+      this.repositories.checkoutMain(designId)
+      const sourceFiles = materializeProjectTheme(this.repositories.readWorkingTreeFiles(designId), target)
+      this.repositories.writeSourceFiles(designId, sourceFiles)
+      if (!design.activeRevisionId) return this.store.completeProjectDefinitionApplication(designId, targetVersion)
+      const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
+      validateDesignFiles(sourceFiles)
+      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply project definitions version ${targetVersion}`)
+      if (gitCommit) this.store.addRevision(designId, `Apply project definitions version ${targetVersion}`, 'omnidesign', 'deterministic', gitCommit, `Applied project definitions version ${targetVersion}.`, targetVersion)
+      return this.store.completeProjectDefinitionApplication(designId, targetVersion)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Project definitions could not be applied.'
+      this.store.failProjectDefinitionApplication(designId, targetVersion, message)
+      throw error
+    }
+  }
+
+  public async applyProjectDesignDefinitionsToAll(projectId: string, targetVersion: number): Promise<Design[]> {
+    const pending = this.store.listDesignsByProject(projectId).filter((design) => design.pendingDefinitionVersion === targetVersion)
+    const results: Design[] = []
+    for (const design of pending) {
+      try { results.push(await this.applyProjectDesignDefinitions(design.id, targetVersion)) }
+      catch { const failed = this.store.getDesign(design.id); if (failed) results.push(failed) }
+    }
+    return results
+  }
   public renameDesign(designId: string, title: string): Design { return this.store.renameDesign(designId, title) }
   public setTitlePending(designId: string, pending: boolean): void { this.store.setTitlePending(designId, pending) }
   public setAdaptationPending(designId: string, pending: boolean): void { this.store.setAdaptationPending(designId, pending) }

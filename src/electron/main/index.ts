@@ -9,6 +9,7 @@ import {
   createDesignRequestSchema,
   attachmentSchema,
   attachmentPickerRequestSchema,
+  applyProjectDefinitionsToAllRequestSchema,
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
   createFolderRequestSchema,
@@ -31,6 +32,7 @@ import {
   generationStageLabel,
   lastOpenDesignSchema,
   projectIdRequestSchema,
+  projectDefinitionDecisionRequestSchema,
   renameDesignRequestSchema,
   renameProjectRequestSchema,
   reconnectProjectRequestSchema,
@@ -362,6 +364,27 @@ function registerIpc(): void {
     authorize(event)
     const request = setProjectDefinitionPromptSuppressedRequestSchema.parse(value)
     return requireWorkspace().setProjectDefinitionPromptSuppressed(request.projectId, request.suppressed)
+  })
+  ipcMain.handle('workspace:keep-project-design-definitions', (event, value: unknown) => {
+    authorize(event)
+    const request = projectDefinitionDecisionRequestSchema.parse(value)
+    const design = requireWorkspace().keepProjectDesignDefinitions(request.designId, request.targetVersion)
+    sendWorkspaceChanged(request.designId)
+    return design
+  })
+  ipcMain.handle('workspace:apply-project-design-definitions', async (event, value: unknown) => {
+    authorize(event)
+    const request = projectDefinitionDecisionRequestSchema.parse(value)
+    const design = await requireWorkspace().applyProjectDesignDefinitions(request.designId, request.targetVersion)
+    sendWorkspaceChanged(request.designId)
+    return design
+  })
+  ipcMain.handle('workspace:apply-project-design-definitions-to-all', async (event, value: unknown) => {
+    authorize(event)
+    const request = applyProjectDefinitionsToAllRequestSchema.parse(value)
+    const designs = await requireWorkspace().applyProjectDesignDefinitionsToAll(request.projectId, request.targetVersion)
+    for (const design of designs) sendWorkspaceChanged(design.id)
+    return designs
   })
   ipcMain.handle('workspace:rename-project', (event, value: unknown) => {
     authorize(event)

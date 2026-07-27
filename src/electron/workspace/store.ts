@@ -41,6 +41,10 @@ interface DesignRow {
   adaptation_pending: number
   entry_page_path: string | null
   definition_version: number | null
+  pending_definition_version: number | null
+  kept_definition_version: number | null
+  definition_application_state: 'current' | 'pending' | 'applying' | 'kept' | 'failed' | 'unavailable'
+  definition_application_error: string | null
 }
 
 interface DesignPageRow {
@@ -504,6 +508,13 @@ ALTER TABLE designs ADD COLUMN definition_version INTEGER CHECK (definition_vers
 ALTER TABLE revisions ADD COLUMN definition_version INTEGER CHECK (definition_version IS NULL OR definition_version > 0);
 `
 
+const migrationThirtyFive = `
+ALTER TABLE designs ADD COLUMN pending_definition_version INTEGER CHECK (pending_definition_version IS NULL OR pending_definition_version > 0);
+ALTER TABLE designs ADD COLUMN kept_definition_version INTEGER CHECK (kept_definition_version IS NULL OR kept_definition_version > 0);
+ALTER TABLE designs ADD COLUMN definition_application_state TEXT NOT NULL DEFAULT 'current' CHECK (definition_application_state IN ('current', 'pending', 'applying', 'kept', 'failed', 'unavailable'));
+ALTER TABLE designs ADD COLUMN definition_application_error TEXT;
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -523,6 +534,7 @@ export class WorkspaceStore {
     this.purgeExpiredTrash()
     // A background title request never survives a process exit, so no design can still be pending on open.
     this.database.exec('UPDATE designs SET title_pending = 0 WHERE title_pending = 1')
+    this.database.exec("UPDATE designs SET definition_application_state = 'failed', definition_application_error = 'Definition application was interrupted when OmniDesign closed.' WHERE definition_application_state = 'applying'")
     this.purgeTimer = setInterval(() => { try { this.purgeExpiredTrash() } catch { /* a transient DB error should not crash the sweep */ } }, TRASH_PURGE_INTERVAL_MS)
     // Do not keep the process alive solely for the sweep.
     this.purgeTimer.unref?.()
@@ -541,7 +553,8 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
+             d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
       ORDER BY d.updated_at DESC
@@ -553,7 +566,8 @@ export class WorkspaceStore {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
+             d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -592,7 +606,8 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
+             d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
       ORDER BY d.sort_order, d.updated_at DESC, d.rowid DESC
@@ -651,6 +666,12 @@ export class WorkspaceStore {
       this.database.prepare(`
         UPDATE projects SET current_definition_version = ?, updated_at = ? WHERE id = ?
       `).run(version, now, projectId)
+      this.database.prepare(`
+        UPDATE designs
+        SET pending_definition_version = ?, kept_definition_version = NULL,
+            definition_application_state = 'pending', definition_application_error = NULL
+        WHERE project_id = ? AND trashed_at IS NULL
+      `).run(version, projectId)
     })
     return projectDesignDefinitionVersionSchema.parse({ id, projectId, version, definitions: parsed, createdAt: now })
   }
@@ -661,6 +682,46 @@ export class WorkspaceStore {
     `).run(suppressed ? 1 : 0, projectId)
     if (result.changes !== 1) throw new Error('Project not found.')
     return this.getProjectDesignDefinitionState(projectId)!
+  }
+
+  public keepProjectDesignDefinitions(designId: string, targetVersion: number): Design {
+    const result = this.database.prepare(`
+      UPDATE designs
+      SET pending_definition_version = NULL, kept_definition_version = ?,
+          definition_application_state = 'kept', definition_application_error = NULL
+      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
+    `).run(targetVersion, designId, targetVersion)
+    if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
+    return this.requireDesign(designId)
+  }
+
+  public beginProjectDefinitionApplication(designId: string, targetVersion: number): Design {
+    const result = this.database.prepare(`
+      UPDATE designs SET definition_application_state = 'applying', definition_application_error = NULL
+      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
+    `).run(designId, targetVersion)
+    if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
+    return this.requireDesign(designId)
+  }
+
+  public completeProjectDefinitionApplication(designId: string, targetVersion: number): Design {
+    const result = this.database.prepare(`
+      UPDATE designs
+      SET definition_version = ?, pending_definition_version = NULL, kept_definition_version = NULL,
+          definition_application_state = 'current', definition_application_error = NULL
+      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
+    `).run(targetVersion, designId, targetVersion)
+    if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
+    return this.requireDesign(designId)
+  }
+
+  public failProjectDefinitionApplication(designId: string, targetVersion: number, error: string, unavailable = false): Design {
+    const result = this.database.prepare(`
+      UPDATE designs SET definition_application_state = ?, definition_application_error = ?
+      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
+    `).run(unavailable ? 'unavailable' : 'failed', error, designId, targetVersion)
+    if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
+    return this.requireDesign(designId)
   }
 
   public renameDesign(designId: string, title: string): Design {
@@ -1389,7 +1450,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1432,6 +1493,10 @@ export class WorkspaceStore {
       activeRevisionId: row.active_revision_id,
       selectedRevisionId: row.selected_revision_id,
       definitionVersion: row.definition_version,
+      pendingDefinitionVersion: row.pending_definition_version,
+      keptDefinitionVersion: row.kept_definition_version,
+      definitionApplicationState: row.definition_application_state,
+      definitionApplicationError: row.definition_application_error,
       draft: row.draft,
       draftAttachments: this.hydrateAttachments(row.draft_attachments_json),
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,

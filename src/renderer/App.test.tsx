@@ -92,6 +92,9 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       saveProjectDesignDefinitions: vi.fn(async (projectId: string, definitions: ProjectDesignDefinitions) => ({ id: '4ecde3a1-3d43-4db9-a8f4-6da2c8d8d5ab', projectId, version: 1, definitions, createdAt: '2026-07-20T10:00:00.000Z' })),
       proposeProjectDesignDefinitions: vi.fn().mockResolvedValue({ schemaVersion: 1, colors: [{ name: 'primary', value: '#4b3b47', description: 'Primary actions' }], typography: [], spacing: [], shape: [], visualGuidance: 'Calm and cohesive.', aiAgentInstructions: 'Reuse semantic tokens.' }),
       setProjectDefinitionPromptSuppressed: vi.fn().mockResolvedValue({ current: null, promptSuppressed: true }),
+      keepProjectDesignDefinitions: vi.fn(async (designId: string, targetVersion: number) => ({ ...(initialDesigns.find((candidate) => candidate.id === designId) ?? createdDesign), pendingDefinitionVersion: null, keptDefinitionVersion: targetVersion, definitionApplicationState: 'kept' as const })),
+      applyProjectDesignDefinitions: vi.fn(async (designId: string, targetVersion: number) => ({ ...(initialDesigns.find((candidate) => candidate.id === designId) ?? createdDesign), definitionVersion: targetVersion, pendingDefinitionVersion: null, definitionApplicationState: 'current' as const })),
+      applyProjectDesignDefinitionsToAll: vi.fn(async (_projectId: string, targetVersion: number) => initialDesigns.map((candidate) => ({ ...candidate, definitionVersion: targetVersion, pendingDefinitionVersion: null, definitionApplicationState: 'current' as const }))),
       listTrash: vi.fn().mockResolvedValue([]),
       listFolders: vi.fn().mockResolvedValue([]),
       listTags: vi.fn().mockResolvedValue([]),
@@ -750,6 +753,18 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText('Proposal ready for review.')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'AI Agent instructions' })).toHaveValue('Reuse semantic tokens.')
     expect(bridge.workspace.saveProjectDesignDefinitions).not.toHaveBeenCalled()
+  })
+
+  it('persists a per-design definition decision and offers applying the version to all designs', async () => {
+    const pending = { ...design, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
+    const bridge = installBridge([pending], pending)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(pending.id)
+    render(<App />)
+
+    expect(await screen.findByText('Project definitions version 2 is ready.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to all' }))
+
+    await waitFor(() => expect(bridge.workspace.applyProjectDesignDefinitionsToAll).toHaveBeenCalledWith('project-1', 2))
   })
 
   it('offers only linked projects as reuse targets in the composer selector', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectDesignDefinitionVersion } from './contracts.js'
-import { createProjectDefinitionPromptContext, materializeProjectTheme, PROJECT_THEME_PATH } from './projectTheme.js'
+import { canUpdateProjectThemeDeterministically, createProjectDefinitionPromptContext, materializeProjectTheme, PROJECT_THEME_PATH } from './projectTheme.js'
 
 const version: ProjectDesignDefinitionVersion = {
   id: '4ecde3a1-3d43-4db9-a8f4-6da2c8d8d5ab',
@@ -36,5 +36,16 @@ describe('project theme materialization', () => {
     expect(context).toContain('AI Agent instructions:\nKeep actions compact.')
     expect(context).toContain('Visual guidance:\nQuiet and editorial.')
     expect(context).toContain('"name": "primary"')
+  })
+
+  it('updates an existing managed link and distinguishes token-only changes from interpretive changes', () => {
+    const updatedVersion = { ...version, version: 4, definitions: { ...version.definitions, colors: [{ name: 'primary', value: '#654321', description: null }] } }
+    const first = materializeProjectTheme({ 'index.html': '<html><head></head><body></body></html>' }, version)
+    const second = materializeProjectTheme(first, updatedVersion)
+    expect(second['index.html']?.match(/data-omnidesign-theme/g)).toHaveLength(1)
+    expect(second['index.html']).toContain('data-omnidesign-theme="4"')
+    expect(canUpdateProjectThemeDeterministically(version.definitions, updatedVersion.definitions)).toBe(true)
+    expect(canUpdateProjectThemeDeterministically(version.definitions, { ...updatedVersion.definitions, visualGuidance: 'A new composition.' })).toBe(false)
+    expect(canUpdateProjectThemeDeterministically(version.definitions, { ...updatedVersion.definitions, colors: [] })).toBe(false)
   })
 })

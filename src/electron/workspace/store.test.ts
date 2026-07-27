@@ -42,6 +42,7 @@ describe('WorkspaceStore', () => {
     })
     expect(first.version).toBe(1)
     expect(second.version).toBe(2)
+    expect(store.getDesign(design.id)).toMatchObject({ pendingDefinitionVersion: 2, definitionApplicationState: 'pending' })
     expect(store.listProjectDesignDefinitionVersions(projectId).map((version) => version.version)).toEqual([1, 2])
     expect(store.getProjectDesignDefinitionState(projectId)?.current).toEqual(second)
     expect(store.setProjectDefinitionPromptSuppressed(projectId, true).promptSuppressed).toBe(true)
@@ -50,6 +51,8 @@ describe('WorkspaceStore', () => {
     expect(themedDesign.definitionVersion).toBe(2)
     const themedRevision = store.addRevision(themedDesign.id, 'Create another screen')
     expect(themedRevision.revisions[0].definitionVersion).toBe(2)
+    expect(themedRevision).toMatchObject({ definitionVersion: 2, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
+    store.beginProjectDefinitionApplication(design.id, 2)
     store.close()
 
     const reopened = new WorkspaceStore(directory)
@@ -59,6 +62,7 @@ describe('WorkspaceStore', () => {
     })
     expect(reopened.listProjectDesignDefinitionVersions(projectId)).toHaveLength(2)
     expect(reopened.getDesign(themedDesign.id)).toMatchObject({ definitionVersion: 2, revisions: [{ definitionVersion: 2 }] })
+    expect(reopened.getDesign(design.id)).toMatchObject({ pendingDefinitionVersion: 2, definitionApplicationState: 'failed', definitionApplicationError: expect.stringContaining('interrupted') })
     reopened.close()
   })
 

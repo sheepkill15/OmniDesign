@@ -31,11 +31,34 @@ function themeHref(htmlPath: string): string {
 }
 
 function injectThemeLink(html: string, htmlPath: string, version: number): string {
-  if (/data-omnidesign-theme\s*=|(?:^|["'/])omnidesign\.theme\.css(?:["'?]|$)/i.test(html)) return html
+  const existingThemeLink = /<link\b[^>]*(?:data-omnidesign-theme\s*=|omnidesign\.theme\.css)[^>]*>/i
+  if (existingThemeLink.test(html)) {
+    return html.replace(existingThemeLink, (tag) => /data-omnidesign-theme\s*=\s*["'][^"']*["']/i.test(tag)
+      ? tag.replace(/data-omnidesign-theme\s*=\s*["'][^"']*["']/i, `data-omnidesign-theme="${version}"`)
+      : tag.replace(/>$/, ` data-omnidesign-theme="${version}">`))
+  }
   const link = `  <link rel="stylesheet" href="${themeHref(htmlPath)}" data-omnidesign-theme="${version}">\n`
   const buildLink = /\s*<link\s+rel=["']stylesheet["']\s+href=["'][^"']*\.build\/tailwind\.css["'][^>]*>\s*/i
   if (buildLink.test(html)) return html.replace(buildLink, (match) => `\n${link}${match.trim()}\n`)
   return /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${link}</head>`) : html
+}
+
+function names(values: readonly { readonly name: string }[]): Set<string> {
+  return new Set(values.map((value) => value.name))
+}
+
+function retainsEveryName(current: readonly { readonly name: string }[], target: readonly { readonly name: string }[]): boolean {
+  const targetNames = names(target)
+  return [...names(current)].every((name) => targetNames.has(name))
+}
+
+export function canUpdateProjectThemeDeterministically(current: ProjectDesignDefinitions, target: ProjectDesignDefinitions): boolean {
+  return current.visualGuidance === target.visualGuidance
+    && current.aiAgentInstructions === target.aiAgentInstructions
+    && retainsEveryName(current.colors, target.colors)
+    && retainsEveryName(current.typography, target.typography)
+    && retainsEveryName(current.spacing, target.spacing)
+    && retainsEveryName(current.shape, target.shape)
 }
 
 export function materializeProjectTheme(files: RevisionFiles, version: ProjectDesignDefinitionVersion): RevisionFiles {

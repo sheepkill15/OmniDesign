@@ -42,6 +42,23 @@ describe('WorkspaceService', () => {
     expect(service.getInitialProjectDefinitionPromptContext(saved.id)).toBe('')
     const files = service.getRevisionFiles(saved.id, saved.revisions[0].id)
     expect(files['omnidesign.theme.css']).toContain('--od-space-section-gap: 4rem;')
+
+    store.saveProjectDesignDefinitions(seed.projectId, {
+      ...store.getProjectDesignDefinitionState(seed.projectId)!.current!.definitions,
+      colors: [{ name: 'primary', value: '#654321', description: null }],
+    })
+    const applied = await service.applyProjectDesignDefinitions(saved.id, 2)
+    expect(applied).toMatchObject({ definitionVersion: 2, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
+    expect(applied.revisions).toHaveLength(2)
+    expect(service.getRevisionFiles(applied.id, applied.revisions[1].id)['omnidesign.theme.css']).toContain('--od-color-primary: #654321;')
+
+    store.saveProjectDesignDefinitions(seed.projectId, {
+      ...store.getProjectDesignDefinitionState(seed.projectId)!.current!.definitions,
+      visualGuidance: 'Change the composition substantially.',
+    })
+    const unavailable = await service.applyProjectDesignDefinitions(saved.id, 3)
+    expect(unavailable).toMatchObject({ pendingDefinitionVersion: 3, definitionApplicationState: 'unavailable' })
+    expect(service.keepProjectDesignDefinitions(saved.id, 3)).toMatchObject({ definitionVersion: 2, keptDefinitionVersion: 3, pendingDefinitionVersion: null, definitionApplicationState: 'kept' })
     store.close()
   })
 

@@ -192,6 +192,15 @@ export const setProjectDefinitionPromptSuppressedRequestSchema = projectIdReques
   suppressed: z.boolean(),
 })
 
+export const projectDefinitionDecisionRequestSchema = z.object({
+  designId: z.string().min(1).max(100),
+  targetVersion: z.number().int().positive(),
+})
+
+export const applyProjectDefinitionsToAllRequestSchema = projectIdRequestSchema.extend({
+  targetVersion: z.number().int().positive(),
+})
+
 export const renameProjectRequestSchema = projectIdRequestSchema.extend({
   name: z.string().trim().min(1).max(200),
 })
@@ -280,6 +289,10 @@ export const designSchema = z.object({
   activeRevisionId: z.string().nullable(),
   selectedRevisionId: z.string().nullable(),
   definitionVersion: z.number().int().positive().nullable().optional(),
+  pendingDefinitionVersion: z.number().int().positive().nullable().optional(),
+  keptDefinitionVersion: z.number().int().positive().nullable().optional(),
+  definitionApplicationState: z.enum(['current', 'pending', 'applying', 'kept', 'failed', 'unavailable']).optional(),
+  definitionApplicationError: z.string().nullable().optional(),
   draft: z.string(),
   draftAttachments: z.array(attachmentSchema),
   thumbnailDataUrl: z.string().nullable(),

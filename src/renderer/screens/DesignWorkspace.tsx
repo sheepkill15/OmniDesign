@@ -214,6 +214,25 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
       return undefined
     }
   }
+  const applyDefinitions = async () => {
+    const target = design.pendingDefinitionVersion
+    if (!api || !target) return
+    const updated = await runWorkspaceAction(() => api.applyProjectDesignDefinitions(design.id, target), 'Project definitions could not be applied.')
+    if (updated) onChange(updated)
+  }
+  const keepDefinitions = async () => {
+    const target = design.pendingDefinitionVersion
+    if (!api || !target) return
+    const updated = await runWorkspaceAction(() => api.keepProjectDesignDefinitions(design.id, target), 'The project-definition decision could not be saved.')
+    if (updated) onChange(updated)
+  }
+  const applyDefinitionsToAll = async () => {
+    const target = design.pendingDefinitionVersion
+    if (!api || !target) return
+    const updated = await runWorkspaceAction(() => api.applyProjectDesignDefinitionsToAll(design.projectId, target), 'Project definitions could not be applied to every design.')
+    const current = updated?.find((candidate) => candidate.id === design.id)
+    if (current) onChange(current)
+  }
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
@@ -468,6 +487,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         </section>}
         {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
         {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
+        {design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
       </div>
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
       <div className="workspace-composer">

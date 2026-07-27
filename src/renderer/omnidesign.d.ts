@@ -141,6 +141,10 @@ interface OmniDesignDocument {
   readonly activeRevisionId: string | null
   readonly selectedRevisionId: string | null
   readonly definitionVersion?: number | null
+  readonly pendingDefinitionVersion?: number | null
+  readonly keptDefinitionVersion?: number | null
+  readonly definitionApplicationState?: 'current' | 'pending' | 'applying' | 'kept' | 'failed' | 'unavailable'
+  readonly definitionApplicationError?: string | null
   readonly draft: string
   readonly draftAttachments: readonly DesignAttachment[]
   readonly thumbnailDataUrl: string | null
@@ -298,6 +302,9 @@ interface Window {
       saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): Promise<ProjectDesignDefinitionVersion>
       proposeProjectDesignDefinitions(projectId: string, providerId: 'mock' | 'codex' | 'claude', modelId: string, effort?: string | null): Promise<ProjectDesignDefinitions>
       setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): Promise<ProjectDesignDefinitionState>
+      keepProjectDesignDefinitions(designId: string, targetVersion: number): Promise<OmniDesignDocument>
+      applyProjectDesignDefinitions(designId: string, targetVersion: number): Promise<OmniDesignDocument>
+      applyProjectDesignDefinitionsToAll(projectId: string, targetVersion: number): Promise<readonly OmniDesignDocument[]>
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
       duplicateDesign(designId: string): Promise<OmniDesignDocument>
       associateAndRestart(designId: string, projectId: string): Promise<OmniDesignDocument | null>
