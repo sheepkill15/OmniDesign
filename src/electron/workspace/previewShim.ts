@@ -1,11 +1,13 @@
 // A tiny script OmniDesign injects into every previewed page. It is served, never committed to Git,
 // and never authored by the agent. It runs inside the sandboxed, opaque-origin iframe and talks to the
-// trusted parent only through postMessage. Three jobs:
+// trusted parent only through postMessage. Four jobs:
 //   1. report content height (ResizeObserver) so the parent can size an Artboard-fit tile to the page;
 //   2. forward console output and window.onerror as preview diagnostics (the Phase 1 diagnostics
 //      feature, which would otherwise regress once the preview is an iframe);
 //   3. report its own page path on load so the focused-mode switcher stays in sync when in-page links
 //      are followed.
+//   4. support a temporary inspection mode that reports only an opaque source key and bounded label;
+//      the trusted side resolves authoritative paths and lines from its immutable source map.
 // Messages are tagged so the parent can distinguish them from any other postMessage traffic.
 
 export const PREVIEW_MESSAGE_SOURCE = 'omnidesign-preview-shim'
@@ -59,6 +61,65 @@ function shimBody(): string {
     if (!message) return;
     post({ type: 'diagnostic', level: level, message: String(message).slice(0, 2000), line: (typeof line === 'number' ? line : null), src: source || null });
   }
+  var selecting = false;
+  var highlighted = null;
+  var selectionStyle = document.createElement('style');
+  selectionStyle.textContent = '.od-focused-candidate{outline:3px solid Highlight !important;outline-offset:2px !important;cursor:crosshair !important;}.od-focused-label{position:fixed;z-index:2147483647;display:none;max-width:min(320px,calc(100vw - 16px));padding:5px 8px;border:2px solid Highlight;border-radius:4px;background:Canvas;color:CanvasText;font:600 12px/1.25 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}@media(forced-colors:active){.od-focused-label{forced-color-adjust:auto;box-shadow:none;}}';
+  (document.head || document.documentElement).appendChild(selectionStyle);
+  var selectionLabel = document.createElement('div');
+  selectionLabel.className = 'od-focused-label';
+  selectionLabel.setAttribute('aria-hidden', 'true');
+  document.documentElement.appendChild(selectionLabel);
+  function elementLabel(element) {
+    if (!element || !element.tagName) return 'element';
+    var label = '<' + element.tagName.toLowerCase();
+    if (element.id) label += '#' + String(element.id).slice(0, 80);
+    var classes = typeof element.className === 'string' ? element.className.trim().split(/\s+/).filter(Boolean).slice(0, 2) : [];
+    classes.forEach(function (name) { if (name !== 'od-focused-candidate') label += '.' + String(name).slice(0, 60); });
+    return (label + '>').slice(0, 200);
+  }
+  function authoredAncestor(node) {
+    var element = node && node.nodeType === 1 ? node : (node && node.parentElement);
+    while (element && !element.getAttribute('data-od-source-key')) element = element.parentElement;
+    return element;
+  }
+  function highlight(node) {
+    if (highlighted) highlighted.classList.remove('od-focused-candidate');
+    highlighted = authoredAncestor(node);
+    if (selecting && highlighted) {
+      highlighted.classList.add('od-focused-candidate');
+      selectionLabel.textContent = elementLabel(node);
+      var rect = highlighted.getBoundingClientRect();
+      selectionLabel.style.left = Math.max(8, Math.min(window.innerWidth - 328, rect.left)) + 'px';
+      selectionLabel.style.top = Math.max(8, rect.top - 31) + 'px';
+      selectionLabel.style.display = 'block';
+    } else selectionLabel.style.display = 'none';
+  }
+  function stopSelecting() {
+    selecting = false;
+    if (highlighted) highlighted.classList.remove('od-focused-candidate');
+    highlighted = null;
+    selectionLabel.style.display = 'none';
+  }
+  function choose(node) {
+    var clicked = node && node.nodeType === 1 ? node : (node && node.parentElement);
+    var authored = authoredAncestor(clicked);
+    if (!authored) { post({ type: 'selection-unmappable', clickedLabel: elementLabel(clicked) }); stopSelecting(); return; }
+    post({ type: 'selection', locationId: authored.getAttribute('data-od-source-key'), clickedLabel: elementLabel(clicked), usedAncestor: authored !== clicked });
+    stopSelecting();
+  }
+  document.addEventListener('mouseover', function (event) { if (selecting) highlight(event.target); }, true);
+  document.addEventListener('focusin', function (event) { if (selecting) highlight(event.target); }, true);
+  document.addEventListener('click', function (event) {
+    if (!selecting) return;
+    event.preventDefault(); event.stopPropagation(); if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+    choose(event.target);
+  }, true);
+  document.addEventListener('keydown', function (event) {
+    if (!selecting) return;
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); stopSelecting(); post({ type: 'selection-cancelled' }); }
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); choose(event.target); }
+  }, true);
   ['error', 'warn'].forEach(function (level) {
     var original = console[level];
     console[level] = function () {
@@ -90,6 +151,8 @@ function shimBody(): string {
       if (event.data.type === 'omnidesign-measure') reportHeight();
       else if (event.data.type === 'omnidesign-pause') setPaused(true);
       else if (event.data.type === 'omnidesign-resume') setPaused(false);
+      else if (event.data.type === 'omnidesign-selection-start') { selecting = true; highlight(document.activeElement || document.body); }
+      else if (event.data.type === 'omnidesign-selection-stop') stopSelecting();
     });
     // Catch late layout (web fonts, images, Alpine expanding content) that fires no size event.
     [120, 400, 1000].forEach(function (delay) { setTimeout(reportHeight, delay); });

@@ -60,7 +60,20 @@ interface DesignMessage {
   readonly role: 'user' | 'assistant' | 'system'
   readonly text: string
   readonly attachments?: readonly DesignAttachment[]
+  readonly focusedTarget?: FocusedTarget | null
   readonly createdAt: string
+}
+
+interface FocusedTarget {
+  readonly designId: string
+  readonly revisionId: string
+  readonly path: string
+  readonly startLine: number
+  readonly endLine: number
+  readonly label: string
+  readonly stableId: string | null
+  readonly excerpt: string
+  readonly dynamicDescription: string | null
 }
 
 interface DesignPage {
@@ -124,6 +137,7 @@ interface GenerationJob {
   readonly mode?: 'fresh' | 'continue'
   readonly providerSessionId?: string | null
   readonly definitionTargetVersion?: number | null
+  readonly focusedTarget?: FocusedTarget | null
   readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   readonly createdAt: string
   readonly startedAt: string | null
@@ -332,7 +346,7 @@ interface Window {
       renameDesign(designId: string, title: string): Promise<OmniDesignDocument>
       renameProject(projectId: string, name: string): Promise<ProjectSummary>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
-      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
+      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>
       chooseAttachments(kind: 'files' | 'folder'): Promise<DesignAttachment[]>
       openAttachment(attachment: DesignAttachment): Promise<void>
@@ -368,6 +382,7 @@ interface Window {
     }
     readonly preview: {
       register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>
+      resolveFocusedTarget(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly page: string; readonly locationId: string; readonly clickedLabel: string; readonly usedAncestor: boolean }): Promise<FocusedTarget | null>
       reportDiagnostic(designId: string, revisionId: string, diagnostic: { readonly level: 'warning' | 'error'; readonly message: string; readonly source: string | null; readonly line: number | null }): Promise<void>
       capture(designId: string, revisionId: string): Promise<boolean>
       popOut(request: { readonly designId: string; readonly revisionId: string; readonly page?: string }): Promise<void>

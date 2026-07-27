@@ -3305,3 +3305,19 @@ button[aria-expanded="true"] .dropdown-caret {
   outline-offset: 1px;
   border-radius: var(--radius-control);
 }
+.focused-target-chip {
+  align-items: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.focused-target-chip > svg { color: var(--accent); flex: 0 0 auto; height: 18px; width: 18px; }
+.focused-target-chip > span { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.focused-target-chip strong, .focused-target-chip small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focused-target-chip small, .focused-target-reference { color: var(--text-muted); font-size: 12px; }
+.focused-target-chip > button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font-size: 18px; }
+.focused-target-reference { margin-top: 8px; }

@@ -146,6 +146,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     },
     preview: {
       register: vi.fn().mockResolvedValue({ token: 'token-1', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' }),
+      resolveFocusedTarget: vi.fn().mockResolvedValue(null),
       reportDiagnostic: vi.fn().mockResolvedValue(undefined),
       capture: vi.fn().mockResolvedValue(true),
       popOut: vi.fn().mockResolvedValue(undefined),
@@ -1104,6 +1105,45 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
     expect(await screen.findByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
+  })
+
+  it('attaches an exact focused target from the active frame, submits it, and clears the live selection', async () => {
+    const bridge = installBridge()
+    const target: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-1', path: 'pages/pricing.html', startLine: 24, endLine: 31,
+      label: '<button#buy.primary>', stableId: 'pricing-cta', excerpt: '<button>Buy now</button>', dynamicDescription: null,
+    }
+    vi.mocked(bridge.preview.resolveFocusedTarget).mockResolvedValue(target)
+    render(<App />)
+
+    const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(initialPrompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(initialPrompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select element' }))
+    expect(screen.getByRole('button', { name: 'Focused' })).toHaveAttribute('aria-pressed', 'true')
+    const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
+    expect(frame).toBeTruthy()
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html',
+        locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', clickedLabel: '<button#buy.primary>', usedAncestor: false,
+      },
+    }))
+
+    expect(await screen.findByText('pages/pricing.html:24-31')).toBeInTheDocument()
+    const followUp = screen.getByRole('textbox', { name: 'Request a design change' })
+    fireEvent.change(followUp, { target: { value: 'Make this call to action calmer' } })
+    fireEvent.keyDown(followUp, { key: 'Enter' })
+
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith(
+      'design-1', 'Make this call to action calmer', 'mock', 'mock-v1', undefined, [], target,
+    ))
+    expect(screen.queryByText('pages/pricing.html:24-31')).not.toBeInTheDocument()
   })
 
   it('configures and persists a custom canvas size while focused mode stays unconstrained', async () => {

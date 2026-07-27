@@ -15,6 +15,9 @@ type ShimMessage =
   | { readonly source: string; readonly type: 'height'; readonly page: string; readonly height: number }
   | { readonly source: string; readonly type: 'page'; readonly page: string }
   | { readonly source: string; readonly type: 'diagnostic'; readonly page: string; readonly level: 'warning' | 'error'; readonly message: string; readonly line: number | null; readonly src: string | null }
+  | { readonly source: string; readonly type: 'selection'; readonly page: string; readonly locationId: string; readonly clickedLabel: string; readonly usedAncestor: boolean }
+  | { readonly source: string; readonly type: 'selection-unmappable'; readonly page: string; readonly clickedLabel: string }
+  | { readonly source: string; readonly type: 'selection-cancelled'; readonly page: string }
 
 function deviceDimensions(device: PreviewDevice, customWidth: number, customHeight: number): { readonly width: number; readonly height: number } {
   return device === 'custom' ? { width: customWidth, height: customHeight } : DEVICE_PRESETS[device]
@@ -34,6 +37,10 @@ export interface DesignPreviewProps {
   readonly selectedPage: string | null
   readonly onSelectPage: (page: string) => void
   readonly onOpenPage: (page: string) => void
+  readonly selectionActive: boolean
+  readonly onSelection: (target: FocusedTarget) => void
+  readonly onSelectionCancelled: () => void
+  readonly onSelectionError: (message: string) => void
 }
 
 // Renders the design preview as sandboxed, opaque-origin iframes served over the preview scheme.
@@ -41,7 +48,7 @@ export interface DesignPreviewProps {
 // Canvas mode lays every page out as a device-framed tile on a pan/zoom board honoring the global
 // device size and fit. Height (Artboard fit), diagnostics, and current-page reporting arrive from the
 // injected shim via postMessage.
-export function DesignPreview({ designId, revisionId, token, captureNeeded, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, onSelectPage, onOpenPage }: DesignPreviewProps) {
+export function DesignPreview({ designId, revisionId, token, captureNeeded, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, onSelectPage, onOpenPage, selectionActive, onSelection, onSelectionCancelled, onSelectionError }: DesignPreviewProps) {
   const dims = deviceDimensions(device, customWidth, customHeight)
   const [heights, setHeights] = useState<Record<string, number>>({})
   const [zoom, setZoom] = useState(0.75)
@@ -74,22 +81,41 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
     viewport.current?.querySelectorAll('iframe').forEach((frame) => syncFrame(frame as HTMLIFrameElement, livePath))
   }, [livePath, viewMode, pages, syncFrame])
 
+  const syncSelection = useCallback((frame: HTMLIFrameElement) => {
+    try { frame.contentWindow?.postMessage({ type: selectionActive && viewMode === 'focused' ? 'omnidesign-selection-start' : 'omnidesign-selection-stop' }, '*') } catch { /* opaque frame not ready */ }
+  }, [selectionActive, viewMode])
+  useEffect(() => {
+    viewport.current?.querySelectorAll('iframe').forEach((frame) => syncSelection(frame as HTMLIFrameElement))
+  }, [syncSelection, activePage])
+
   // Height / diagnostics / page-sync from the injected shim.
   useEffect(() => {
+    let current = true
     const onMessage = (event: MessageEvent) => {
       const data = event.data as ShimMessage | undefined
       if (!data || data.source !== SHIM_SOURCE || !data.page) return
+      const frame = [...(viewport.current?.querySelectorAll('iframe') ?? [])].find((candidate) => (candidate as HTMLIFrameElement).contentWindow === event.source) as HTMLIFrameElement | undefined
+      if (!frame || frame.dataset.page !== data.page) return
       if (data.type === 'height') {
         setHeights((current) => current[data.page] === data.height ? current : { ...current, [data.page]: data.height })
       } else if (data.type === 'diagnostic') {
         void window.omnidesign?.preview.reportDiagnostic(designId, revisionId, { level: data.level, message: data.message, source: data.src, line: data.line })
       } else if (data.type === 'page') {
         if (viewMode === 'focused' && data.page !== selectedPage) onSelectPage(data.page)
+      } else if (data.type === 'selection' && selectionActive && viewMode === 'focused' && data.page === activePage) {
+        if (typeof data.locationId !== 'string' || data.locationId.length > 100 || typeof data.clickedLabel !== 'string' || !data.clickedLabel.trim() || typeof data.usedAncestor !== 'boolean' || data.clickedLabel.length > 200) { onSelectionError('The selected element sent invalid location data.'); return }
+        void window.omnidesign?.preview.resolveFocusedTarget({ designId, revisionId, token, page: data.page, locationId: data.locationId, clickedLabel: data.clickedLabel, usedAncestor: data.usedAncestor })
+          .then((target) => { if (current) target ? onSelection(target) : onSelectionError('This element could not be mapped reliably to the current design source.') })
+          .catch(() => { if (current) onSelectionError('This element could not be mapped reliably to the current design source.') })
+      } else if (data.type === 'selection-unmappable' && selectionActive) {
+        onSelectionError('This element has no source-authored ancestor that OmniDesign can edit reliably.')
+      } else if (data.type === 'selection-cancelled' && selectionActive) {
+        onSelectionCancelled()
       }
     }
     window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [designId, revisionId, viewMode, selectedPage, onSelectPage])
+    return () => { current = false; window.removeEventListener('message', onMessage) }
+  }, [designId, revisionId, token, viewMode, selectedPage, activePage, selectionActive, onSelectPage, onSelection, onSelectionCancelled, onSelectionError])
 
   // A fresh revision reprepares the surface: forget stale heights and re-arm thumbnail capture.
   useEffect(() => { setHeights({}); capturedRef.current = null; capturingRef.current = false }, [revisionId, token])
@@ -161,7 +187,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
                 <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
                   {/* Every tile stays loaded; the shim pauses/resumes its animation loops over
                       postMessage (see the sync effect), so switching the live tile never reloads. */}
-                  <iframe data-page={page.path} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} onLoad={(event) => syncFrame(event.currentTarget, livePath)} />
+                  <iframe data-page={page.path} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget) }} />
                 </div>
                 <figcaption className="preview-tile-label" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</figcaption>
               </figure>
@@ -181,7 +207,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
   // Focused mode: the selected page fills the pane, exactly like opening the HTML file itself.
   return (
     <div className="preview-focused-fill" ref={viewport}>
-      <iframe key={`${token}:${activePage}`} data-page={activePage} title={pages.find((page) => page.path === activePage)?.title ?? activePage} src={pageUrl(activePage)} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => syncFrame(event.currentTarget, livePath)} />
+      <iframe key={`${token}:${activePage}`} data-page={activePage} title={pages.find((page) => page.path === activePage)?.title ?? activePage} src={pageUrl(activePage)} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget) }} />
     </div>
   )
 }

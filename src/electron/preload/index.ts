@@ -50,7 +50,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     renameDesign: (designId: string, title: string) => ipcRenderer.invoke('workspace:rename-design', { designId, title }),
     renameProject: (projectId: string, name: string) => ipcRenderer.invoke('workspace:rename-project', { projectId, name }),
     create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, target?: { sourceProjectPath?: string | null; projectId?: string | null; cloneRemoteUrl?: string | null; cloneDestinationDirectory?: string | null } | null, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: target?.sourceProjectPath ?? null, projectId: target?.projectId ?? null, cloneRemoteUrl: target?.cloneRemoteUrl ?? null, cloneDestinationDirectory: target?.cloneDestinationDirectory ?? null, attachments }),
-    generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null, attachments }),
+    generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = [], focusedTarget: import('../workspace/contracts.js').FocusedTarget | null = null) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null, attachments, focusedTarget }),
     chooseProjectFolder: () => ipcRenderer.invoke('workspace:choose-project-folder'),
     chooseAttachments: (kind: 'files' | 'folder') => ipcRenderer.invoke('workspace:choose-attachments', { kind }),
     openAttachment: (attachment: import('../workspace/contracts.js').Attachment) => ipcRenderer.invoke('workspace:open-attachment', attachment),
@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
   },
   preview: {
     register: (designId: string, revisionId: string) => ipcRenderer.invoke('preview:register', { designId, revisionId }),
+    resolveFocusedTarget: (request: { designId: string; revisionId: string; token: string; page: string; locationId: string; clickedLabel: string; usedAncestor: boolean }) => ipcRenderer.invoke('preview:resolve-focused-target', request),
     reportDiagnostic: (designId: string, revisionId: string, diagnostic: { level: 'warning' | 'error'; message: string; source: string | null; line: number | null }) => ipcRenderer.invoke('preview:report-diagnostic', { designId, revisionId, diagnostic }),
     capture: (designId: string, revisionId: string): Promise<boolean> => ipcRenderer.invoke('preview:capture', { designId, revisionId }),
     popOut: (request: { designId: string; revisionId: string; page?: string }) => ipcRenderer.invoke('preview:pop-out', request),

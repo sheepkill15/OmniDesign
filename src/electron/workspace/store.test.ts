@@ -569,6 +569,39 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('persists focused targets on messages and attempts across restart, retry, and continue', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const target = {
+      designId: created.id,
+      revisionId: 'revision-1',
+      path: 'pages/pricing.html',
+      startLine: 24,
+      endLine: 31,
+      label: '<button#buy.primary>',
+      stableId: 'pricing-cta',
+      excerpt: '<button data-od-id="pricing-cta">Buy now</button>',
+      dynamicDescription: null,
+    }
+    const queued = store.enqueueGenerationJob(created.id, 'Make this calmer', 'mock', 'mock-v1', null, [], 'fresh', null, target)
+    store.setGenerationJobState(queued.id, 'running')
+    store.setGenerationJobState(queued.id, 'failed', 'Stopped for test.')
+    const retried = store.retryGenerationJob(queued.id)
+    const continued = store.continueGenerationJob(queued.id)
+
+    expect(store.getDesign(created.id)?.messages.at(-1)).toMatchObject({ text: 'Make this calmer', focusedTarget: target })
+    expect(store.getGenerationJob(retried.id)?.focusedTarget).toEqual(target)
+    expect(store.getGenerationJob(continued.id)?.focusedTarget).toEqual(target)
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.messages.at(-1)?.focusedTarget).toEqual(target)
+    expect(reopened.getGenerationJob(queued.id)?.focusedTarget).toEqual(target)
+    expect(reopened.getGenerationJob(retried.id)?.focusedTarget).toEqual(target)
+    expect(reopened.getGenerationJob(continued.id)?.focusedTarget).toEqual(target)
+    reopened.close()
+  })
+
   it('removes the persisted prompt message when queued work is removed', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')

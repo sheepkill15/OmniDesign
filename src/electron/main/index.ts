@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
-import { buildConversationRecap, normalizeAgentReply } from '../provider/agentHarness.js'
+import { buildConversationRecap, createFocusedEditPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
@@ -38,6 +38,7 @@ import {
   reconnectProjectRequestSchema,
   registerLinkedProjectRequestSchema,
   revisionPagesRequestSchema,
+  resolveFocusedTargetRequestSchema,
   savePageMetadataRequestSchema,
   saveProjectDesignDefinitionsRequestSchema,
   saveDesignSelectionRequestSchema,
@@ -533,8 +534,18 @@ function registerIpc(): void {
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
+    if (request.focusedTarget) {
+      const design = requireWorkspace().getDesign(request.designId)
+      if (!design
+        || request.focusedTarget.designId !== request.designId
+        || design.activeRevisionId !== request.focusedTarget.revisionId
+        || design.selectedRevisionId !== request.focusedTarget.revisionId
+        || !requirePreviewServer().validatesFocusedTarget(request.focusedTarget)) {
+        throw new Error('The selected element is stale or does not belong to the current design revision.')
+      }
+    }
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
-    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null)
     return requireWorkspace().getDesign(request.designId)
   })
   ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
@@ -641,6 +652,13 @@ function registerIpc(): void {
     const token = requirePreviewServer().register(request.designId, request.revisionId, files)
     return { token, pages, entryPagePath }
   })
+  ipcMain.handle('preview:resolve-focused-target', (event, value: unknown) => {
+    authorize(event)
+    const request = resolveFocusedTargetRequestSchema.parse(value)
+    const design = requireWorkspace().getDesign(request.designId)
+    if (!design || design.activeRevisionId !== request.revisionId || design.selectedRevisionId !== request.revisionId) return null
+    return requirePreviewServer().resolveFocusedTarget(request)
+  })
   ipcMain.handle('preview:report-diagnostic', (event, value: unknown) => {
     authorize(event)
     const request = previewDiagnosticReportSchema.parse(value)
@@ -744,6 +762,7 @@ void app.whenReady().then(() => {
         const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId)
         if (definitionContext) agentPrompt = `${agentPrompt}\n\n${definitionContext}`
       }
+      if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
       // Resume the design's own provider conversation when the selected provider matches the stored
       // session; otherwise this is a fresh session (first prompt, a provider switch, or a stale session).
       const storedSession = store.getDesignProviderSession(job.designId)
@@ -810,7 +829,8 @@ void app.whenReady().then(() => {
           return
         }
         const diagnostic = saved.invalidCandidates.at(-1)?.diagnostic ?? 'The candidate did not pass validation.'
-        agentPrompt = `Repair the current index.html in place and finish the original request. Validation feedback: ${diagnostic}`
+        agentPrompt = `Repair the current design in place and finish the original request. Validation feedback: ${diagnostic}`
+        if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
       }
     },
     recordActivity,

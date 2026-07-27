@@ -147,11 +147,36 @@ export const attachmentSchema = z.object({
   status: z.enum(['available', 'changed', 'missing']),
 })
 
+const repositoryRelativeHtmlPathSchema = z.string().min(1).max(2_000).refine((value) => !value.startsWith('/') && !value.includes('\\') && !value.split('/').includes('..') && /\.html?$/i.test(value), 'Use a repository-relative HTML path.')
+
+export const focusedTargetSchema = z.object({
+  designId: z.string().min(1).max(100),
+  revisionId: z.string().min(1).max(100),
+  path: repositoryRelativeHtmlPathSchema,
+  startLine: z.number().int().positive(),
+  endLine: z.number().int().positive(),
+  label: z.string().min(1).max(200),
+  stableId: z.string().max(500).nullable(),
+  excerpt: z.string().min(1).max(4_100),
+  dynamicDescription: z.string().max(500).nullable(),
+}).refine((value) => value.endLine >= value.startLine, { message: 'Focused target line range is invalid.' })
+
+export const resolveFocusedTargetRequestSchema = z.object({
+  designId: z.string().min(1).max(100),
+  revisionId: z.string().min(1).max(100),
+  token: z.string().uuid(),
+  page: repositoryRelativeHtmlPathSchema,
+  locationId: z.string().uuid(),
+  clickedLabel: z.string().trim().min(1).max(200),
+  usedAncestor: z.boolean(),
+})
+
 export const messageSchema = z.object({
   id: z.string().min(1),
   role: z.enum(['user', 'assistant', 'system']),
   text: z.string(),
   attachments: z.array(attachmentSchema).default([]),
+  focusedTarget: focusedTargetSchema.nullable().default(null),
   createdAt: z.string().datetime(),
 })
 
@@ -275,6 +300,7 @@ export const generationJobSchema = z.object({
   mode: generationJobModeSchema.default('fresh'),
   providerSessionId: z.string().min(1).nullable().default(null),
   definitionTargetVersion: z.number().int().positive().nullable().default(null),
+  focusedTarget: focusedTargetSchema.nullable().default(null),
   state: generationJobStateSchema,
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),
@@ -349,6 +375,7 @@ export const generateRequestSchema = designIdRequestSchema.extend({
   modelId: z.string().trim().min(1).max(200).default('mock-v1'),
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   attachments: z.array(attachmentSchema).max(100).default([]),
+  focusedTarget: focusedTargetSchema.nullable().optional(),
 })
 
 export const selectRevisionRequestSchema = designIdRequestSchema.extend({
@@ -458,6 +485,7 @@ export type TrashItem = z.infer<typeof trashItemSchema>
 export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>
 export type Attachment = z.infer<typeof attachmentSchema>
+export type FocusedTarget = z.infer<typeof focusedTargetSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
 export type Message = z.infer<typeof messageSchema>
 export type PreviewDiagnostic = z.infer<typeof previewDiagnosticSchema>

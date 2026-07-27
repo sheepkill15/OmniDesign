@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConversationRecap, createDesignAgentInstructions, normalizeAgentReply } from './agentHarness.js'
+import { buildConversationRecap, createDesignAgentInstructions, createFocusedEditPrompt, normalizeAgentReply } from './agentHarness.js'
 
 describe('conversation recap', () => {
   it('recaps recent user and assistant turns and skips system notices and blanks', () => {
@@ -69,5 +69,37 @@ describe('agent reply', () => {
 
     expect(instructions).toContain('C:\\projects\\aurora')
     expect(instructions).toContain('Inspect its relevant source, styles, assets, and configuration')
+  })
+})
+
+describe('focused edit prompt', () => {
+  it('keeps the user wording and adds exact trusted source context plus supporting-file permission', () => {
+    const result = createFocusedEditPrompt('Make this call to action calmer.', {
+      designId: 'design-1',
+      revisionId: 'revision-1',
+      path: 'pages/pricing.html',
+      startLine: 24,
+      endLine: 31,
+      label: '<button#buy.primary>',
+      stableId: 'pricing-cta',
+      excerpt: '<button data-od-id="pricing-cta">Buy now</button>',
+      dynamicDescription: null,
+    })
+
+    expect(result).toContain('Make this call to action calmer.')
+    expect(result).toContain('pages/pricing.html:24-31')
+    expect(result).toContain('stable identifier: pricing-cta')
+    expect(result).toContain('supporting CSS, JavaScript, shared components, or adjacent markup')
+    expect(result).toContain('<button data-od-id="pricing-cta">Buy now</button>')
+  })
+
+  it('discloses nearest-authored-ancestor fallback', () => {
+    const result = createFocusedEditPrompt('Change this item.', {
+      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 5, endLine: 8,
+      label: '<li>', stableId: null, excerpt: '<ul x-data="items"></ul>', dynamicDescription: '<span.runtime-item>',
+    })
+
+    expect(result).toContain('clicked runtime element was <span.runtime-item>')
+    expect(result).toContain('nearest authored ancestor')
   })
 })

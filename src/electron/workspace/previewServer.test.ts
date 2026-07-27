@@ -30,7 +30,28 @@ describe('PreviewContentServer', () => {
     expect(response.headers.get('Content-Security-Policy')).toContain("connect-src 'none'")
     const body = await response.text()
     expect(body).toContain('__OMNIDESIGN_PAGE__="index.html"')
-    expect(body).toContain('<body class="p-4">Hi</body>')
+    expect(body).toMatch(/data-od-source-key="[0-9a-f-]{36}"/)
+    expect(body).toMatch(/<body class="p-4" data-od-source-key="[0-9a-f-]{36}">Hi<\/body>/)
+  })
+
+  it('resolves only opaque locations registered for the exact design, revision, token, and page', async () => {
+    const { session, invoke } = fakeSession()
+    const server = new PreviewContentServer(session as never, 'file:')
+    const token = server.register('design-1', 'revision-1', { 'index.html': html })
+    const body = await invoke(`omnidesign-preview://revision/${token}/index.html`).text()
+    const locationId = body.match(/<body[^>]*data-od-source-key="([0-9a-f-]{36})"/)?.[1]
+    expect(locationId).toBeTruthy()
+
+    expect(server.resolveFocusedTarget({ token, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationId!, clickedLabel: '<span.dynamic>', usedAncestor: true })).toMatchObject({
+      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 1, endLine: 1, label: '<body.p-4>', dynamicDescription: '<span.dynamic>',
+    })
+    expect(server.resolveFocusedTarget({ token, designId: 'design-1', revisionId: 'revision-forged', page: 'index.html', locationId: locationId!, clickedLabel: '<body>', usedAncestor: false })).toBeNull()
+    expect(server.resolveFocusedTarget({ token, designId: 'design-1', revisionId: 'revision-1', page: 'other.html', locationId: locationId!, clickedLabel: '<body>', usedAncestor: false })).toBeNull()
+    const resolved = server.resolveFocusedTarget({ token, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationId!, clickedLabel: '<body>', usedAncestor: false })!
+    expect(server.validatesFocusedTarget(resolved)).toBe(true)
+    expect(server.validatesFocusedTarget({ ...resolved, path: 'forged.html' })).toBe(false)
+    expect(server.validatesFocusedTarget({ ...resolved, startLine: 99, endLine: 99 })).toBe(false)
+    expect(server.validatesFocusedTarget({ ...resolved, revisionId: 'revision-forged' })).toBe(false)
   })
 
   it('serves build assets verbatim (no shim) and stable tokens per revision', async () => {

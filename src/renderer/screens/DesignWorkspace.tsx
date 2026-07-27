@@ -10,6 +10,7 @@ import {
   CheckCircleIcon,
   ClockIcon,
   ComputerDesktopIcon,
+  CursorArrowRaysIcon,
   DevicePhoneMobileIcon,
   DeviceTabletIcon,
   ExclamationTriangleIcon,
@@ -78,6 +79,7 @@ function ConversationMessage({ message, onOpenAttachment }: { readonly message: 
         <div className="message-bubble">
           {isUser ? <p>{message.text}</p> : <Markdown text={message.text} />}
           {message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => onOpenAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}
+          {message.focusedTarget && <div className="focused-target-reference">Target · {message.focusedTarget.path}:{message.focusedTarget.startLine}-{message.focusedTarget.endLine} · {message.focusedTarget.label}</div>}
         </div>
       </div>
     </article>
@@ -159,6 +161,8 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>(design.layout.previewDevice)
   const [previewCustomWidth, setPreviewCustomWidth] = useState(design.layout.previewCustomWidth)
   const [previewCustomHeight, setPreviewCustomHeight] = useState(design.layout.previewCustomHeight)
+  const [selectionActive, setSelectionActive] = useState(false)
+  const [focusedTarget, setFocusedTarget] = useState<FocusedTarget | null>(null)
   const [customSizeOpen, setCustomSizeOpen] = useState(false)
   const [customWidthDraft, setCustomWidthDraft] = useState(String(design.layout.previewCustomWidth))
   const [customHeightDraft, setCustomHeightDraft] = useState(String(design.layout.previewCustomHeight))
@@ -247,6 +251,10 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     setPreviewCustomWidth(design.layout.previewCustomWidth)
     setPreviewCustomHeight(design.layout.previewCustomHeight)
   }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice, design.layout.previewCustomWidth, design.layout.previewCustomHeight])
+  useEffect(() => { setSelectionActive(false); setFocusedTarget(null) }, [design.id, design.selectedRevisionId, previewPage])
+  useEffect(() => {
+    if (previewViewMode === 'canvas') { setSelectionActive(false); setFocusedTarget(null) }
+  }, [previewViewMode])
   // Register the selected revision's files with the preview server, which returns the opaque token the
   // iframes load from plus the discovered pages. The preview defaults to the home page.
   useEffect(() => {
@@ -342,10 +350,15 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     if (!api || !draft.trim() || busy || !selectedIsHead || !hasUsableSelection) return
     const prompt = draft.trim()
     const submittedAttachments = attachments
+    const submittedTarget = focusedTarget
     setDraft('')
     setAttachments([])
+    setFocusedTarget(null)
+    setSelectionActive(false)
     void api.saveDraft(design.id, '', [])
-    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments), 'The prompt could not be submitted. Your draft has been restored.')
+    const updated = await runWorkspaceAction(() => submittedTarget
+      ? api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, submittedTarget)
+      : api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments), 'The prompt could not be submitted. Your draft has been restored.')
     if (updated) onChange(updated)
     else {
       setDraft(prompt)
@@ -492,6 +505,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
       </div>
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
       <div className="workspace-composer">
+        {focusedTarget && <div className="focused-target-chip" role="status"><CursorArrowRaysIcon aria-hidden="true" /><span><strong>{focusedTarget.label}</strong><small>{focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}{focusedTarget.dynamicDescription ? ` · nearest authored ancestor for ${focusedTarget.dynamicDescription}` : ''}</small></span><Button aria-label="Clear selected element" onPress={() => setFocusedTarget(null)}>×</Button></div>}
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
@@ -514,8 +528,9 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         <div className="preview-controls">
           <div className="preview-view-toggle" role="group" aria-label="Preview layout">
             <Button className="preview-toggle-option" data-active={previewViewMode === 'focused' || undefined} aria-pressed={previewViewMode === 'focused'} onPress={() => setPreviewViewMode('focused')}><WindowIcon aria-hidden="true" />Focused</Button>
-            <Button className="preview-toggle-option" data-active={previewViewMode === 'canvas' || undefined} aria-pressed={previewViewMode === 'canvas'} onPress={() => setPreviewViewMode('canvas')}><Squares2X2Icon aria-hidden="true" />Canvas</Button>
+            <Button className="preview-toggle-option" data-active={previewViewMode === 'canvas' || undefined} aria-pressed={previewViewMode === 'canvas'} onPress={() => { setSelectionActive(false); setFocusedTarget(null); setPreviewViewMode('canvas') }}><Squares2X2Icon aria-hidden="true" />Canvas</Button>
           </div>
+          <Button className="preview-toggle-option" data-active={selectionActive || undefined} aria-pressed={selectionActive} isDisabled={!selectedIsHead || !previewToken || busy} onPress={() => { setFocusedTarget(null); setPreviewViewMode('focused'); setSelectionActive((current) => !current) }}><CursorArrowRaysIcon aria-hidden="true" />{selectionActive ? 'Selecting…' : 'Select element'}</Button>
           {previewViewMode === 'focused' && previewPages.length > 1 && (
             <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<span>{currentPageLabel}</span>}>
               <Menu aria-label="Preview page" onAction={(key) => {
@@ -558,7 +573,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         <small>{previewStatus}</small>
       </div>
       {previewToken && design.selectedRevisionId
-        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && !selectedRevision.thumbnailDataUrl} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} />
+        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && !selectedRevision.thumbnailDataUrl} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} onSelection={(target) => { setFocusedTarget(target); setSelectionActive(false); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => setSelectionActive(false)} onSelectionError={(message) => { setSelectionActive(false); setFeedback({ tone: 'error', message }) }} />
         : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
     </section>
   )

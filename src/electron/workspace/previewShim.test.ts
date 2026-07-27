@@ -42,4 +42,14 @@ describe('preview shim injection', () => {
     expect(result).toContain('omnidesign-pause')
     expect(result).toContain('omnidesign-resume')
   })
+
+  it('supports focused selection through opaque source keys and suppresses authored clicks', () => {
+    const result = injectPreviewShim('<html><head></head><body></body></html>', 'index.html')
+    expect(result).toContain('omnidesign-selection-start')
+    expect(result).toContain("getAttribute('data-od-source-key')")
+    expect(result).toContain('event.preventDefault(); event.stopPropagation()')
+    expect(result).toContain("event.key === 'Escape'")
+    expect(result).toContain('od-focused-label')
+    expect(result).toContain('@media(forced-colors:active)')
+  })
 })

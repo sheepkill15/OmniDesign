@@ -1,4 +1,4 @@
-import type { Attachment, GenerationActivity, GenerationJob } from './contracts.js'
+import type { Attachment, FocusedTarget, GenerationActivity, GenerationJob } from './contracts.js'
 import { WorkspaceStore } from './store.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
@@ -21,8 +21,8 @@ export class GenerationQueue {
     if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Generation queue concurrency must be at least one.')
   }
 
-  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], definitionTargetVersion: number | null = null): GenerationJob {
-    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments, 'fresh', definitionTargetVersion)
+  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null): GenerationJob {
+    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments, 'fresh', definitionTargetVersion, focusedTarget)
     this.onActivity({ designId, stage: 'queued', detail: 'Waiting to start…' })
     void this.drain()
     return job

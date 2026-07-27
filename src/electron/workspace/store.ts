@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, designSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
-import type { Attachment, Design, DesignPage, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import { attachmentSchema, designSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import type { Attachment, Design, DesignPage, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -125,6 +125,7 @@ interface MessageRow {
   role: Message['role']
   text: string
   attachments_json: string
+  focused_target_json: string | null
   created_at: string
 }
 
@@ -157,6 +158,7 @@ interface GenerationJobRow {
   mode: 'fresh' | 'continue'
   provider_session_id: string | null
   definition_target_version: number | null
+  focused_target_json: string | null
   state: GenerationJobState
   created_at: string
   started_at: string | null
@@ -518,6 +520,11 @@ ALTER TABLE designs ADD COLUMN definition_application_error TEXT;
 
 const migrationThirtySix = `
 ALTER TABLE generation_jobs ADD COLUMN definition_target_version INTEGER CHECK (definition_target_version IS NULL OR definition_target_version > 0);
+`
+
+const migrationThirtySeven = `
+ALTER TABLE messages ADD COLUMN focused_target_json TEXT;
+ALTER TABLE generation_jobs ADD COLUMN focused_target_json TEXT;
 `
 
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
@@ -1248,17 +1255,17 @@ export class WorkspaceStore {
     `).run(randomUUID(), designId, jobId, stage, label, detail, new Date().toISOString())
   }
 
-  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null): GenerationJob {
+  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null): GenerationJob {
     this.requireDesign(designId)
     const id = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, state, created_at, started_at, completed_at, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), id, now)
+        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, now)
+      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, focused_target_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, id, now)
       // Sending any new prompt resolves a pending "adapt to project" decision.
       this.database.prepare('UPDATE designs SET updated_at = ?, adaptation_pending = 0 WHERE id = ?').run(now, designId)
     })
@@ -1269,7 +1276,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1277,7 +1284,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -1335,9 +1342,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -1367,9 +1374,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
     const continueId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, previous.createdAt)
     return this.requireGenerationJob(continueId)
   }
 
@@ -1455,7 +1462,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1476,7 +1483,7 @@ export class WorkspaceStore {
   }
 
   private hydrateDesign(row: DesignRow): Design {
-    const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
+    const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, focused_target_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
       SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at
@@ -1518,7 +1525,7 @@ export class WorkspaceStore {
       },
       generationSteps: this.listGenerationStepsForDesign(row.id),
       layout: layoutSchema.parse(JSON.parse(row.layout_json)),
-      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), createdAt: message.created_at })),
+      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
         id: candidate.id,
         prompt: candidate.prompt,
@@ -1635,7 +1642,7 @@ export class WorkspaceStore {
 
   private listGenerationJobsForDesign(designId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
     `).all(designId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1653,6 +1660,7 @@ export class WorkspaceStore {
       mode: row.mode,
       providerSessionId: row.provider_session_id,
       definitionTargetVersion: row.definition_target_version,
+      focusedTarget: this.hydrateFocusedTarget(row.focused_target_json),
       state: row.state,
       createdAt: row.created_at,
       startedAt: row.started_at,
@@ -1678,6 +1686,12 @@ export class WorkspaceStore {
       } catch { attachments.push({ ...attachment, status: 'missing' }) }
     }
     return attachments
+  }
+
+  private hydrateFocusedTarget(value: string | null): FocusedTarget | null {
+    if (!value) return null
+    const parsed = focusedTargetSchema.safeParse(safeParseJson(value))
+    return parsed.success ? parsed.data : null
   }
 
   private purgeExpiredTrash(): void {
