@@ -673,6 +673,13 @@ managed representation use the existing installed-provider generation pipeline f
 migration or interpretation. OmniDesign stores definition records outside linked source
 projects and does not deliberately write definition files into them.
 
+Each propagation attempt is also durable. The persistence layer records its target
+version, deterministic or AI mechanism, lifecycle state, diagnostic, provider/model/effort
+when applicable, generation-job link, and resulting revision pointer. An in-flight
+attempt becomes interrupted after restart; retry or continuation creates a new attempt
+instead of rewriting the earlier outcome. This keeps partial apply-all results and
+no-change completions explainable without manufacturing design revisions.
+
 ### ADR 2026-07-27: Analyze original project repositories without copies (accepted)
 
 AI-assisted definition proposals pass the original linked project and existing

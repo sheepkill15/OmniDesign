@@ -4,7 +4,7 @@ This is a working plan, not a finalized product specification. The project owner
 
 ## Immediate Objective
 
-Phase 2 project and design organization is complete and merged into `develop`. Phase 3 is defined in `docs/PHASE_3_SPEC.md`: implement project-level design definitions first, then reliable single-element focused editing. API-key providers, direct provider APIs, an OmniDesign-owned harness, multiple provider configurations, and setup/testing remain outside Phase 3 in an unassigned provider-infrastructure milestone.
+Phase 2 project and design organization is complete and merged into `develop`. Phase 3 is implemented on `codex/feature/phase-3` and audited against `docs/PHASE_3_SPEC.md`; the evidence ledger is `docs/PHASE_3_RELEASE_AUDIT.md`. The next action is product review and integration, not additional Phase 3 scope. API-key providers, direct provider APIs, an OmniDesign-owned harness, multiple provider configurations, and setup/testing remain outside Phase 3 in an unassigned provider-infrastructure milestone.
 
 The first complete user journey should be:
 
@@ -141,7 +141,7 @@ The walking skeleton boundaries are complete. Browser-console, runtime, and prev
 
 ### 5. Complete the Provider Integration
 
-The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. The accepted next execution model is repo-native agent work: OmniDesign initializes a self-contained Git repository and `index.html` for each design, starts the provider harness in that repository, and supplies a linked original project only as an explicit read-only reference. Git determines changes and revisions; the agent neither inventories changed files nor chooses an entry point. Continue by:
+The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. The accepted execution model is repo-native agent work: OmniDesign initializes a self-contained Git repository and `index.html` for each design, starts the provider harness in that repository, and supplies the original linked project directly when project context is needed. The provider-owned harness currently has accepted read-write access; OmniDesign does not create disposable or safety copies. Git determines design changes and revisions; the agent neither inventories changed files nor chooses an entry point. Continue by:
 
 - Preserving the provider-neutral contracts described in `ARCHITECTURE.md` and keeping provider-specific concepts in adapters.
 - Preserve the mock provider for automated tests and local development.
@@ -179,13 +179,14 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 ## Current Handoff State
 
-- Active work is on `codex/feature/phase-3`; `docs/PHASE_3_SPEC.md` is the Phase 3 product contract and implementation sequence. `docs/PHASE_2_PLAN.md` remains the completed Phase 2 ledger.
+- Active work is on `codex/feature/phase-3`; `docs/PHASE_3_SPEC.md` is the Phase 3 product contract and `docs/PHASE_3_RELEASE_AUDIT.md` records the completed acceptance audit. `docs/PHASE_2_PLAN.md` remains the completed Phase 2 ledger.
 - Phase 2 now provides the complete project/design Library with nested folders, drag and accessible moves, tags, search, project-kind/provider/tag/folder filters, and shared sorting.
 - Multiple-design organization includes duplication, moves between any projects, project-grid multi-select, and bulk move/remove. App owns one shared design collection; Sidebar and ProjectPage no longer fetch their own copies.
 - Multiple-page designs are discovered from Git, compiled into one shared Tailwind stylesheet, previewed in Focused or Canvas mode, exported in full, and controlled through home/title/order metadata. Canvas persists preset or custom device dimensions and Artboard/Fixed fit; Focused intentionally fills the available pane.
 - The iframe preview's Phase 2 security floor combines opaque-origin sandboxing, restrictive CSP, guarded navigation, a curated external-resource allowlist, and matching session-level HTTP(S) request filtering.
-- Verification on 2026-07-27: `pnpm typecheck`, 221 unit tests, production build, and all eight Playwright Electron journeys pass. The Phase 2 journey covers multi-page creation, page/view switching, custom Canvas sizing, fit, offline export, restart, and restored settings.
-- Phase 3 product behavior is now specified. Begin with the versioned project-definition foundation, preserve Phase 2's security and history boundaries, and land each track in small tested slices.
+- Phase 3 provides versioned structured project definitions, AI proposals, materialized semantic tokens, AI Agent instructions on new-design prompts, persistent per-design apply/keep/apply-all decisions, deterministic and queued-AI propagation, durable application attempts, and exact single-element focused edits through immutable source maps.
+- Focused selection preserves the isolated preview boundary: generated code receives only opaque source keys and cannot claim paths, lines, revisions, or excerpts. Resolved target metadata persists with submitted messages and generation attempts while live selection remains ephemeral.
+- Verification on 2026-07-27: `pnpm typecheck`, 253 unit tests across 25 files, production build, and all nine Playwright Electron journeys pass. The Phase 3 journey covers definition setup, version decisions, deterministic propagation, exact focused selection and generation, immutable revision creation, restart, and recovery.
 
 ## Historical Handoff Notes (superseded where they conflict with the status above)
 
