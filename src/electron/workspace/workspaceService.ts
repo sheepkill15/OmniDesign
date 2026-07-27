@@ -6,6 +6,7 @@ import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 import { cloneRepository } from './gitClone.js'
+import { createProjectDefinitionPromptContext, materializeProjectTheme } from './projectTheme.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
 
@@ -115,7 +116,19 @@ export class WorkspaceService {
     const design = this.createDesignRecord('', title, target)
     onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up your design…' })
     this.repositories.initialize(design.id)
+    const definitionVersion = this.definitionVersionForDesign(design)
+    if (definitionVersion) {
+      const files = materializeProjectTheme(this.repositories.readWorkingTreeFiles(design.id), definitionVersion)
+      this.repositories.writeSourceFiles(design.id, files)
+    }
     return design
+  }
+
+  public getInitialProjectDefinitionPromptContext(designId: string): string {
+    const design = this.store.getDesign(designId)
+    if (!design || design.activeRevisionId) return ''
+    const definitionVersion = this.definitionVersionForDesign(design)
+    return definitionVersion ? createProjectDefinitionPromptContext(definitionVersion) : ''
   }
 
   public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0, generatedFiles?: RevisionFiles): Promise<Design> {
@@ -127,6 +140,11 @@ export class WorkspaceService {
     const isIteration = current.activeRevisionId ?? undefined
     let generated = generatedFiles ? { html: generatedHtml ?? generatedFiles['index.html'] ?? '', files: generatedFiles } : generateMockDesign(prompt, isIteration)
     if (generatedHtml && !generatedFiles) generated = { html: generatedHtml, files: { 'index.html': generatedHtml } }
+    const definitionVersion = current.activeRevisionId ? null : this.definitionVersionForDesign(current)
+    if (definitionVersion) {
+      const files = materializeProjectTheme(generated.files, definitionVersion)
+      generated = { html: files['index.html'] ?? generated.html, files }
+    }
 
     for (let repairAttempt = 0; repairAttempt <= maxRepairAttempts; repairAttempt += 1) {
       try {
@@ -226,7 +244,12 @@ export class WorkspaceService {
     if (!current) throw new Error('Design not found.')
 
     try {
-      const sourceFiles = this.repositories.readWorkingTreeFiles(designId)
+      let sourceFiles = this.repositories.readWorkingTreeFiles(designId)
+      const definitionVersion = current.activeRevisionId ? null : this.definitionVersionForDesign(current)
+      if (definitionVersion) {
+        sourceFiles = materializeProjectTheme(sourceFiles, definitionVersion)
+        this.repositories.writeSourceFiles(designId, sourceFiles)
+      }
       onActivity({ designId, stage: 'compiling', detail: 'Preparing the design’s styles.' })
       const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
@@ -318,6 +341,11 @@ export class WorkspaceService {
     const entry = resolveEntryPage(discoverPages(files))
     if (entry && files[entry] !== undefined) return files[entry]
     return this.repositories.readIndexHtml(designId)
+  }
+
+  private definitionVersionForDesign(design: Design): ProjectDesignDefinitionVersion | null {
+    if (!design.definitionVersion) return null
+    return this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === design.definitionVersion) ?? null
   }
 
   private throwIfCancelled(signal: AbortSignal | undefined): void {

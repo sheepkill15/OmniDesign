@@ -702,6 +702,10 @@ void app.whenReady().then(() => {
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
       let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
+      if (job.mode === 'fresh') {
+        const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId)
+        if (definitionContext) agentPrompt = `${agentPrompt}\n\n${definitionContext}`
+      }
       // Resume the design's own provider conversation when the selected provider matches the stored
       // session; otherwise this is a fresh session (first prompt, a provider switch, or a stale session).
       const storedSession = store.getDesignProviderSession(job.designId)

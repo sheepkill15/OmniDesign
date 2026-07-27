@@ -39,6 +39,7 @@ interface DesignRevision {
   readonly prompt: string
   readonly providerId: string
   readonly modelId: string
+  readonly definitionVersion?: number | null
   readonly createdAt: string
   readonly thumbnailDataUrl: string | null
   readonly diagnostics: readonly PreviewDiagnostic[]
@@ -139,6 +140,7 @@ interface OmniDesignDocument {
   readonly updatedAt: string
   readonly activeRevisionId: string | null
   readonly selectedRevisionId: string | null
+  readonly definitionVersion?: number | null
   readonly draft: string
   readonly draftAttachments: readonly DesignAttachment[]
   readonly thumbnailDataUrl: string | null

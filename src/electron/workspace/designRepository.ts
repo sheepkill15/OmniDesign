@@ -104,6 +104,14 @@ export class DesignRepositoryManager {
     return readFileSync(path.join(this.initialize(designId), ENTRY_HTML_PATH), 'utf8')
   }
 
+  public writeSourceFiles(designId: string, sourceFiles: RevisionFiles): void {
+    const repositoryPath = this.initialize(designId)
+    for (const [relativePath, content] of Object.entries(sourceFiles)) {
+      if (relativePath === BUILD_DIR || relativePath.startsWith(`${BUILD_DIR}/`)) continue
+      this.writeFile(repositoryPath, this.normalizeGeneratedPath(relativePath), content)
+    }
+  }
+
   /**
    * Read the design's current working-tree files (every tracked-or-untracked file the agent authored,
    * plus the managed build assets), keyed by relative path. Used to compile Tailwind across all pages

@@ -7,6 +7,7 @@ export const revisionSchema = z.object({
   providerId: z.string().min(1),
   modelId: z.string().min(1),
   gitCommit: z.string().regex(/^[0-9a-f]{40}$/).nullable(),
+  definitionVersion: z.number().int().positive().nullable().optional(),
   createdAt: z.string().datetime(),
   thumbnailDataUrl: z.string().nullable(),
 })
@@ -278,6 +279,7 @@ export const designSchema = z.object({
   updatedAt: z.string().datetime(),
   activeRevisionId: z.string().nullable(),
   selectedRevisionId: z.string().nullable(),
+  definitionVersion: z.number().int().positive().nullable().optional(),
   draft: z.string(),
   draftAttachments: z.array(attachmentSchema),
   thumbnailDataUrl: z.string().nullable(),

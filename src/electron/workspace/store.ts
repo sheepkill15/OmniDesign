@@ -40,6 +40,7 @@ interface DesignRow {
   title_pending: number
   adaptation_pending: number
   entry_page_path: string | null
+  definition_version: number | null
 }
 
 interface DesignPageRow {
@@ -111,6 +112,7 @@ interface RevisionRow {
   provider_id: string
   model_id: string
   git_commit: string | null
+  definition_version: number | null
   created_at: string
 }
 
@@ -497,6 +499,11 @@ CREATE TABLE project_definition_versions (
 CREATE INDEX project_definition_versions_by_project ON project_definition_versions(project_id, version DESC);
 `
 
+const migrationThirtyFour = `
+ALTER TABLE designs ADD COLUMN definition_version INTEGER CHECK (definition_version IS NULL OR definition_version > 0);
+ALTER TABLE revisions ADD COLUMN definition_version INTEGER CHECK (definition_version IS NULL OR definition_version > 0);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -534,7 +541,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
       ORDER BY d.updated_at DESC
@@ -546,7 +553,7 @@ export class WorkspaceStore {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -585,7 +592,7 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
       ORDER BY d.sort_order, d.updated_at DESC, d.rowid DESC
@@ -732,10 +739,10 @@ export class WorkspaceStore {
     const designId = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
-      const project = this.database.prepare('SELECT id FROM projects WHERE id = ? AND trashed_at IS NULL').get(projectId)
+      const project = this.database.prepare('SELECT id, current_definition_version FROM projects WHERE id = ? AND trashed_at IS NULL').get(projectId) as { id: string; current_definition_version: number | null } | undefined
       if (!project) throw new Error('Project not found.')
-      this.database.prepare('INSERT INTO designs (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-        .run(designId, projectId, title, now, now)
+      this.database.prepare('INSERT INTO designs (id, project_id, title, definition_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(designId, projectId, title, project.current_definition_version, now, now)
       if (prompt) {
         this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
           .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments), now)
@@ -776,13 +783,13 @@ export class WorkspaceStore {
       }
       this.database.prepare(`
         INSERT INTO designs (id, project_id, title, active_revision_id, selected_revision_id, draft, draft_attachments_json, layout_json, queue_paused,
-          last_provider_id, last_model_id, last_effort, entry_page_path, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, '', '[]', ?, 0, ?, ?, ?, ?, ?, ?)
-      `).run(newDesignId, projectId, newTitle, newRevisionId, newRevisionId, JSON.stringify(source.layout), source.lastSelection.providerId, source.lastSelection.modelId, source.lastSelection.effort, source.entryPagePath, now, now)
+          last_provider_id, last_model_id, last_effort, entry_page_path, definition_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, '', '[]', ?, 0, ?, ?, ?, ?, ?, ?, ?)
+      `).run(newDesignId, projectId, newTitle, newRevisionId, newRevisionId, JSON.stringify(source.layout), source.lastSelection.providerId, source.lastSelection.modelId, source.lastSelection.effort, source.entryPagePath, source.definitionVersion ?? null, now, now)
       this.database.prepare(`
-        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
-        VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
-      `).run(newRevisionId, newDesignId, `Duplicated from ${source.title}`, activeRevision.providerId, activeRevision.modelId, activeRevision.gitCommit, now)
+        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at)
+        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
+      `).run(newRevisionId, newDesignId, `Duplicated from ${source.title}`, activeRevision.providerId, activeRevision.modelId, activeRevision.gitCommit, activeRevision.definitionVersion ?? null, now)
       for (const page of source.pages) {
         this.database.prepare('INSERT INTO design_pages (design_id, path, title, sort_order) VALUES (?, ?, ?, ?)').run(newDesignId, page.path, page.title, page.order)
       }
@@ -962,6 +969,7 @@ export class WorkspaceStore {
     modelId = 'mock-v1',
     gitCommit: string | null = null,
     assistantResponse = 'Generated and validated a new design revision.',
+    definitionVersion: number | null = this.requireDesign(designId).definitionVersion ?? null,
   ): Design {
     const design = this.requireDesign(designId)
     const revisionId = randomUUID()
@@ -969,15 +977,15 @@ export class WorkspaceStore {
 
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, now)
+        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, definitionVersion, now)
       if (!this.isLastMessageText(designId, assistantResponse)) {
         this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
           .run(randomUUID(), designId, 'assistant', assistantResponse, now)
       }
-      this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, updated_at = ?, draft = ? WHERE id = ?')
-        .run(revisionId, revisionId, now, '', designId)
+      this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, definition_version = ?, updated_at = ?, draft = ? WHERE id = ?')
+        .run(revisionId, revisionId, definitionVersion, now, '', designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, design.projectId)
     })
 
@@ -992,7 +1000,7 @@ export class WorkspaceStore {
 
   public restoreRevision(designId: string, revisionId: string, gitCommit: string | null = null): Design {
     const revision = this.requireRevision(designId, revisionId)
-    return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.providerId, revision.modelId, gitCommit)
+    return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.providerId, revision.modelId, gitCommit, undefined, revision.definitionVersion ?? null)
   }
 
   public saveDraft(designId: string, draft: string, attachments: readonly Attachment[] = []): void {
@@ -1381,7 +1389,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1405,7 +1413,7 @@ export class WorkspaceStore {
     const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
-      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at
+      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at
       FROM revisions WHERE design_id = ? ORDER BY created_at, rowid
     `).all(row.id) as unknown as RevisionRow[]
     const invalidCandidateRows = this.database.prepare(`
@@ -1423,6 +1431,7 @@ export class WorkspaceStore {
       updatedAt: row.updated_at,
       activeRevisionId: row.active_revision_id,
       selectedRevisionId: row.selected_revision_id,
+      definitionVersion: row.definition_version,
       draft: row.draft,
       draftAttachments: this.hydrateAttachments(row.draft_attachments_json),
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
@@ -1455,6 +1464,7 @@ export class WorkspaceStore {
         providerId: revision.provider_id,
         modelId: revision.model_id,
         gitCommit: revision.git_commit,
+        definitionVersion: revision.definition_version,
         createdAt: revision.created_at,
         thumbnailDataUrl: this.readThumbnailDataUrl(this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(revision.id) as { thumbnail_path: string } | undefined),
         diagnostics: this.database.prepare(`

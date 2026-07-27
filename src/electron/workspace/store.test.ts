@@ -46,6 +46,10 @@ describe('WorkspaceStore', () => {
     expect(store.getProjectDesignDefinitionState(projectId)?.current).toEqual(second)
     expect(store.setProjectDefinitionPromptSuppressed(projectId, true).promptSuppressed).toBe(true)
     expect(store.getProjectSummary(projectId)).toMatchObject({ currentDefinitionVersion: 2, definitionPromptSuppressed: true })
+    const themedDesign = store.createDesignInProject(projectId, 'Create another screen', 'Settings')
+    expect(themedDesign.definitionVersion).toBe(2)
+    const themedRevision = store.addRevision(themedDesign.id, 'Create another screen')
+    expect(themedRevision.revisions[0].definitionVersion).toBe(2)
     store.close()
 
     const reopened = new WorkspaceStore(directory)
@@ -54,6 +58,7 @@ describe('WorkspaceStore', () => {
       promptSuppressed: true,
     })
     expect(reopened.listProjectDesignDefinitionVersions(projectId)).toHaveLength(2)
+    expect(reopened.getDesign(themedDesign.id)).toMatchObject({ definitionVersion: 2, revisions: [{ definitionVersion: 2 }] })
     reopened.close()
   })
 

@@ -14,6 +14,37 @@ afterEach(() => {
 })
 
 describe('WorkspaceService', () => {
+  it('materializes the captured project definitions and exposes first-prompt AI Agent instructions', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const seed = store.createStandaloneDesign('Seed', 'Studio')
+    store.saveProjectDesignDefinitions(seed.projectId, {
+      schemaVersion: 1,
+      colors: [{ name: 'primary', value: '#123456', description: null }],
+      typography: [],
+      spacing: [{ name: 'section-gap', value: '4rem', description: null }],
+      shape: [],
+      visualGuidance: 'Use generous negative space.',
+      aiAgentInstructions: 'Keep navigation understated.',
+    })
+
+    const shell = service.createAgentDesignShell('Create a settings page', () => undefined, { projectId: seed.projectId }, 'Settings')
+    expect(shell.definitionVersion).toBe(1)
+    expect(service.getInitialProjectDefinitionPromptContext(shell.id)).toContain('AI Agent instructions:\nKeep navigation understated.')
+    const repositoryPath = service.getDesignRepositoryPath(shell.id)
+    expect(readFileSync(path.join(repositoryPath, 'omnidesign.theme.css'), 'utf8')).toContain('--od-color-primary: #123456;')
+    expect(readFileSync(path.join(repositoryPath, 'index.html'), 'utf8')).toContain('data-omnidesign-theme="1"')
+
+    const saved = await service.saveAgentWorkspaceResult(shell.id, 'Create a settings page', 'codex', 'model-1', 'Finished.', () => undefined)
+    expect(saved.revisions[0].definitionVersion).toBe(1)
+    expect(service.getInitialProjectDefinitionPromptContext(saved.id)).toBe('')
+    const files = service.getRevisionFiles(saved.id, saved.revisions[0].id)
+    expect(files['omnidesign.theme.css']).toContain('--od-space-section-gap: 4rem;')
+    store.close()
+  })
+
   it('runs creation and iteration through generation, compilation, validation, and immutable persistence', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)
