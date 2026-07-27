@@ -19,4 +19,9 @@ describe('content security policy', () => {
     expect(policy).not.toContain("'unsafe-inline'")
     expect(policy).not.toContain('ws://')
   })
+
+  it('lets the trusted renderer embed the sandboxed preview scheme', () => {
+    expect(createContentSecurityPolicy(false)).toContain('frame-src omnidesign-preview:')
+    expect(createContentSecurityPolicy(true)).toContain('frame-src omnidesign-preview:')
+  })
 })

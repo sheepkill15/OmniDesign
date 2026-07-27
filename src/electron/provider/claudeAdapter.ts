@@ -81,7 +81,6 @@ export class ClaudeAdapter implements ProviderAdapter {
         ...(resume && request.resumeSessionId ? ['--resume', request.resumeSessionId] : []),
         ...(!request.workspacePath ? ['--no-session-persistence'] : []),
         ...(request.instructions ? ['--append-system-prompt', request.instructions] : []),
-        ...(request.outputSchema ? ['--json-schema', JSON.stringify(request.outputSchema)] : []),
       ]
       const result = await runCommand(command, args, {
         ...(request.workspacePath ? { cwd: request.workspacePath } : {}),

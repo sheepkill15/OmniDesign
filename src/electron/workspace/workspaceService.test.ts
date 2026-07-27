@@ -42,6 +42,85 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it('discovers, compiles, and previews multiple agent-authored pages with one shared stylesheet', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+
+    const shell = service.createAgentDesignShell('A small marketing site', () => undefined, undefined, 'Marketing site')
+    const repositoryPath = service.getDesignRepositoryPath(shell.id)
+    writeFileSync(path.join(repositoryPath, 'index.html'), '<html><head><title>Home</title><link rel="stylesheet" href=".build/tailwind.css"></head><body class="bg-white"><a href="about.html" class="text-blue-600">About</a></body></html>', 'utf8')
+    writeFileSync(path.join(repositoryPath, 'about.html'), '<html><head><title>About</title><link rel="stylesheet" href=".build/tailwind.css"></head><body class="bg-white"><h1 class="text-3xl">About us</h1></body></html>', 'utf8')
+
+    const saved = await service.saveAgentWorkspaceResult(shell.id, 'A small marketing site', 'codex', 'codex-1', 'Built a two-page site.', () => undefined)
+    expect(saved.revisions).toHaveLength(1)
+
+    const files = service.getRevisionFiles(saved.id, saved.revisions[0].id)
+    expect(Object.keys(files).sort()).toEqual(['.build/alpine.js', '.build/tailwind.css', 'about.html', 'index.html'])
+    // One shared stylesheet carries classes from both pages.
+    expect(files['.build/tailwind.css']).toContain('.text-3xl')
+    expect(files['.build/tailwind.css']).toContain('.text-blue-600')
+
+    const { pages, entryPagePath } = service.getRevisionPages(saved.id, saved.revisions[0].id)
+    expect(pages.map((page) => page.path)).toEqual(['index.html', 'about.html'])
+    expect(entryPagePath).toBe('index.html')
+    expect(pages.find((page) => page.path === 'index.html')?.isHome).toBe(true)
+    // With no metadata title set, each page defaults to its own <title>.
+    expect(pages.map((page) => page.title)).toEqual(['Home', 'About'])
+
+    // The home page can be overridden to another discovered page.
+    service.setDesignEntryPage(saved.id, 'about.html')
+    const resolved = service.getRevisionPages(saved.id, saved.revisions[0].id)
+    expect(resolved.entryPagePath).toBe('about.html')
+    expect(resolved.pages.find((page) => page.path === 'about.html')?.isHome).toBe(true)
+
+    // Per-page display titles and order carry through the merged page metadata.
+    service.saveDesignPageMetadata(saved.id, 'about.html', 'About us', 0)
+    service.saveDesignPageMetadata(saved.id, 'index.html', 'Welcome', 1)
+    const titled = service.getRevisionPages(saved.id, saved.revisions[0].id)
+    expect(titled.pages.map((page) => [page.path, page.title])).toEqual([['about.html', 'About us'], ['index.html', 'Welcome']])
+    store.close()
+  })
+
+  it('creates a deterministic multi-page fixture through the development provider', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+
+    const design = await service.createDesign('A multi-page product site', () => undefined)
+    const revisionId = design.activeRevisionId
+    expect(revisionId).not.toBeNull()
+
+    const files = service.getRevisionFiles(design.id, revisionId as string)
+    expect(Object.keys(files).sort()).toEqual(['.build/alpine.js', '.build/tailwind.css', 'index.html', 'pages/about.html'])
+    expect(files['index.html']).toContain('href="pages/about.html"')
+    expect(files['pages/about.html']).toContain('href="../index.html"')
+    expect(service.getRevisionPages(design.id, revisionId as string).pages.map((page) => page.path)).toEqual(['index.html', 'pages/about.html'])
+    store.close()
+  })
+
+  it('duplicates a design with its head revision, metadata, and a cloned repository', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+
+    const original = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const duplicate = service.duplicateDesign(original.id)
+
+    expect(duplicate.id).not.toBe(original.id)
+    expect(duplicate.title).toBe(`${original.title} copy`)
+    expect(duplicate.revisions).toHaveLength(1)
+    expect(duplicate.revisions[0].gitCommit).toBe(original.revisions[0].gitCommit)
+    // The clone previews from its own repository copy, independent of the source.
+    const files = service.getRevisionFiles(duplicate.id, duplicate.revisions[0].id)
+    expect(files['index.html']).toContain('.build/tailwind.css')
+    expect(existsSync(path.join(directory, 'designs', duplicate.id, 'repository', '.git'))).toBe(true)
+    store.close()
+  })
+
   it('retains invalid candidates without replacing the last valid revision', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

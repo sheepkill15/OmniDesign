@@ -1,6 +1,6 @@
 import path from 'node:path'
-import { z } from 'zod'
 import type { Attachment, Message } from '../workspace/contracts.js'
+import { PREVIEW_ALLOWED_HOSTS } from '../workspace/previewPolicy.js'
 
 const RECAP_MAX_MESSAGES = 16
 const RECAP_MAX_CHARS = 4000
@@ -22,25 +22,6 @@ export function buildConversationRecap(messages: readonly Pick<Message, 'role' |
 
 const MAX_RESPONSE_LENGTH = 100_000
 
-// Kept lenient on purpose: models routinely add extra keys, so we only require a usable `response`
-// string and ignore anything else rather than rejecting an otherwise-good completion.
-export const agentCompletionPayloadSchema = z.object({
-  response: z.string().trim().min(1).max(MAX_RESPONSE_LENGTH),
-}).passthrough()
-
-export interface AgentCompletionPayload {
-  readonly response: string
-}
-
-export const agentCompletionOutputSchema = {
-  type: 'object',
-  properties: {
-    response: { type: 'string', minLength: 1, maxLength: 100_000 },
-  },
-  required: ['response'],
-  additionalProperties: false,
-} as const
-
 export function createDesignAgentInstructions(workspacePath: string, attachments: readonly Attachment[] = [], sourceProjectPath: string | null = null, conversationRecap = ''): string {
   if (!path.isAbsolute(workspacePath)) throw new Error('The design workspace path must be absolute.')
   return [
@@ -48,93 +29,32 @@ export function createDesignAgentInstructions(workspacePath: string, attachments
     ...(conversationRecap ? [`This continues an existing conversation. For context only (the design files at ${workspacePath} already reflect the latest state), here is the conversation so far:`, conversationRecap, '---'] : []),
     `Work directly in the prepared Git repository at ${workspacePath}. OmniDesign has already initialised it and committed a starter index.html.`,
     'Architecture you must follow:',
-    '- index.html at the repository root IS the design. It is the only file OmniDesign previews and exports, so the finished result must render completely from index.html on its own.',
-    '- Keep the design self-contained in index.html. Inline your CSS and JavaScript instead of splitting them into sibling files (styles.css, app.js, local images); sibling files are committed to Git but are NOT included in the preview or the exported design.',
-    '- External resources over HTTPS are allowed and will load in the preview: web fonts, third-party stylesheets, plugin/library scripts (e.g. from a CDN), and images. Prefer HTTPS URLs when you need an asset you would otherwise keep in a local file.',
+    '- The design can be one page or several. Every *.html file you commit outside the .build/ folder is a page — at the repository root or in subfolders (e.g. about.html, pages/pricing.html). OmniDesign discovers the pages from Git; you never declare a file list or choose an entry point.',
+    '- index.html is the home page when it exists; otherwise the first page is used. Build a single-page design in index.html unless the request clearly calls for multiple pages.',
+    '- Link between pages with ordinary relative anchors, e.g. <a href="about.html">. Relative links resolve inside the preview and the exported design.',
+    '- All committed files are included in both the preview and the exported design: every page plus any assets, fonts, and per-page JavaScript you author. Prefer local assets committed alongside your pages — reference images, fonts, and per-page/shared JavaScript by relative path, and split shared or page-specific JavaScript into sibling files.',
+    `- External resources (web fonts, third-party stylesheets, plugin/library scripts, and images) load in the preview ONLY over HTTPS and ONLY from these approved hosts: ${PREVIEW_ALLOWED_HOSTS.join(', ')}. A resource from any other host is blocked, so prefer a local asset or one of these hosts; do not reference other domains.`,
     '- Programmatic network requests are blocked: fetch, XMLHttpRequest, WebSocket, and EventSource will fail in the preview. Build a self-contained design that does not depend on calling a network API at runtime; use static or inline data instead.',
     '- Never reference the local filesystem or use file: URLs. The preview is sandboxed and cannot read local files, and such references are rejected during validation.',
-    '- OmniDesign generates a .build/ folder containing the compiled Tailwind CSS (.build/tailwind.css) and the Alpine.js runtime (.build/alpine.js). The starter index.html already links both in <head>. Keep those <link>/<script> tags, and do NOT read, edit, create, or delete anything under .build/ — it is regenerated on every revision.',
-    '- Tailwind CSS is compiled locally from the class names in index.html, including those written as string literals inside Alpine :class / x-bind:class bindings and x-transition attributes. Use Tailwind utility classes directly (static or Alpine-bound); do NOT add a Tailwind CDN or your own build step. Only class names that appear literally in the markup are compiled, so do not assemble class names from fragments at runtime.',
+    '- OmniDesign generates the .build/ folder: one shared compiled Tailwind stylesheet (.build/tailwind.css) covering every page, and the Alpine.js runtime (.build/alpine.js). Every page must link both in its <head> exactly as the starter index.html does (<link rel="stylesheet" href=".build/tailwind.css"> and <script defer src=".build/alpine.js">); adjust the relative prefix for pages in subfolders. Do NOT read, edit, create, or delete anything under .build/ — it is regenerated on every revision.',
+    '- Tailwind CSS is compiled locally from the class names across all of your pages and scripts, including those written as string literals inside Alpine :class / x-bind:class bindings and x-transition attributes. Use Tailwind utility classes directly (static or Alpine-bound); do NOT add a Tailwind CDN or your own build step. Only class names that appear literally in the source are compiled, so do not assemble class names from fragments at runtime.',
     '- Use Alpine.js v3 directives (x-data, x-show, x-on/@click, x-text, etc.) directly; the runtime is already provided via .build/alpine.js.',
     '- The Alpine "collapse" plugin is bundled, so you can use x-collapse (and x-collapse.duration.NNNms / x-collapse.min.NNpx) for smooth expand/collapse; no plugin script or setup is needed.',
-    '- index.html must remain a complete HTML document with <html> and <body> elements.',
+    '- Every page must be a complete HTML document with <html> and <body> elements.',
     '- Well-structured, responsive, accessible HTML is welcome, but it is not enforced — only genuine errors (a document that fails to compile or a broken/unsafe page) are rejected, so do not spend extra turns satisfying accessibility or best-practice checklists.',
     'Do not claim which files changed or whether a revision was created; OmniDesign determines that from Git and validation.',
     ...(sourceProjectPath ? [`A linked source project is available for READ-ONLY reference at ${sourceProjectPath}. Inspect its relevant source, styles, assets, and configuration before implementing the design so the result adopts its existing design language. Never edit, delete, rename, or create files there.`] : []),
     ...(attachments.length ? ['User-provided references are READ-ONLY. Use them only when relevant; never modify, delete, rename, or copy them into the design repository:', ...attachments.map((attachment) => `- ${attachment.path}${attachment.status === 'available' ? '' : ` (${attachment.status}; ask the user before relying on it)`}`)] : []),
-    'Any explanatory text you write while working is already shown to the user in the conversation as you go. When you finish, respond only with a JSON object matching the required schema; its response value is a brief closing reply (e.g. a one-line confirmation) — do NOT restate the explanation you already gave, or it will appear twice.',
+    'Everything you write is shown directly to the person you are designing for, who may not be technical. Talk about the design the way a designer would to a client: what it looks like, what changed, how it will feel to use. Use plain, everyday language and keep it short. Do NOT mention code, file names, HTML, CSS, frameworks, Git, commits, tools, or any other technical detail, and do NOT walk through how you built it.',
+    'The notes you write while working appear in the conversation as you go, so the user can follow along. When you finish, just end with a brief, friendly closing message. There is no required format — write plain text or Markdown, not JSON or any wrapper — and do not repeat what you already said, or it will appear twice.',
   ].join('\n')
 }
 
 /**
- * Extract the agent's conversational reply from its final message. Models are inconsistent about
- * output formatting — they wrap JSON in Markdown fences, prepend prose, or add extra keys — and the
- * actual design work lives in the Git working tree regardless. So we try increasingly forgiving
- * strategies and, as a last resort, treat the whole text as the reply rather than discarding a valid
- * revision over a formatting quirk.
+ * We no longer impose any output shape on the design agent: whatever it says is treated as Markdown
+ * meant for the user, and the actual design work lives in the Git working tree regardless. This just
+ * trims surrounding whitespace and caps the length so a runaway response cannot balloon the store.
  */
-export function parseAgentCompletionPayload(value: string): AgentCompletionPayload {
-  const text = stripCodeFences(value.trim())
-  // Return the LAST well-formed {response} object. Earlier messages an agent emits mid-turn are pushed
-  // into the conversation live as they stream (see the design-agent runner), so here we only need the
-  // final message. A single buffered chunk usually holds exactly one object.
-  const objects = extractJsonObjects(text)
-  for (let index = objects.length - 1; index >= 0; index -= 1) {
-    const payload = tryParsePayload(objects[index])
-    if (payload) return payload
-  }
-
-  // Fall back to parsing the whole text, then to the raw text so a valid revision is never discarded
-  // over a formatting quirk.
-  const whole = tryParsePayload(text)
-  if (whole) return whole
-  if (text) return { response: text.slice(0, MAX_RESPONSE_LENGTH) }
-  throw new Error('The agent did not return any completion text.')
-}
-
-function tryParsePayload(candidate: string): AgentCompletionPayload | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(candidate)
-  } catch {
-    return null
-  }
-  const result = agentCompletionPayloadSchema.safeParse(parsed)
-  return result.success ? { response: result.data.response.slice(0, MAX_RESPONSE_LENGTH) } : null
-}
-
-// Find each balanced top-level {...} object in the text, ignoring braces inside string literals so
-// concatenated JSON messages are separated correctly.
-function extractJsonObjects(text: string): string[] {
-  const objects: string[] = []
-  let depth = 0
-  let start = -1
-  let inString = false
-  let escaped = false
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (character === '\\') escaped = true
-      else if (character === '"') inString = false
-      continue
-    }
-    if (character === '"') inString = true
-    else if (character === '{') {
-      if (depth === 0) start = index
-      depth += 1
-    } else if (character === '}' && depth > 0) {
-      depth -= 1
-      if (depth === 0 && start !== -1) {
-        objects.push(text.slice(start, index + 1))
-        start = -1
-      }
-    }
-  }
-  return objects
-}
-
-function stripCodeFences(text: string): string {
-  const fenced = text.match(/```(?:[a-z]*)?\s*([\s\S]*?)```/i)?.[1]
-  return (fenced ?? text).trim()
+export function normalizeAgentReply(value: string): string {
+  return value.trim().slice(0, MAX_RESPONSE_LENGTH)
 }

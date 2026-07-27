@@ -1,6 +1,6 @@
 import { ClaudeAdapter } from './claudeAdapter.js'
 import { CodexAdapter } from './codexAdapter.js'
-import { agentCompletionOutputSchema, createDesignAgentInstructions, parseAgentCompletionPayload } from './agentHarness.js'
+import { createDesignAgentInstructions, normalizeAgentReply } from './agentHarness.js'
 import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
 import type { ProviderActivity, ProviderId, ProviderPrompt, ProviderReply, ProviderStatus } from './types.js'
 import type { Attachment } from '../workspace/contracts.js'
@@ -77,10 +77,8 @@ export class ProviderService {
       ...(request.sourceProjectPath ? { referencePaths: [request.sourceProjectPath] } : {}),
       ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
       instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath, request.conversationRecap),
-      outputSchema: agentCompletionOutputSchema,
     }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
-    const completion = parseAgentCompletionPayload(reply.text)
-    return { providerId: adapter.id, modelId: reply.modelId, response: completion.response, ...(reply.sessionId ? { sessionId: reply.sessionId } : {}) }
+    return { providerId: adapter.id, modelId: reply.modelId, response: normalizeAgentReply(reply.text), ...(reply.sessionId ? { sessionId: reply.sessionId } : {}) }
   }
 
   private validatePrompt(request: ProviderPrompt): void {

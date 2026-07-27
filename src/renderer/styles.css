@@ -1253,8 +1253,9 @@ button:not(:disabled):active {
 .app-modal h2 { margin: 0; font-size: 18px; }
 .app-modal p { margin: 0; color: var(--text-subtle); line-height: 1.5; }
 .clone-modal-fields { display: grid; gap: 10px; }
-.clone-modal input { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 8px; transition: border-color 160ms ease, box-shadow 160ms ease; }
-.clone-modal input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 26%, transparent); }
+.app-modal input:not([type="checkbox"]):not([type="radio"]) { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; color: var(--text); font: inherit; font-size: 14px; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-control); transition: border-color 160ms ease, box-shadow 160ms ease; }
+.app-modal input:not([type="checkbox"]):not([type="radio"])::placeholder { color: var(--text-faint); }
+.app-modal input:not([type="checkbox"]):not([type="radio"]):focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 26%, transparent); }
 .clone-modal-note { font-size: 12px; }
 .clone-modal-note code { color: var(--text); }
 .clone-modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
@@ -2307,7 +2308,9 @@ button[aria-expanded="true"] .dropdown-caret {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 38px minmax(0, 1fr);
+  /* The toolbar sizes to its content so the Phase 2 controls can wrap to a second row on a narrow
+     split without overlapping the preview below. */
+  grid-template-rows: auto minmax(0, 1fr);
   background: #151315;
 }
 
@@ -2317,20 +2320,26 @@ button[aria-expanded="true"] .dropdown-caret {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-height: 38px;
+  padding: 6px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text-faint);
   font-size: 11px;
 }
 
-.preview-toolbar span {
+.preview-toolbar > span,
+.preview-toolbar > small {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.preview-toolbar svg {
+/* Only the leading "Isolated preview" status carries the success-green check; control icons keep
+   their own colors. */
+.preview-toolbar > span:first-child svg {
   width: 14px;
   color: var(--success);
 }
@@ -2427,4 +2436,794 @@ button[aria-expanded="true"] .dropdown-caret {
   .settings-switch[data-selected] .settings-switch-thumb {
     background: CanvasText;
   }
+}
+
+/* Library screen: a folder rail beside a filterable browse surface for every project and design. */
+.library-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(200px, 248px) minmax(0, 1fr);
+  background: var(--background);
+}
+
+.library-rail {
+  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+  overflow-y: auto;
+  padding: 16px 10px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.library-rail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.library-folder-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.library-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius-control);
+  padding-right: 4px;
+}
+
+.library-folder-row[data-active] {
+  background: var(--surface-selected);
+}
+
+.library-folder-row:hover {
+  background: var(--surface-2);
+}
+
+.library-folder-disclosure,
+.library-folder-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 30px;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.library-folder-disclosure-spacer {
+  width: 22px;
+  height: 30px;
+  flex: none;
+}
+
+.library-folder-disclosure svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 120ms ease;
+}
+
+.library-folder-disclosure svg[data-expanded] {
+  transform: rotate(90deg);
+}
+
+.library-folder-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.library-folder-open svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-subtle);
+  flex: none;
+}
+
+.library-folder-open span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-folder-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.library-folder-root {
+  border-radius: var(--radius-control);
+  padding-left: 8px;
+}
+
+.library-folder-root[data-active] {
+  background: var(--surface-selected);
+}
+
+.library-folder-root:hover {
+  background: var(--surface-2);
+}
+
+.library-rail-empty,
+.library-tag-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.library-tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.library-content {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 40px clamp(24px, 5vw, 56px) 64px;
+}
+
+.library-heading {
+  max-width: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.library-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.library-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  padding: 0 10px;
+  height: 38px;
+  min-width: 260px;
+}
+
+.library-search svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+  flex: none;
+}
+
+.library-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.library-active-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.library-section {
+  margin-top: 28px;
+}
+
+.library-project-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.library-project-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+}
+
+.library-project-row:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.library-project-row[data-dragging] {
+  opacity: 0.5;
+}
+
+/* Drag handle: a pointer-only affordance. The "Move to folder" menu is the accessible equivalent. */
+.library-project-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  color: var(--text-subtle);
+  cursor: grab;
+}
+
+.library-project-grip:active {
+  cursor: grabbing;
+}
+
+.library-project-grip svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Folder rows and the Unfiled target highlight while a project is dragged over them. */
+.library-folder-row[data-drop-target],
+.library-folder-root-drop[data-drop-target] {
+  background: var(--surface-selected);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-control);
+}
+
+.library-project-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.library-project-open > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-subtle);
+  flex: none;
+}
+
+.library-project-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.library-project-copy strong {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-project-copy small {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.library-row-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.library-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.library-design-grid {
+  margin-top: 4px;
+}
+
+.library-card-title {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.library-card-actions .row-arrow {
+  margin-left: auto;
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+}
+
+/* Tag chips: hue carries the category, but the label is always present (never color alone). */
+.library-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 999px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--tag-color, var(--border-strong)) 55%, transparent);
+  background: color-mix(in srgb, var(--tag-color, var(--border-strong)) 18%, var(--surface-2));
+  color: var(--text);
+}
+
+.library-tag[data-selected] {
+  background: color-mix(in srgb, var(--tag-color, var(--accent)) 34%, var(--surface-2));
+  border-color: var(--tag-color, var(--accent));
+}
+
+.library-tag-toggle,
+.library-tag-label {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.library-tag-label {
+  cursor: default;
+}
+
+.library-tag-remove {
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 0 0 2px;
+}
+
+.library-tag-remove:hover {
+  color: var(--danger);
+}
+
+.library-tag-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--tag-color, var(--border-strong));
+  flex: none;
+}
+
+.library-tag-check {
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.library-tag-popover {
+  min-width: 220px;
+}
+
+.library-tag-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.library-tag-create input {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  outline: none;
+}
+
+.library-tag-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.library-tag-options [role="menuitem"],
+.library-tag-menu [role="menuitem"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Muted tag hues that harmonize with the brand palette; color-mixed with the surface at render. */
+.library-tag[data-color="neutral"], .library-tag-dot[data-color="neutral"] { --tag-color: #8f8c84; }
+.library-tag[data-color="mauve"], .library-tag-dot[data-color="mauve"] { --tag-color: #9a7890; }
+.library-tag[data-color="sand"], .library-tag-dot[data-color="sand"] { --tag-color: #cfd2b2; }
+.library-tag[data-color="olive"], .library-tag-dot[data-color="olive"] { --tag-color: #9c9990; }
+.library-tag[data-color="lavender"], .library-tag-dot[data-color="lavender"] { --tag-color: #c3b6c6; }
+.library-tag[data-color="blue"], .library-tag-dot[data-color="blue"] { --tag-color: #7f97b3; }
+.library-tag[data-color="rose"], .library-tag-dot[data-color="rose"] { --tag-color: #c68f95; }
+.library-tag[data-color="amber"], .library-tag-dot[data-color="amber"] { --tag-color: #c6a06a; }
+
+@media (max-width: 900px) {
+  .library-main {
+    grid-template-columns: 1fr;
+  }
+
+  .library-rail {
+    display: none;
+  }
+}
+
+/* Page switcher in the preview toolbar for multi-page designs. */
+.preview-page-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.preview-page-picker:hover {
+  background: var(--surface-3);
+}
+
+.preview-page-picker svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-subtle);
+}
+
+.preview-page-home {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Phase 2 iframe preview: canvas board, focused stage, device-framed tiles, and toolbar controls. */
+.preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preview-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.preview-toggle-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: var(--surface-1);
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.preview-toggle-option svg {
+  width: 14px;
+  height: 14px;
+  color: inherit;
+}
+
+.preview-toggle-option:hover {
+  background: var(--surface-3);
+}
+
+.preview-toggle-option[data-active] {
+  background: var(--surface-selected);
+  color: var(--text);
+}
+
+.preview-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+/* Canvas mode: a pan/zoom board of device-framed tiles. */
+.preview-canvas {
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+  background:
+    radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0) 0 0 / 22px 22px,
+    var(--background);
+  cursor: grab;
+  touch-action: none;
+  /* Panning over the board must never select the tile labels or chrome text. */
+  user-select: none;
+}
+
+.preview-canvas[data-panning] {
+  cursor: grabbing;
+}
+
+.preview-board {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 40px;
+  padding: 48px;
+  transform-origin: top left;
+  width: max-content;
+}
+
+.preview-canvas-controls {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-overlay);
+}
+
+.preview-zoom-value {
+  min-width: 40px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-subtle);
+}
+
+/* Focused mode: the selected page fills the pane, exactly like opening the HTML file itself. */
+.preview-focused-fill {
+  height: 100%;
+  min-height: 0;
+  background: var(--background);
+}
+
+.preview-focused-fill iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--background);
+}
+
+/* A device-framed tile: trusted-UI chrome drawn around the sandboxed iframe. */
+.preview-tile {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  overflow: hidden;
+}
+
+.preview-tile[data-device="phone"],
+.preview-tile[data-device="tablet"] {
+  border-radius: 28px;
+  padding: 10px;
+  background: var(--surface-3);
+}
+
+.preview-tile-chrome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.preview-tile[data-device="phone"] .preview-tile-chrome,
+.preview-tile[data-device="tablet"] .preview-tile-chrome {
+  justify-content: center;
+  height: 18px;
+  background: transparent;
+  border: 0;
+}
+
+.preview-chrome-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.preview-chrome-dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.preview-chrome-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Marks a canvas tile whose design scripts are paused until the cursor is over it. */
+.preview-tile-paused {
+  margin-left: auto;
+  flex: none;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.preview-chrome-notch {
+  width: 64px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.preview-tile-frame {
+  background: var(--background);
+  overflow: hidden;
+}
+
+.preview-tile[data-device="phone"] .preview-tile-frame,
+.preview-tile[data-device="tablet"] .preview-tile-frame {
+  border-radius: 18px;
+}
+
+.preview-tile-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--background);
+}
+
+/* The tile caption is the filename row; double-clicking it opens the page in focused mode. */
+.preview-tile-label {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.preview-tile-label:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.preview-tile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-tile-home {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+/* Project-grid multi-select: a selection toggle per card and a bulk action bar. */
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.bulk-action-bar > span {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.design-card {
+  position: relative;
+}
+
+.design-card-select {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  display: inline-flex;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.design-card:hover .design-card-select,
+.design-card[data-selected] .design-card-select {
+  opacity: 1;
+}
+
+.design-card-select input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.design-card[data-selected] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-control);
 }

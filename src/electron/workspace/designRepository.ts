@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { alpineRuntimeBase64 } from './alpineRuntime.js'
@@ -66,16 +66,60 @@ export class DesignRepositoryManager {
    * stylesheet is refreshed. Returns the resulting commit SHA, or null when nothing changed.
    */
   public commitRevision(designId: string, indexHtml: string | null, tailwindCss: string, message: string): string | null {
+    if (indexHtml !== null) return this.commitGeneratedRevision(designId, { [ENTRY_HTML_PATH]: indexHtml }, tailwindCss, message)
     const repositoryPath = this.initialize(designId)
-    if (indexHtml !== null) this.writeFile(repositoryPath, ENTRY_HTML_PATH, indexHtml)
     this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
     this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
     if (!this.commit(repositoryPath, message)) return null
     return this.run(repositoryPath, ['rev-parse', 'HEAD'])
   }
 
+  /** Replace the mock provider's authored source tree and commit it with the managed build outputs. */
+  public commitGeneratedRevision(designId: string, sourceFiles: RevisionFiles, tailwindCss: string, message: string): string | null {
+    const repositoryPath = this.initialize(designId)
+    const normalizedFiles = new Map(Object.entries(sourceFiles).map(([relativePath, content]) => [this.normalizeGeneratedPath(relativePath), content]))
+    for (const relativePath of Object.keys(this.readWorkingTreeFiles(designId))) {
+      if (relativePath.startsWith(`${BUILD_DIR}/`) || normalizedFiles.has(relativePath)) continue
+      const target = path.resolve(repositoryPath, relativePath)
+      if (path.dirname(target) === repositoryPath || target.startsWith(`${repositoryPath}${path.sep}`)) unlinkSync(target)
+    }
+    for (const [relativePath, content] of normalizedFiles) this.writeFile(repositoryPath, relativePath, content)
+    this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
+    this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
+    if (!this.commit(repositoryPath, message)) return null
+    return this.run(repositoryPath, ['rev-parse', 'HEAD'])
+  }
+
+  // Clone one design's whole Git repository (history and all) to another design's storage, so a
+  // duplicated design keeps every committed revision and its working tree byte-for-byte.
+  public duplicateRepository(sourceDesignId: string, targetDesignId: string): void {
+    const source = this.initialize(sourceDesignId)
+    const target = this.getPath(targetDesignId)
+    if (existsSync(path.join(target, '.git'))) throw new Error('Target design repository already exists.')
+    mkdirSync(path.dirname(target), { recursive: true })
+    cpSync(source, target, { recursive: true })
+  }
+
   public readIndexHtml(designId: string): string {
     return readFileSync(path.join(this.initialize(designId), ENTRY_HTML_PATH), 'utf8')
+  }
+
+  /**
+   * Read the design's current working-tree files (every tracked-or-untracked file the agent authored,
+   * plus the managed build assets), keyed by relative path. Used to compile Tailwind across all pages
+   * before a revision is committed. The .git directory is never included.
+   */
+  public readWorkingTreeFiles(designId: string): RevisionFiles {
+    const repositoryPath = this.initialize(designId)
+    // -c lists tracked+untracked files while honouring .gitignore; -o adds untracked; --exclude-standard
+    // keeps ignored noise out. Together they enumerate exactly the files a commit would capture.
+    const listing = this.run(repositoryPath, ['ls-files', '--cached', '--others', '--exclude-standard'])
+    const files: Record<string, string> = {}
+    for (const relativePath of listing.split('\n').map((line) => line.trim()).filter(Boolean)) {
+      const target = path.join(repositoryPath, relativePath)
+      if (existsSync(target)) files[relativePath] = readFileSync(target, 'utf8')
+    }
+    return files
   }
 
   /** Check out an earlier revision's commit (detached HEAD) so the working tree reflects it. */
@@ -88,11 +132,16 @@ export class DesignRepositoryManager {
     this.run(this.initialize(designId), ['checkout', '--force', 'main'])
   }
 
-  /** Read the files that make up a revision (entry page + build assets) from its Git commit. */
+  /**
+   * Read every file that makes up a revision from its Git commit — all agent-authored pages, assets,
+   * fonts, and per-page scripts alongside the managed build outputs. This is what feeds both the
+   * preview and the offline export, so multi-file and multi-page designs round-trip in full.
+   */
   public readRevisionFiles(designId: string, commit: string): RevisionFiles {
     const repositoryPath = this.initialize(designId)
+    const listing = this.run(repositoryPath, ['ls-tree', '-r', '--name-only', commit])
     const files: Record<string, string> = {}
-    for (const relativePath of [ENTRY_HTML_PATH, TAILWIND_CSS_PATH, ALPINE_JS_PATH]) {
+    for (const relativePath of listing.split('\n').map((line) => line.trim()).filter(Boolean)) {
       const content = this.showFileAtCommit(repositoryPath, commit, relativePath)
       if (content !== null) files[relativePath] = content
     }
@@ -115,6 +164,14 @@ export class DesignRepositoryManager {
     const target = path.join(repositoryPath, relativePath)
     mkdirSync(path.dirname(target), { recursive: true })
     writeFileSync(target, content, 'utf8')
+  }
+
+  private normalizeGeneratedPath(relativePath: string): string {
+    const normalized = relativePath.replaceAll('\\', '/').replace(/^\.\//, '')
+    if (!normalized || path.posix.isAbsolute(normalized) || normalized === '.git' || normalized.startsWith('.git/') || normalized === BUILD_DIR || normalized.startsWith(`${BUILD_DIR}/`) || normalized.split('/').includes('..')) {
+      throw new Error(`Invalid generated file path: ${relativePath}`)
+    }
+    return normalized
   }
 
   private showFileAtCommit(repositoryPath: string, commit: string, relativePath: string): string | null {
