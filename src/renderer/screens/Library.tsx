@@ -1,5 +1,6 @@
 import {
   ArrowRightIcon,
+  Bars2Icon,
   ChevronRightIcon,
   DocumentDuplicateIcon,
   FolderIcon,
@@ -8,7 +9,7 @@ import {
   RectangleStackIcon,
   TagIcon,
 } from '@heroicons/react/24/outline'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type DragEvent } from 'react'
 import { Button, Input, Menu, MenuItem, MenuSection, Header as AriaHeader, TextField } from 'react-aria-components'
 import { DropdownButton } from '../components/DropdownButton'
 import { AppModal } from '../components/AppModal'
@@ -18,6 +19,7 @@ type FolderDialog =
   | { readonly mode: 'rename'; readonly folder: Folder; readonly title: string }
 
 type SortKey = 'recent' | 'name' | 'provider'
+type ProjectKindFilter = 'all' | 'standalone' | 'linked'
 
 function providerLabel(providerId: string | null): string {
   if (!providerId || providerId === 'mock') return 'Development provider'
@@ -75,6 +77,26 @@ interface FolderNode {
   readonly projectCount: number
 }
 
+// Drag-to-file plumbing shared by every folder row and the root/unfiled targets. A project row is the
+// drag source; folders (and the root) are drop targets. This is a pointer-only convenience — the
+// "Move to folder" menu on each project row remains the accessible way to do the same thing.
+interface FolderDragApi {
+  readonly active: boolean
+  readonly targetId: string | null | undefined
+  readonly over: (folderId: string | null) => void
+  readonly leave: (folderId: string | null) => void
+  readonly drop: (folderId: string | null) => void
+}
+
+function dropTargetProps(drag: FolderDragApi, folderId: string | null) {
+  return {
+    onDragOver: (event: DragEvent) => { if (drag.active) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; drag.over(folderId) } },
+    onDragLeave: () => drag.leave(folderId),
+    onDrop: (event: DragEvent) => { event.preventDefault(); drag.drop(folderId) },
+    'data-drop-target': (drag.active && drag.targetId === folderId) || undefined,
+  }
+}
+
 function buildFolderTree(folders: readonly Folder[], projects: readonly ProjectSummary[]): FolderNode[] {
   const directCounts = new Map<string, number>()
   for (const project of projects) if (project.folderId) directCounts.set(project.folderId, (directCounts.get(project.folderId) ?? 0) + 1)
@@ -88,10 +110,11 @@ function buildFolderTree(folders: readonly Folder[], projects: readonly ProjectS
   return build(null)
 }
 
-function FolderRow({ node, depth, selectedFolderId, onSelect, onRename, onDelete, onAddSubfolder }: {
+function FolderRow({ node, depth, selectedFolderId, drag, onSelect, onRename, onDelete, onAddSubfolder }: {
   readonly node: FolderNode
   readonly depth: number
   readonly selectedFolderId: string | null
+  readonly drag: FolderDragApi
   readonly onSelect: (folderId: string) => void
   readonly onRename: (folder: Folder) => void
   readonly onDelete: (folder: Folder) => void
@@ -101,7 +124,7 @@ function FolderRow({ node, depth, selectedFolderId, onSelect, onRename, onDelete
   const hasChildren = node.children.length > 0
   return (
     <div className="library-folder-node">
-      <div className="library-folder-row" data-active={node.folder.id === selectedFolderId || undefined} style={{ paddingLeft: `${8 + depth * 14}px` }}>
+      <div className="library-folder-row" data-active={node.folder.id === selectedFolderId || undefined} style={{ paddingLeft: `${8 + depth * 14}px` }} {...dropTargetProps(drag, node.folder.id)}>
         {hasChildren
           ? <Button className="library-folder-disclosure" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.folder.name}`} aria-expanded={expanded} onPress={() => setExpanded((value) => !value)}><ChevronRightIcon aria-hidden="true" data-expanded={expanded || undefined} /></Button>
           : <span className="library-folder-disclosure-spacer" aria-hidden="true" />}
@@ -118,7 +141,7 @@ function FolderRow({ node, depth, selectedFolderId, onSelect, onRename, onDelete
           </Menu>
         </DropdownButton>
       </div>
-      {expanded && hasChildren && <div className="library-folder-children">{node.children.map((child) => <FolderRow key={child.folder.id} node={child} depth={depth + 1} selectedFolderId={selectedFolderId} onSelect={onSelect} onRename={onRename} onDelete={onDelete} onAddSubfolder={onAddSubfolder} />)}</div>}
+      {expanded && hasChildren && <div className="library-folder-children">{node.children.map((child) => <FolderRow key={child.folder.id} node={child} depth={depth + 1} selectedFolderId={selectedFolderId} drag={drag} onSelect={onSelect} onRename={onRename} onDelete={onDelete} onAddSubfolder={onAddSubfolder} />)}</div>}
     </div>
   )
 }
@@ -149,12 +172,16 @@ export function Library(props: LibraryProps) {
   const { projects, designs, folders, tags } = props
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortKey>('recent')
+  const [projectKind, setProjectKind] = useState<ProjectKindFilter>('all')
+  const [providerId, setProviderId] = useState<string>('all')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null) // null = all
   const [unfiledOnly, setUnfiledOnly] = useState(false)
   const [activeTagIds, setActiveTagIds] = useState<readonly string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null)
   const [folderDraft, setFolderDraft] = useState('')
+  const [dragProjectId, setDragProjectId] = useState<string | null>(null)
+  const [dropTargetId, setDropTargetId] = useState<string | null | undefined>(undefined)
 
   const run = async (action: () => Promise<unknown>, failure: string) => {
     setError(null)
@@ -163,13 +190,18 @@ export function Library(props: LibraryProps) {
 
   const folderTree = useMemo(() => buildFolderTree(folders, projects), [folders, projects])
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
-  const linkedProjects = useMemo(() => projects.filter((project) => project.kind === 'linked'), [projects])
+  const providerOptions = useMemo(() => [...new Set([
+    ...projects.map((project) => project.lastProviderId).filter((id): id is string => Boolean(id)),
+    ...designs.map((design) => design.lastSelection.providerId),
+  ])].sort((a, b) => providerLabel(a).localeCompare(providerLabel(b))), [projects, designs])
 
   const matchesFolder = (project: ProjectSummary | undefined): boolean => {
     if (unfiledOnly) return !project?.folderId
     if (!selectedFolderId) return true
     return project?.folderId === selectedFolderId
   }
+  const matchesProjectKind = (project: ProjectSummary | undefined): boolean => projectKind === 'all' || project?.kind === projectKind
+  const matchesProvider = (candidateProviderId: string | null): boolean => providerId === 'all' || candidateProviderId === providerId
   const matchesTags = (ownTags: readonly Tag[], project: ProjectSummary | undefined): boolean => {
     if (!activeTagIds.length) return true
     const combined = new Set([...ownTags.map((tag) => tag.id), ...(project?.tags ?? []).map((tag) => tag.id)])
@@ -185,7 +217,7 @@ export function Library(props: LibraryProps) {
   const filteredDesigns = useMemo(() => {
     const list = designs.filter((design) => {
       const project = projectsById.get(design.projectId)
-      return matchesFolder(project) && matchesTags(design.tags, project) && matchesQuery(design, project)
+      return matchesFolder(project) && matchesProjectKind(project) && matchesProvider(design.lastSelection.providerId) && matchesTags(design.tags, project) && matchesQuery(design, project)
     })
     const sorted = [...list]
     if (sort === 'name') sorted.sort((a, b) => a.title.localeCompare(b.title))
@@ -193,11 +225,20 @@ export function Library(props: LibraryProps) {
     else sorted.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     return sorted
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designs, projectsById, sort, query, selectedFolderId, unfiledOnly, activeTagIds])
+  }, [designs, projectsById, sort, query, selectedFolderId, unfiledOnly, activeTagIds, projectKind, providerId])
 
-  const visibleProjects = useMemo(() => projects.filter((project) => matchesFolder(project) && matchesTags([], project) && (!query.trim() || project.name.toLowerCase().includes(query.trim().toLowerCase()))),
+  const visibleProjects = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    const filtered = projects.filter((project) => matchesFolder(project)
+      && matchesProjectKind(project)
+      && matchesProvider(project.lastProviderId)
+      && matchesTags([], project)
+      && (!needle || [project.name, project.kind, providerLabel(project.lastProviderId), ...project.tags.map((tag) => tag.name)].join(' ').toLowerCase().includes(needle)))
+    if (sort === 'name') return [...filtered].sort((a, b) => a.name.localeCompare(b.name))
+    if (sort === 'provider') return [...filtered].sort((a, b) => providerLabel(a.lastProviderId).localeCompare(providerLabel(b.lastProviderId)) || b.updatedAt.localeCompare(a.updatedAt))
+    return [...filtered].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projects, selectedFolderId, unfiledOnly, activeTagIds, query])
+  }, [projects, selectedFolderId, unfiledOnly, activeTagIds, query, sort, projectKind, providerId])
 
   const toggleTagFilter = (tagId: string) => setActiveTagIds((current) => current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId])
   const openFolderDialog = (dialog: FolderDialog) => { setFolderDraft(dialog.mode === 'rename' ? dialog.folder.name : ''); setFolderDialog(dialog) }
@@ -215,14 +256,37 @@ export function Library(props: LibraryProps) {
 
   const folderName = selectedFolderId ? folders.find((folder) => folder.id === selectedFolderId)?.name ?? 'Folder' : unfiledOnly ? 'Unfiled' : 'All projects'
 
+  // Drag-to-file: a project row is the drag source, folders and the library root are drop targets.
+  const startProjectDrag = (event: DragEvent, project: ProjectSummary) => {
+    event.dataTransfer.setData('text/plain', project.id)
+    event.dataTransfer.effectAllowed = 'move'
+    setDragProjectId(project.id)
+  }
+  const endProjectDrag = () => { setDragProjectId(null); setDropTargetId(undefined) }
+  const folderDrag: FolderDragApi = {
+    active: dragProjectId !== null,
+    targetId: dropTargetId,
+    over: (folderId) => setDropTargetId(folderId),
+    leave: (folderId) => setDropTargetId((current) => (current === folderId ? undefined : current)),
+    drop: (folderId) => {
+      const projectId = dragProjectId
+      endProjectDrag()
+      if (!projectId) return
+      if (projectsById.get(projectId)?.folderId === folderId) return // already there — no-op
+      void run(() => props.onMoveProjectToFolder(projectId, folderId), 'The project could not be moved.')
+    },
+  }
+
   return (
     <main className="library-main">
       <aside className="library-rail" aria-label="Folders">
         <div className="library-rail-heading"><span>Folders</span><Button className="icon-button" aria-label="New folder" onPress={addRootFolder}><FolderPlusIcon aria-hidden="true" /></Button></div>
         <div className="library-folder-tree">
           <Button className="library-folder-open library-folder-root" data-active={!selectedFolderId && !unfiledOnly || undefined} onPress={() => { setSelectedFolderId(null); setUnfiledOnly(false) }}><RectangleStackIcon aria-hidden="true" /><span>All projects</span></Button>
-          <Button className="library-folder-open library-folder-root" data-active={unfiledOnly || undefined} onPress={() => { setSelectedFolderId(null); setUnfiledOnly(true) }}><FolderIcon aria-hidden="true" /><span>Unfiled</span></Button>
-          {folderTree.map((node) => <FolderRow key={node.folder.id} node={node} depth={0} selectedFolderId={selectedFolderId} onSelect={(id) => { setSelectedFolderId(id); setUnfiledOnly(false) }} onRename={renameFolder} onDelete={deleteFolder} onAddSubfolder={addSubfolder} />)}
+          <div className="library-folder-root-drop" {...dropTargetProps(folderDrag, null)}>
+            <Button className="library-folder-open library-folder-root" data-active={unfiledOnly || undefined} onPress={() => { setSelectedFolderId(null); setUnfiledOnly(true) }}><FolderIcon aria-hidden="true" /><span>Unfiled</span></Button>
+          </div>
+          {folderTree.map((node) => <FolderRow key={node.folder.id} node={node} depth={0} selectedFolderId={selectedFolderId} drag={folderDrag} onSelect={(id) => { setSelectedFolderId(id); setUnfiledOnly(false) }} onRename={renameFolder} onDelete={deleteFolder} onAddSubfolder={addSubfolder} />)}
           {!folders.length && <p className="library-rail-empty">Create folders to organize your projects.</p>}
         </div>
         {tags.length > 0 && <div className="library-rail-tags">
@@ -247,6 +311,19 @@ export function Library(props: LibraryProps) {
                 <MenuItem id="provider">Provider</MenuItem>
               </Menu>
             </DropdownButton>
+            <DropdownButton label="Filter by project type" triggerClassName="secondary-action" popoverClassName="project-popover" placement="bottom" trigger={<span>Type: {projectKind === 'all' ? 'All' : projectKind === 'linked' ? 'Linked' : 'Standalone'}</span>}>
+              <Menu aria-label="Project type" onAction={(key) => setProjectKind(key as ProjectKindFilter)}>
+                <MenuItem id="all">All project types</MenuItem>
+                <MenuItem id="linked">Linked</MenuItem>
+                <MenuItem id="standalone">Standalone</MenuItem>
+              </Menu>
+            </DropdownButton>
+            <DropdownButton label="Filter by provider" triggerClassName="secondary-action" popoverClassName="project-popover" placement="bottom" trigger={<span>Provider: {providerId === 'all' ? 'All' : providerLabel(providerId)}</span>}>
+              <Menu aria-label="Provider" onAction={(key) => setProviderId(String(key))}>
+                <MenuItem id="all">All providers</MenuItem>
+                {providerOptions.map((option) => <MenuItem id={option} key={option}>{providerLabel(option)}</MenuItem>)}
+              </Menu>
+            </DropdownButton>
           </div>
         </header>
         {error && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Library action failed.</strong><small>{error}</small></span><Button className="text-button" onPress={() => setError(null)}>Dismiss</Button></div>}
@@ -256,7 +333,8 @@ export function Library(props: LibraryProps) {
           <div className="section-heading"><h2 id="library-projects">Projects</h2><span>{visibleProjects.length ? `${visibleProjects.length} project${visibleProjects.length === 1 ? '' : 's'}` : 'None here'}</span></div>
           <div className="library-project-rows">
             {visibleProjects.map((project) => (
-              <article className="library-project-row" key={project.id}>
+              <article className="library-project-row" key={project.id} data-dragging={dragProjectId === project.id || undefined}>
+                <span className="library-project-grip" draggable role="img" aria-label={`Drag ${project.name} to a folder`} title="Drag to a folder" onDragStart={(event) => startProjectDrag(event, project)} onDragEnd={endProjectDrag}><Bars2Icon aria-hidden="true" /></span>
                 <Button className="library-project-open" aria-label={`Open ${project.name}`} onPress={() => props.onOpenProject(project)}>
                   {project.kind === 'linked' ? <FolderIcon aria-hidden="true" /> : <DocumentDuplicateIcon aria-hidden="true" />}
                   <span className="library-project-copy"><strong>{project.name}</strong><small>{project.designCount} design{project.designCount === 1 ? '' : 's'} · {providerLabel(project.lastProviderId)}</small></span>
@@ -299,11 +377,11 @@ export function Library(props: LibraryProps) {
                             <Menu aria-label={`${design.title} actions`}>
                               <MenuItem id="open" onAction={() => props.onOpenDesign(design)}>Open</MenuItem>
                               <MenuItem id="duplicate" onAction={() => void run(() => props.onDuplicateDesign(design), 'The design could not be duplicated.')}>Duplicate</MenuItem>
-                              {linkedProjects.filter((candidate) => candidate.id !== design.projectId).length > 0 && <MenuSection>
-                                <AriaHeader className="project-popover-header">Move to project</AriaHeader>
-                                {linkedProjects.filter((candidate) => candidate.id !== design.projectId).map((candidate) => <MenuItem key={candidate.id} id={`move:${candidate.id}`} onAction={() => void run(() => props.onMoveDesign(design, candidate.id), 'The design could not be moved.')}>{candidate.name}</MenuItem>)}
-                              </MenuSection>}
                               <MenuItem id="trash" onAction={() => void run(() => props.onTrashDesign(design), 'The design could not be removed.')}>Remove</MenuItem>
+                              {projects.filter((candidate) => candidate.id !== design.projectId).length > 0 && <MenuSection>
+                                <AriaHeader className="project-popover-header">Move to project</AriaHeader>
+                                {projects.filter((candidate) => candidate.id !== design.projectId).map((candidate) => <MenuItem key={candidate.id} id={`move:${candidate.id}`} onAction={() => void run(() => props.onMoveDesign(design, candidate.id), 'The design could not be moved.')}>{candidate.name}</MenuItem>)}
+                              </MenuSection>}
                             </Menu>
                           </DropdownButton>
                           <ArrowRightIcon className="row-arrow" aria-hidden="true" />

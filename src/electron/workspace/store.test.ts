@@ -232,6 +232,20 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('persists the last-open design across reopen and clears it on request', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    expect(store.getLastOpenDesignId()).toBeNull()
+    store.saveLastOpenDesignId(created.id)
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getLastOpenDesignId()).toBe(created.id)
+    reopened.saveLastOpenDesignId(null)
+    expect(reopened.getLastOpenDesignId()).toBeNull()
+    reopened.close()
+  })
+
   it('stores a generated thumbnail outside the immutable revision snapshot', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
@@ -509,6 +523,22 @@ describe('WorkspaceStore', () => {
     expect(associated.revisions).toHaveLength(1)
     expect(associated.activeRevisionId).toBe(revision.activeRevisionId)
     expect(store.getProjectSummary(standalone.projectId)).toBeNull()
+    store.close()
+  })
+
+  it('moves a design into a standalone project without coupling sibling removal', () => {
+    const { store } = createStore()
+    const source = store.createLinkedDesign('Source', 'Source design', 'C:\\projects\\source-app')
+    const destination = store.createStandaloneDesign('Destination', 'Destination')
+
+    const moved = store.associateDesignWithProject(source.id, destination.projectId)
+    expect(moved.projectId).toBe(destination.projectId)
+    expect(store.getProjectSummary(destination.projectId)?.designCount).toBe(2)
+
+    store.moveDesignToTrash(source.id)
+    expect(store.getDesign(destination.id)).not.toBeNull()
+    expect(store.getProjectSummary(destination.projectId)?.designCount).toBe(1)
+    expect(store.listTrash()).toMatchObject([{ id: source.id, kind: 'design' }])
     store.close()
   })
 

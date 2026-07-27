@@ -1,4 +1,4 @@
-import { compileTailwindCss, compileTailwindCssForFiles, validateCompiledDesign, validateDesignFiles } from './compiler.js'
+import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
 import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectSummary, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
@@ -104,7 +104,7 @@ export class WorkspaceService {
     const design = this.createDesignRecord(prompt, generated.title, target, attachments)
     onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up your design…' })
     this.repositories.initialize(design.id)
-    return this.generate(design.id, prompt, onActivity, generated.html, false)
+    return this.generate(design.id, prompt, onActivity, generated.html, false, undefined, 0, generated.files)
   }
 
   public createAgentDesignShell(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget, title = generateMockDesign(prompt).title): Design {
@@ -114,25 +114,26 @@ export class WorkspaceService {
     return design
   }
 
-  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0): Promise<Design> {
+  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0, generatedFiles?: RevisionFiles): Promise<Design> {
     this.throwIfCancelled(signal)
     if (savePrompt) this.store.addPrompt(designId, prompt)
     onActivity({ designId, stage: 'generating', detail: 'Mock provider is shaping the requested direction.' })
     const current = this.store.getDesign(designId)
     if (!current) throw new Error('Design not found.')
     const isIteration = current.activeRevisionId ?? undefined
-    let candidate = generatedHtml ?? generateMockDesign(prompt, isIteration).html
+    let generated = generatedFiles ? { html: generatedHtml ?? generatedFiles['index.html'] ?? '', files: generatedFiles } : generateMockDesign(prompt, isIteration)
+    if (generatedHtml && !generatedFiles) generated = { html: generatedHtml, files: { 'index.html': generatedHtml } }
 
     for (let repairAttempt = 0; repairAttempt <= maxRepairAttempts; repairAttempt += 1) {
       try {
         this.throwIfCancelled(signal)
         onActivity({ designId, stage: 'compiling', detail: 'Compiling the generated Tailwind classes.' })
-        const tailwindCss = await compileTailwindCss(candidate)
+        const tailwindCss = await compileTailwindCssForFiles(generated.files)
         this.throwIfCancelled(signal)
         onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
-        validateCompiledDesign(candidate)
+        validateDesignFiles(generated.files)
         onActivity({ designId, stage: 'saving', detail: 'Committing the revision to the design repository.' })
-        const gitCommit = this.repositories.commitRevision(designId, candidate, tailwindCss, `Apply design revision: ${prompt}`)
+        const gitCommit = this.repositories.commitGeneratedRevision(designId, generated.files, tailwindCss, `Apply design revision: ${prompt}`)
         const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved
@@ -140,12 +141,12 @@ export class WorkspaceService {
         if (signal?.aborted) return this.cancelledDesign(designId, onActivity)
         const diagnostic = error instanceof Error ? error.message : 'Generation failed.'
         if (repairAttempt === maxRepairAttempts) {
-          const rejected = this.store.addInvalidCandidate(designId, prompt, candidate, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
+          const rejected = this.store.addInvalidCandidate(designId, prompt, generated.html, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
           onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
           return rejected
         }
         onActivity({ designId, stage: 'repairing', detail: 'Making a few improvements…' })
-        candidate = generateMockDesign(`Repair this design without unsafe code or external resources: ${diagnostic}`, isIteration).html
+        generated = generateMockDesign(`Repair this design without unsafe code or external resources: ${diagnostic}`, isIteration)
       }
     }
 
@@ -292,6 +293,9 @@ export class WorkspaceService {
   public saveGenerationDefaults(selection: GenerationSelection): void {
     this.store.saveGenerationDefaults(selection)
   }
+
+  public getLastOpenDesignId(): string | null { return this.store.getLastOpenDesignId() }
+  public saveLastOpenDesignId(designId: string | null): void { this.store.saveLastOpenDesignId(designId) }
 
   public saveDesignSelection(designId: string, selection: GenerationSelection): void {
     this.store.saveDesignSelection(designId, selection)

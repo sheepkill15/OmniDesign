@@ -28,6 +28,7 @@ import {
   generationJobIdRequestSchema,
   generationSelectionSchema,
   generationStageLabel,
+  lastOpenDesignSchema,
   projectIdRequestSchema,
   renameDesignRequestSchema,
   renameProjectRequestSchema,
@@ -48,7 +49,7 @@ import { writeOfflineZip } from '../workspace/exportService.js'
 import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewContentServer } from '../workspace/previewServer.js'
 import { ThumbnailCapturer } from '../workspace/thumbnailCapturer.js'
-import { isAllowedPreviewUrl } from '../workspace/previewPolicy.js'
+import { isAllowedPreviewNetworkUrl, isAllowedPreviewUrl } from '../workspace/previewPolicy.js'
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
 import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
@@ -538,6 +539,14 @@ function registerIpc(): void {
     authorize(event)
     requireWorkspace().saveGenerationDefaults(generationSelectionSchema.parse(value))
   })
+  ipcMain.handle('settings:get-last-open-design', (event) => {
+    authorize(event)
+    return requireWorkspace().getLastOpenDesignId()
+  })
+  ipcMain.handle('settings:save-last-open-design', (event, value: unknown) => {
+    authorize(event)
+    requireWorkspace().saveLastOpenDesignId(lastOpenDesignSchema.parse(value))
+  })
   ipcMain.handle('workspace:save-design-selection', (event, value: unknown) => {
     authorize(event)
     const request = saveDesignSelectionRequestSchema.parse(value)
@@ -719,6 +728,12 @@ void app.whenReady().then(() => {
     recordActivity,
   )
   generationQueue.recoverAfterRestart()
+  // CSP is the first preview egress boundary; the default-session request filter independently
+  // enforces the same host allowlist so a malformed or browser-misinterpreted resource tag still
+  // cannot reach an arbitrary host. Development keeps the exact Vite renderer origin available.
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
+    callback({ cancel: !isAllowedPreviewNetworkUrl(details.url, developmentServerUrl) })
+  })
   previewServer = new PreviewContentServer(session.defaultSession, previewFrameAncestors())
   thumbnailCapturer = new ThumbnailCapturer(session.defaultSession, previewServer)
   mainWindow = createMainWindow()

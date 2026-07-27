@@ -2670,6 +2670,39 @@ button[aria-expanded="true"] .dropdown-caret {
   border-color: var(--border);
 }
 
+.library-project-row[data-dragging] {
+  opacity: 0.5;
+}
+
+/* Drag handle: a pointer-only affordance. The "Move to folder" menu is the accessible equivalent. */
+.library-project-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  color: var(--text-subtle);
+  cursor: grab;
+}
+
+.library-project-grip:active {
+  cursor: grabbing;
+}
+
+.library-project-grip svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Folder rows and the Unfiled target highlight while a project is dragged over them. */
+.library-folder-row[data-drop-target],
+.library-folder-root-drop[data-drop-target] {
+  background: var(--surface-selected);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-control);
+}
+
 .library-project-open {
   flex: 1 1 auto;
   min-width: 0;

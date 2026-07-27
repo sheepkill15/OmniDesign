@@ -1,6 +1,7 @@
 export interface GeneratedDesign {
   readonly title: string
   readonly html: string
+  readonly files: Readonly<Record<string, string>>
 }
 
 function escapeHtml(value: string): string {
@@ -18,9 +19,8 @@ export function generateMockDesign(prompt: string, previousHtml?: string): Gener
   const escapedPrompt = escapeHtml(prompt)
   const iteration = previousHtml ? 'Refined direction' : 'First direction'
 
-  return {
-    title,
-    html: `<!doctype html>
+  const multiPage = /\bmulti(?:-|\s)page\b|\bmultiple pages\b/i.test(prompt)
+  const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -34,6 +34,7 @@ export function generateMockDesign(prompt: string, previousHtml?: string): Gener
     <p class="mb-5 text-sm font-semibold uppercase tracking-widest text-lime-300">${iteration}</p>
     <h1 class="max-w-4xl text-5xl font-semibold tracking-tight sm:text-7xl">${escapeHtml(title)}</h1>
     <p class="mt-7 max-w-2xl text-lg leading-8 text-stone-300">${escapedPrompt}</p>
+    ${multiPage ? '<a class="mt-6 font-medium text-lime-300" href="pages/about.html">Explore the About page</a>' : ''}
     <div class="mt-12 grid gap-4 md:grid-cols-3">
       <section class="border border-stone-800 bg-stone-900 p-6"><strong class="text-2xl">01</strong><p class="mt-8 text-stone-400">Clear structure</p></section>
       <section class="border border-stone-800 bg-lime-300 p-6 text-stone-950"><strong class="text-2xl">02</strong><p class="mt-8 text-stone-700">Purposeful contrast</p></section>
@@ -45,6 +46,29 @@ export function generateMockDesign(prompt: string, previousHtml?: string): Gener
     </details>
   </main>
 </body>
-</html>`,
+</html>`
+  const about = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>About ${escapeHtml(title)}</title>
+  <link rel="stylesheet" href="../.build/tailwind.css">
+  <script defer src="../.build/alpine.js"></script>
+</head>
+<body class="min-h-screen bg-stone-100 text-stone-950 antialiased">
+  <main class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center px-8 py-16">
+    <a class="mb-10 font-medium text-emerald-700" href="../index.html">← Home</a>
+    <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">About this direction</p>
+    <h1 class="mt-5 text-5xl font-semibold tracking-tight">A second page, designed as one system</h1>
+    <p class="mt-7 max-w-2xl text-lg leading-8 text-stone-600">This deterministic page lets OmniDesign exercise discovery, navigation, metadata, canvas layout, persistence, and multi-page export.</p>
+  </main>
+</body>
+</html>`
+
+  return {
+    title,
+    html,
+    files: multiPage ? { 'index.html': html, 'pages/about.html': about } : { 'index.html': html },
   }
 }

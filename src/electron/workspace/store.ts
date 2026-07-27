@@ -773,7 +773,11 @@ export class WorkspaceStore {
         WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
       `).get(designId) as { project_id: string; kind: 'linked' | 'standalone' } | undefined
       if (!design) throw new Error('Design not found.')
-      if (design.kind === 'standalone') {
+      const activeDesignCount = this.database.prepare('SELECT COUNT(*) AS count FROM designs WHERE project_id = ? AND trashed_at IS NULL').get(design.project_id) as { count: number }
+      // A one-design standalone project is still removed as one user-facing object. Phase 2 permits a
+      // design to move into any project, including a standalone container; once that container has
+      // siblings, removing one design must not take the other designs with it.
+      if (design.kind === 'standalone' && activeDesignCount.count === 1) {
         this.database.prepare('UPDATE projects SET trashed_at = ? WHERE id = ?').run(now, design.project_id)
         this.database.prepare('UPDATE designs SET trashed_at = ? WHERE project_id = ? AND trashed_at IS NULL').run(now, design.project_id)
         return
@@ -1055,6 +1059,25 @@ export class WorkspaceStore {
       INSERT INTO settings (key, value) VALUES ('generation.defaults', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(JSON.stringify(generationSelectionSchema.parse(selection)))
+  }
+
+  // The design open in the workspace when the app last closed, so a relaunch can reopen it (its page is
+  // already persisted in the design's layout). Null — the row absent — means nothing was open; the app
+  // then starts on Home. A stored id whose design no longer exists is treated as "nothing open" by the caller.
+  public getLastOpenDesignId(): string | null {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'workspace.lastOpenDesignId'").get() as { value: string } | undefined
+    return setting?.value ?? null
+  }
+
+  public saveLastOpenDesignId(designId: string | null): void {
+    if (designId === null) {
+      this.database.prepare("DELETE FROM settings WHERE key = 'workspace.lastOpenDesignId'").run()
+      return
+    }
+    this.database.prepare(`
+      INSERT INTO settings (key, value) VALUES ('workspace.lastOpenDesignId', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(designId)
   }
 
   public saveDesignSelection(designId: string, selection: GenerationSelection): void {

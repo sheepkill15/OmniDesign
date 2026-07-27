@@ -33,11 +33,10 @@ test('creates and recovers a standalone design in the built Electron app', async
     await prompt.press('Enter')
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(firstRun.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
-    await firstRun.window.getByRole('button', { name: 'Rename design' }).click()
     const designTitle = firstRun.window.getByRole('textbox', { name: 'Rename design' })
     await designTitle.fill('Calm signals')
-    await firstRun.window.getByRole('button', { name: 'Save' }).click()
-    await expect(firstRun.window.getByRole('heading', { name: 'Calm signals' })).toBeVisible()
+    await designTitle.press('Enter')
+    await expect(firstRun.window.getByRole('textbox', { name: 'Rename design' })).toHaveValue('Calm signals')
     const exportPath = path.join(userDataDirectory, 'offline-design.zip')
     await firstRun.app.evaluate(({ dialog }, destination) => {
       dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: destination })
@@ -111,12 +110,7 @@ test('creates and recovers a standalone design in the built Electron app', async
 
     const secondRun = await launchWorkspace(userDataDirectory)
     activeApp = secondRun.app
-    const recoveredDesign = secondRun.window
-      .getByRole('region', { name: 'Continue designing' })
-      .getByRole('button')
-      .filter({ hasText: 'Calm signals' })
-    await expect(recoveredDesign).toBeVisible()
-    await recoveredDesign.click()
+    await expect(secondRun.window.getByRole('textbox', { name: 'Rename design' })).toHaveValue('Calm signals')
     await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await secondRun.app.close()
     activeApp = null
@@ -314,8 +308,7 @@ test('confirms close with active work and recovers it as interrupted', async () 
 
     const secondRun = await launchWorkspace(userDataDirectory)
     activeApp = secondRun.app
-    const recoveredDesign = secondRun.window.getByRole('region', { name: 'Continue designing' }).getByRole('button').filter({ hasText: 'An interruption recovery check' })
-    await recoveredDesign.click()
+    await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(secondRun.window.getByRole('status').filter({ hasText: 'Generation interrupted' })).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: 'Continue' })).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: 'Retry' })).toBeVisible()
@@ -381,6 +374,61 @@ test('pops the preview into its own window and docks it back', async () => {
 
     await run.app.close()
     activeApp = null
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('creates, organizes, exports, and recovers a multi-page design', async () => {
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-phase2-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const firstRun = await launchWorkspace(userDataDirectory)
+    activeApp = firstRun.app
+    const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('A multi-page product site')
+    await prompt.press('Enter')
+    await expect(firstRun.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+
+    await firstRun.window.getByRole('button', { name: 'Preview page' }).click()
+    await firstRun.window.getByRole('menuitem', { name: /About A multi-page product site/ }).click()
+    await expect(firstRun.window.locator('.preview-focused-fill iframe')).toHaveAttribute('title', /About A multi-page product site/)
+
+    await firstRun.window.getByRole('button', { name: 'Canvas' }).click()
+    await expect(firstRun.window.locator('.preview-tile')).toHaveCount(2)
+    await firstRun.window.getByRole('button', { name: 'Device size' }).click()
+    await firstRun.window.getByRole('menuitem', { name: /Custom/ }).click()
+    await firstRun.window.getByRole('textbox', { name: 'Custom preview width' }).fill('1440')
+    await firstRun.window.getByRole('textbox', { name: 'Custom preview height' }).fill('960')
+    await firstRun.window.getByRole('button', { name: 'Apply size' }).click()
+    await firstRun.window.getByRole('button', { name: 'Fixed' }).click()
+
+    await expect.poll(() => firstRun.window.evaluate(async () => {
+      const current = (await window.omnidesign!.workspace.list())[0]
+      return current.layout
+    })).toMatchObject({ previewViewMode: 'canvas', previewFit: 'fixed', previewDevice: 'custom', previewCustomWidth: 1440, previewCustomHeight: 960, previewPage: 'pages/about.html' })
+
+    const exportPath = path.join(userDataDirectory, 'multi-page-design.zip')
+    await firstRun.app.evaluate(({ dialog }, destination) => {
+      dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: destination })
+    }, exportPath)
+    await firstRun.window.getByRole('button', { name: 'Export' }).click()
+    await expect.poll(async () => {
+      try { return (await stat(exportPath)).size > 0 } catch { return false }
+    }).toBe(true)
+    const archive = unzipSync(await readFile(exportPath))
+    expect(Object.keys(archive)).toEqual(expect.arrayContaining(['index.html', 'pages/about.html', '.build/tailwind.css', '.build/alpine.js']))
+
+    await firstRun.app.close()
+    activeApp = null
+    const secondRun = await launchWorkspace(userDataDirectory)
+    activeApp = secondRun.app
+    await expect(secondRun.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(secondRun.window.getByRole('button', { name: 'Device size' })).toContainText('Custom')
+    await expect(secondRun.window.getByRole('button', { name: 'Fixed' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(secondRun.window.locator('.preview-tile')).toHaveCount(2)
   } finally {
     await activeApp?.close().catch(() => undefined)
     await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

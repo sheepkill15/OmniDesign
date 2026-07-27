@@ -83,6 +83,24 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it('creates a deterministic multi-page fixture through the development provider', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+
+    const design = await service.createDesign('A multi-page product site', () => undefined)
+    const revisionId = design.activeRevisionId
+    expect(revisionId).not.toBeNull()
+
+    const files = service.getRevisionFiles(design.id, revisionId as string)
+    expect(Object.keys(files).sort()).toEqual(['.build/alpine.js', '.build/tailwind.css', 'index.html', 'pages/about.html'])
+    expect(files['index.html']).toContain('href="pages/about.html"')
+    expect(files['pages/about.html']).toContain('href="../index.html"')
+    expect(service.getRevisionPages(design.id, revisionId as string).pages.map((page) => page.path)).toEqual(['index.html', 'pages/about.html'])
+    store.close()
+  })
+
   it('duplicates a design with its head revision, metadata, and a cloned repository', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

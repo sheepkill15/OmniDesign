@@ -1,5 +1,6 @@
 import path from 'node:path'
 import type { Attachment, Message } from '../workspace/contracts.js'
+import { PREVIEW_ALLOWED_HOSTS } from '../workspace/previewPolicy.js'
 
 const RECAP_MAX_MESSAGES = 16
 const RECAP_MAX_CHARS = 4000
@@ -31,8 +32,8 @@ export function createDesignAgentInstructions(workspacePath: string, attachments
     '- The design can be one page or several. Every *.html file you commit outside the .build/ folder is a page — at the repository root or in subfolders (e.g. about.html, pages/pricing.html). OmniDesign discovers the pages from Git; you never declare a file list or choose an entry point.',
     '- index.html is the home page when it exists; otherwise the first page is used. Build a single-page design in index.html unless the request clearly calls for multiple pages.',
     '- Link between pages with ordinary relative anchors, e.g. <a href="about.html">. Relative links resolve inside the preview and the exported design.',
-    '- All committed files are included in both the preview and the exported design: every page plus any assets, fonts, and per-page JavaScript you author. You may split shared or page-specific JavaScript into sibling files and reference local images/fonts by relative path.',
-    '- External resources over HTTPS are also allowed and will load in the preview: web fonts, third-party stylesheets, plugin/library scripts (e.g. from a CDN), and images.',
+    '- All committed files are included in both the preview and the exported design: every page plus any assets, fonts, and per-page JavaScript you author. Prefer local assets committed alongside your pages — reference images, fonts, and per-page/shared JavaScript by relative path, and split shared or page-specific JavaScript into sibling files.',
+    `- External resources (web fonts, third-party stylesheets, plugin/library scripts, and images) load in the preview ONLY over HTTPS and ONLY from these approved hosts: ${PREVIEW_ALLOWED_HOSTS.join(', ')}. A resource from any other host is blocked, so prefer a local asset or one of these hosts; do not reference other domains.`,
     '- Programmatic network requests are blocked: fetch, XMLHttpRequest, WebSocket, and EventSource will fail in the preview. Build a self-contained design that does not depend on calling a network API at runtime; use static or inline data instead.',
     '- Never reference the local filesystem or use file: URLs. The preview is sandboxed and cannot read local files, and such references are rejected during validation.',
     '- OmniDesign generates the .build/ folder: one shared compiled Tailwind stylesheet (.build/tailwind.css) covering every page, and the Alpine.js runtime (.build/alpine.js). Every page must link both in its <head> exactly as the starter index.html does (<link rel="stylesheet" href=".build/tailwind.css"> and <script defer src=".build/alpine.js">); adjust the relative prefix for pages in subfolders. Do NOT read, edit, create, or delete anything under .build/ — it is regenerated on every revision.',

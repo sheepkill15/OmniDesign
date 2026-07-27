@@ -163,6 +163,9 @@ export const trashItemRequestSchema = z.object({
 
 export const themeSchema = z.enum(['dark', 'light'])
 
+// The id of the design open in the workspace when the app last closed, or null when nothing was open.
+export const lastOpenDesignSchema = z.string().min(1).max(100).nullable()
+
 export const generationSelectionSchema = z.object({
   providerId: z.enum(['mock', 'codex', 'claude']).catch('mock'),
   modelId: z.string().trim().min(1).max(200).catch('mock-v1'),

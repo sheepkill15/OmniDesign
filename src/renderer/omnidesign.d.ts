@@ -308,6 +308,8 @@ interface Window {
       saveGenerationDetail(detail: 'full' | 'concise'): Promise<void>
       getGenerationDefaults(): Promise<GenerationSelection>
       saveGenerationDefaults(selection: GenerationSelection): Promise<void>
+      getLastOpenDesignId(): Promise<string | null>
+      saveLastOpenDesignId(designId: string | null): Promise<void>
     }
     readonly preview: {
       register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>

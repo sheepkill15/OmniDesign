@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { alpineRuntimeBase64 } from './alpineRuntime.js'
@@ -66,8 +66,24 @@ export class DesignRepositoryManager {
    * stylesheet is refreshed. Returns the resulting commit SHA, or null when nothing changed.
    */
   public commitRevision(designId: string, indexHtml: string | null, tailwindCss: string, message: string): string | null {
+    if (indexHtml !== null) return this.commitGeneratedRevision(designId, { [ENTRY_HTML_PATH]: indexHtml }, tailwindCss, message)
     const repositoryPath = this.initialize(designId)
-    if (indexHtml !== null) this.writeFile(repositoryPath, ENTRY_HTML_PATH, indexHtml)
+    this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
+    this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
+    if (!this.commit(repositoryPath, message)) return null
+    return this.run(repositoryPath, ['rev-parse', 'HEAD'])
+  }
+
+  /** Replace the mock provider's authored source tree and commit it with the managed build outputs. */
+  public commitGeneratedRevision(designId: string, sourceFiles: RevisionFiles, tailwindCss: string, message: string): string | null {
+    const repositoryPath = this.initialize(designId)
+    const normalizedFiles = new Map(Object.entries(sourceFiles).map(([relativePath, content]) => [this.normalizeGeneratedPath(relativePath), content]))
+    for (const relativePath of Object.keys(this.readWorkingTreeFiles(designId))) {
+      if (relativePath.startsWith(`${BUILD_DIR}/`) || normalizedFiles.has(relativePath)) continue
+      const target = path.resolve(repositoryPath, relativePath)
+      if (path.dirname(target) === repositoryPath || target.startsWith(`${repositoryPath}${path.sep}`)) unlinkSync(target)
+    }
+    for (const [relativePath, content] of normalizedFiles) this.writeFile(repositoryPath, relativePath, content)
     this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
     this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
     if (!this.commit(repositoryPath, message)) return null
@@ -148,6 +164,14 @@ export class DesignRepositoryManager {
     const target = path.join(repositoryPath, relativePath)
     mkdirSync(path.dirname(target), { recursive: true })
     writeFileSync(target, content, 'utf8')
+  }
+
+  private normalizeGeneratedPath(relativePath: string): string {
+    const normalized = relativePath.replaceAll('\\', '/').replace(/^\.\//, '')
+    if (!normalized || path.posix.isAbsolute(normalized) || normalized === '.git' || normalized.startsWith('.git/') || normalized === BUILD_DIR || normalized.startsWith(`${BUILD_DIR}/`) || normalized.split('/').includes('..')) {
+      throw new Error(`Invalid generated file path: ${relativePath}`)
+    }
+    return normalized
   }
 
   private showFileAtCommit(repositoryPath: string, commit: string, relativePath: string): string | null {

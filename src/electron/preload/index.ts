@@ -86,6 +86,8 @@ contextBridge.exposeInMainWorld('omnidesign', {
     saveGenerationDetail: (detail: 'full' | 'concise') => ipcRenderer.invoke('settings:save-generation-detail', detail),
     getGenerationDefaults: () => ipcRenderer.invoke('settings:get-generation-defaults'),
     saveGenerationDefaults: (selection: GenerationSelection) => ipcRenderer.invoke('settings:save-generation-defaults', selection),
+    getLastOpenDesignId: () => ipcRenderer.invoke('settings:get-last-open-design'),
+    saveLastOpenDesignId: (designId: string | null) => ipcRenderer.invoke('settings:save-last-open-design', designId),
   },
   preview: {
     register: (designId: string, revisionId: string) => ipcRenderer.invoke('preview:register', { designId, revisionId }),
