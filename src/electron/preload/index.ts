@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     proposeProjectDesignDefinitions: (projectId: string, providerId: 'mock' | 'codex' | 'claude', modelId: string, effort?: string | null) => ipcRenderer.invoke('workspace:propose-project-design-definitions', { projectId, providerId, modelId, effort: effort ?? null }),
     setProjectDefinitionPromptSuppressed: (projectId: string, suppressed: boolean) => ipcRenderer.invoke('workspace:set-project-definition-prompt-suppressed', { projectId, suppressed }),
     keepProjectDesignDefinitions: (designId: string, targetVersion: number) => ipcRenderer.invoke('workspace:keep-project-design-definitions', { designId, targetVersion }),
-    applyProjectDesignDefinitions: (designId: string, targetVersion: number) => ipcRenderer.invoke('workspace:apply-project-design-definitions', { designId, targetVersion }),
+    applyProjectDesignDefinitions: (designId: string, targetVersion: number, selection?: { providerId: 'codex' | 'claude'; modelId: string; effort: string | null } | null) => ipcRenderer.invoke('workspace:apply-project-design-definitions', { designId, targetVersion, ...(selection ?? {}) }),
     applyProjectDesignDefinitionsToAll: (projectId: string, targetVersion: number) => ipcRenderer.invoke('workspace:apply-project-design-definitions-to-all', { projectId, targetVersion }),
     associateDesign: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-design', { designId, projectId }),
     duplicateDesign: (designId: string) => ipcRenderer.invoke('workspace:duplicate-design', { designId }),

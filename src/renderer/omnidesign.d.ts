@@ -123,6 +123,7 @@ interface GenerationJob {
   readonly attachments: readonly DesignAttachment[]
   readonly mode?: 'fresh' | 'continue'
   readonly providerSessionId?: string | null
+  readonly definitionTargetVersion?: number | null
   readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   readonly createdAt: string
   readonly startedAt: string | null
@@ -303,7 +304,7 @@ interface Window {
       proposeProjectDesignDefinitions(projectId: string, providerId: 'mock' | 'codex' | 'claude', modelId: string, effort?: string | null): Promise<ProjectDesignDefinitions>
       setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): Promise<ProjectDesignDefinitionState>
       keepProjectDesignDefinitions(designId: string, targetVersion: number): Promise<OmniDesignDocument>
-      applyProjectDesignDefinitions(designId: string, targetVersion: number): Promise<OmniDesignDocument>
+      applyProjectDesignDefinitions(designId: string, targetVersion: number, selection?: { readonly providerId: 'codex' | 'claude'; readonly modelId: string; readonly effort: string | null } | null): Promise<OmniDesignDocument>
       applyProjectDesignDefinitionsToAll(projectId: string, targetVersion: number): Promise<readonly OmniDesignDocument[]>
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
       duplicateDesign(designId: string): Promise<OmniDesignDocument>

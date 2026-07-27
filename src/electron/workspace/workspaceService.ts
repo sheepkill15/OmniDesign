@@ -6,7 +6,7 @@ import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 import { cloneRepository } from './gitClone.js'
-import { canUpdateProjectThemeDeterministically, createProjectDefinitionPromptContext, materializeProjectTheme } from './projectTheme.js'
+import { canUpdateProjectThemeDeterministically, createProjectDefinitionApplicationPrompt, createProjectDefinitionPromptContext, materializeProjectTheme } from './projectTheme.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
 
@@ -88,6 +88,17 @@ export class WorkspaceService {
       catch { const failed = this.store.getDesign(design.id); if (failed) results.push(failed) }
     }
     return results
+  }
+
+  public prepareAIProjectDefinitionApplication(designId: string, targetVersion: number): string {
+    const design = this.store.getDesign(designId)
+    if (!design || design.pendingDefinitionVersion !== targetVersion) throw new Error('The requested project-definition decision is no longer pending.')
+    const versions = this.store.listProjectDesignDefinitionVersions(design.projectId)
+    const target = versions.find((candidate) => candidate.version === targetVersion)
+    if (!target) throw new Error('The requested project definitions are missing.')
+    const current = design.definitionVersion ? versions.find((candidate) => candidate.version === design.definitionVersion) ?? null : null
+    this.store.beginProjectDefinitionApplication(designId, targetVersion)
+    return createProjectDefinitionApplicationPrompt(current, target)
   }
   public renameDesign(designId: string, title: string): Design { return this.store.renameDesign(designId, title) }
   public setTitlePending(designId: string, pending: boolean): void { this.store.setTitlePending(designId, pending) }
@@ -283,13 +294,17 @@ export class WorkspaceService {
     response: string,
     onActivity: ActivityListener,
     allowRepair = false,
+    definitionTargetVersion: number | null = null,
   ): Promise<Design> {
     const current = this.store.getDesign(designId)
     if (!current) throw new Error('Design not found.')
 
     try {
       let sourceFiles = this.repositories.readWorkingTreeFiles(designId)
-      const definitionVersion = current.activeRevisionId ? null : this.definitionVersionForDesign(current)
+      const definitionVersion = definitionTargetVersion
+        ? this.store.listProjectDesignDefinitionVersions(current.projectId).find((candidate) => candidate.version === definitionTargetVersion) ?? null
+        : current.activeRevisionId ? null : this.definitionVersionForDesign(current)
+      if (definitionTargetVersion && !definitionVersion) throw new Error('The requested project definitions are missing.')
       if (definitionVersion) {
         sourceFiles = materializeProjectTheme(sourceFiles, definitionVersion)
         this.repositories.writeSourceFiles(designId, sourceFiles)
@@ -304,7 +319,7 @@ export class WorkspaceService {
         onActivity({ designId, stage: 'complete', detail: 'No changes were needed.' })
         return this.store.addAssistantResponse(designId, response)
       }
-      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response)
+      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response, definitionTargetVersion ?? current.definitionVersion ?? null)
       onActivity({ designId, stage: 'complete', detail: 'Your design is ready.' })
       return saved
     } catch (error) {

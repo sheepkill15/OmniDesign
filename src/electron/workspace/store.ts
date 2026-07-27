@@ -156,6 +156,7 @@ interface GenerationJobRow {
   attachments_json: string
   mode: 'fresh' | 'continue'
   provider_session_id: string | null
+  definition_target_version: number | null
   state: GenerationJobState
   created_at: string
   started_at: string | null
@@ -513,6 +514,10 @@ ALTER TABLE designs ADD COLUMN pending_definition_version INTEGER CHECK (pending
 ALTER TABLE designs ADD COLUMN kept_definition_version INTEGER CHECK (kept_definition_version IS NULL OR kept_definition_version > 0);
 ALTER TABLE designs ADD COLUMN definition_application_state TEXT NOT NULL DEFAULT 'current' CHECK (definition_application_state IN ('current', 'pending', 'applying', 'kept', 'failed', 'unavailable'));
 ALTER TABLE designs ADD COLUMN definition_application_error TEXT;
+`
+
+const migrationThirtySix = `
+ALTER TABLE generation_jobs ADD COLUMN definition_target_version INTEGER CHECK (definition_target_version IS NULL OR definition_target_version > 0);
 `
 
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
@@ -1243,17 +1248,17 @@ export class WorkspaceStore {
     `).run(randomUUID(), designId, jobId, stage, label, detail, new Date().toISOString())
   }
 
-  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh'): GenerationJob {
+  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null): GenerationJob {
     this.requireDesign(designId)
     const id = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, now)
+        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, now)
       this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), id, now)
+        .run(randomUUID(), designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), id, now)
       // Sending any new prompt resolves a pending "adapt to project" decision.
       this.database.prepare('UPDATE designs SET updated_at = ?, adaptation_pending = 0 WHERE id = ?').run(now, designId)
     })
@@ -1264,7 +1269,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1272,7 +1277,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -1330,9 +1335,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -1362,9 +1367,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
     const continueId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.createdAt)
     return this.requireGenerationJob(continueId)
   }
 
@@ -1450,7 +1455,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1630,7 +1635,7 @@ export class WorkspaceStore {
 
   private listGenerationJobsForDesign(designId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
     `).all(designId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1647,6 +1652,7 @@ export class WorkspaceStore {
       attachments: this.hydrateAttachments(row.attachments_json),
       mode: row.mode,
       providerSessionId: row.provider_session_id,
+      definitionTargetVersion: row.definition_target_version,
       state: row.state,
       createdAt: row.created_at,
       startedAt: row.started_at,

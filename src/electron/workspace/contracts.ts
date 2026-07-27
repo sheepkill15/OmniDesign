@@ -195,7 +195,10 @@ export const setProjectDefinitionPromptSuppressedRequestSchema = projectIdReques
 export const projectDefinitionDecisionRequestSchema = z.object({
   designId: z.string().min(1).max(100),
   targetVersion: z.number().int().positive(),
-})
+  providerId: z.enum(['codex', 'claude']).optional(),
+  modelId: z.string().trim().min(1).max(200).optional(),
+  effort: z.string().trim().min(1).max(100).nullable().optional(),
+}).refine((value) => Boolean(value.providerId) === Boolean(value.modelId), { message: 'Provider and model must be supplied together.' })
 
 export const applyProjectDefinitionsToAllRequestSchema = projectIdRequestSchema.extend({
   targetVersion: z.number().int().positive(),
@@ -271,6 +274,7 @@ export const generationJobSchema = z.object({
   attachments: z.array(attachmentSchema).default([]),
   mode: generationJobModeSchema.default('fresh'),
   providerSessionId: z.string().min(1).nullable().default(null),
+  definitionTargetVersion: z.number().int().positive().nullable().default(null),
   state: generationJobStateSchema,
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),

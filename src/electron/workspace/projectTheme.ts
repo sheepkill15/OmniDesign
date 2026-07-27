@@ -79,3 +79,14 @@ export function createProjectDefinitionPromptContext(version: ProjectDesignDefin
     `Structured definitions:\n${JSON.stringify({ colors: definitions.colors, typography: definitions.typography, spacing: definitions.spacing, shape: definitions.shape }, null, 2)}`,
   ].filter(Boolean).join('\n\n')
 }
+
+export function createProjectDefinitionApplicationPrompt(current: ProjectDesignDefinitionVersion | null, target: ProjectDesignDefinitionVersion): string {
+  return [
+    `Apply project design definitions version ${target.version} to the current design.`,
+    'Update the design itself wherever interpretation or structural work is required. Preserve its purpose and interaction behavior while adopting the new shared system.',
+    `OmniDesign will materialize the target CSS variables in ${PROJECT_THEME_PATH} before validating the result. Use those semantic variables consistently and keep every page linked to that stylesheet.`,
+    'Supporting HTML, CSS, JavaScript, and shared components may be changed as needed.',
+    `Previous definitions:\n${current ? JSON.stringify(current.definitions, null, 2) : 'None; migrate literal design values into the managed theme.'}`,
+    `Target definitions:\n${JSON.stringify(target.definitions, null, 2)}`,
+  ].join('\n\n')
+}

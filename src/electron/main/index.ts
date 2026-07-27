@@ -375,7 +375,12 @@ function registerIpc(): void {
   ipcMain.handle('workspace:apply-project-design-definitions', async (event, value: unknown) => {
     authorize(event)
     const request = projectDefinitionDecisionRequestSchema.parse(value)
-    const design = await requireWorkspace().applyProjectDesignDefinitions(request.designId, request.targetVersion)
+    let design = await requireWorkspace().applyProjectDesignDefinitions(request.designId, request.targetVersion)
+    if (design.definitionApplicationState === 'unavailable' && request.providerId && request.modelId) {
+      const prompt = requireWorkspace().prepareAIProjectDefinitionApplication(request.designId, request.targetVersion)
+      requireGenerationQueue().enqueue(request.designId, prompt, request.providerId, request.modelId, request.effort, [], request.targetVersion)
+      design = requireWorkspace().getDesign(request.designId) ?? design
+    }
     sendWorkspaceChanged(request.designId)
     return design
   })
@@ -383,6 +388,16 @@ function registerIpc(): void {
     authorize(event)
     const request = applyProjectDefinitionsToAllRequestSchema.parse(value)
     const designs = await requireWorkspace().applyProjectDesignDefinitionsToAll(request.projectId, request.targetVersion)
+    const availableProviders = await providers.discover()
+    for (let index = 0; index < designs.length; index += 1) {
+      const design = designs[index]
+      if (design.definitionApplicationState !== 'unavailable' || design.lastSelection.providerId === 'mock') continue
+      const available = availableProviders.some((provider) => provider.id === design.lastSelection.providerId && provider.installed && provider.authenticated && provider.models.some((model) => model.id === design.lastSelection.modelId))
+      if (!available) continue
+      const prompt = requireWorkspace().prepareAIProjectDefinitionApplication(design.id, request.targetVersion)
+      requireGenerationQueue().enqueue(design.id, prompt, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort, [], request.targetVersion)
+      designs[index] = requireWorkspace().getDesign(design.id) ?? design
+    }
     for (const design of designs) sendWorkspaceChanged(design.id)
     return designs
   })
@@ -788,8 +803,12 @@ void app.whenReady().then(() => {
         if (reply.sessionId) rememberSession(reply.sessionId)
         if (signal.aborted) throw new Error('Generation was cancelled.')
         const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
-        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3)
-        if (saved.invalidCandidates.length === invalidCount) return
+        const revisionReason = job.definitionTargetVersion ? `Apply project definitions version ${job.definitionTargetVersion}` : job.prompt
+        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, revisionReason, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3, job.definitionTargetVersion)
+        if (saved.invalidCandidates.length === invalidCount) {
+          if (job.definitionTargetVersion) store.completeProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
+          return
+        }
         const diagnostic = saved.invalidCandidates.at(-1)?.diagnostic ?? 'The candidate did not pass validation.'
         agentPrompt = `Repair the current index.html in place and finish the original request. Validation feedback: ${diagnostic}`
       }

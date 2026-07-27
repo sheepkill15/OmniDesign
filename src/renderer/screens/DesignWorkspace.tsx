@@ -217,7 +217,8 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   const applyDefinitions = async () => {
     const target = design.pendingDefinitionVersion
     if (!api || !target) return
-    const updated = await runWorkspaceAction(() => api.applyProjectDesignDefinitions(design.id, target), 'Project definitions could not be applied.')
+    const providerSelection = selection.providerId === 'mock' || !hasUsableSelection ? null : { providerId: selection.providerId, modelId: selection.modelId, effort: selection.effort }
+    const updated = await runWorkspaceAction(() => api.applyProjectDesignDefinitions(design.id, target, providerSelection), 'Project definitions could not be applied.')
     if (updated) onChange(updated)
   }
   const keepDefinitions = async () => {

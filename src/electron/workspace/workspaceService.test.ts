@@ -58,7 +58,19 @@ describe('WorkspaceService', () => {
     })
     const unavailable = await service.applyProjectDesignDefinitions(saved.id, 3)
     expect(unavailable).toMatchObject({ pendingDefinitionVersion: 3, definitionApplicationState: 'unavailable' })
-    expect(service.keepProjectDesignDefinitions(saved.id, 3)).toMatchObject({ definitionVersion: 2, keptDefinitionVersion: 3, pendingDefinitionVersion: null, definitionApplicationState: 'kept' })
+    expect(service.prepareAIProjectDefinitionApplication(saved.id, 3)).toContain('Target definitions:')
+    const currentHtml = readFileSync(path.join(repositoryPath, 'index.html'), 'utf8')
+    writeFileSync(path.join(repositoryPath, 'index.html'), currentHtml.replace('</body>', '<p>AI-applied direction</p></body>'), 'utf8')
+    const interpreted = await service.saveAgentWorkspaceResult(saved.id, 'Apply project definitions version 3', 'codex', 'model-1', 'Applied the shared direction.', () => undefined, false, 3)
+    const completed = store.completeProjectDefinitionApplication(saved.id, 3)
+    expect(interpreted.revisions.at(-1)?.definitionVersion).toBe(3)
+    expect(completed).toMatchObject({ definitionVersion: 3, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
+
+    store.saveProjectDesignDefinitions(seed.projectId, {
+      ...store.getProjectDesignDefinitionState(seed.projectId)!.current!.definitions,
+      visualGuidance: 'Another new direction.',
+    })
+    expect(service.keepProjectDesignDefinitions(saved.id, 4)).toMatchObject({ definitionVersion: 3, keptDefinitionVersion: 4, pendingDefinitionVersion: null, definitionApplicationState: 'kept' })
     store.close()
   })
 
