@@ -13,10 +13,10 @@ taken with the product owner in planning (July 2026) and the concrete engineerin
 approach that follows from them. Future agents should keep it aligned as
 implementation resolves the open items in the last section.
 
-## Implementation Status (2026-07-24)
+## Implementation Status (2026-07-27)
 
-Landed on `feature/phase-2` (each slice test-gated; unit suite green at 205 tests;
-production build clean):
+Implemented on `feature/phase-2` (each slice test-gated; unit suite green at 221
+tests, eight Electron journeys green, production build clean):
 
 - **Track C1 — pages discovered from Git.** Complete. Multi-file `readRevisionFiles`,
   multi-page Tailwind compile into one shared stylesheet, entry-page export,
@@ -24,35 +24,36 @@ production build clean):
   `designSchema.pages`/`entryPagePath`, and `workspace:revision-pages` / `set-entry-page`.
 - **Track A — library with folders and tags.** Complete. Migrations 30/31, full store
   CRUD, contracts + IPC, and the Library screen (`screens/Library.tsx`): folder tree
-  rail, tag chips + inline tag management, client-side search/filter/sort, and the
-  sidebar Library entry.
+  rail, drag-to-file plus accessible move menus, tag chips + inline tag management,
+  project-kind/provider/tag/folder filtering, shared search/sort, and the sidebar
+  Library entry.
 - **Track B — mature multiple designs.** Complete. `duplicateDesign` (repo clone +
   metadata), generalized move between any projects, migration 32 (`sort_order`),
   Library duplicate/move actions, and project-grid multi-select with bulk remove/move.
 - **Track C4 — agent contract.** Complete. Design-agent instructions rewritten for
-  multi-page authoring; contract assertions and multi-page service round-trip tested.
+  multi-page authoring; Codex and Claude propagation assertions, a deterministic
+  multi-page development-provider fixture, and multi-page service round-trip tested.
 - **Track C2/C3 — preview rewrite.** Complete. The native `WebContentsView` is replaced
   by sandboxed opaque-origin iframes (`previewServer.ts` + `previewShim.ts`) with canvas
-  and focused view modes, a global device size and fit (`layoutSchema` persistence),
+  and focused view modes, Canvas device size and fit (`layoutSchema` persistence),
   diagnostics/height/page-sync over the shim, capturePage thumbnails, and a sandboxed
-  pop-out window. See the accepted ADR in `ARCHITECTURE.md`; the owner cleared the
-  isolation downgrade with a hardening follow-up planned.
-- **Page-metadata editing.** Set-home and rename-page from the focused-mode page
-  switcher, over `workspace:set-entry-page` / `save-page-metadata`.
+  pop-out window. Focused mode intentionally fills its pane without device constraints
+  (product-owner clarification, 2026-07-27). See the accepted ADR in `ARCHITECTURE.md`.
+- **Preview isolation hardening.** Complete for the Phase 2 isolation floor: CSP and a
+  default-session `webRequest` filter enforce the same curated external-resource
+  allowlist, programmatic egress remains denied, and iframe navigation is guarded.
+- **Page-metadata editing.** Set-home and rename actions are available from the
+  focused-mode page switcher over the existing metadata IPC. Manual page reordering
+  is intentionally not part of the product interaction.
+- **Track 0.** Complete. `App.tsx` is split into screen modules and App owns the shared
+  project/design collections consumed by Home, ProjectPage, Sidebar, and Library; the
+  old per-project design fetches are removed.
+- **Acceptance journey.** Complete. Electron creates a deterministic multi-page design,
+  switches pages and view modes, applies custom Canvas dimensions and fit, exports all
+  pages, restarts, and verifies restored page/view/size/fit state.
 
-Remaining / deferred:
-
-- **Preview isolation hardening** (owner-planned follow-up to the iframe ADR): tighten
-  the preview CSP toward a nonce'd shim and a strict external-resource allowlist, and
-  consider the `app://` renderer-scheme migration for a stable embedder origin.
-- **Track 0 — full `App.tsx` split.** Partially advanced (Library and DesignPreview are
-  their own modules; folders/tags lifted into shared `refresh()` state). The remaining
-  per-screen extraction of Home/ProjectPage/DesignWorkspace/Sidebar is still pending, as
-  is consolidating the `ProjectNavItem`/`ProjectPage` per-project design fetches.
-- **Folder drag-to-file** (owner would like it eventually): today projects move between
-  folders via an accessible menu; drag-and-drop is a later enhancement.
-- **Page reordering UI** (the `design_pages.sort_order` and save-page-metadata order
-  field exist; only rename/set-home have UI).
+No required Phase 2 behavior remains. Manual design-card ordering was explicitly
+optional and is not part of the completion floor.
 
 ## Phase 2 Goals (from `AGENTS.md`)
 
@@ -78,10 +79,10 @@ product owner has **moved those to Phase 3** and they are out of scope here.
   native `WebContentsView`. It is required to support the new canvas preview mode
   and is mitigated as described below. It must land as a dated ADR in
   `ARCHITECTURE.md` before the preview rewrite merges.
-- **D4 — The preview has two view modes and a global size/fit setting.** Canvas
+- **D4 — The preview has two view modes and Canvas size/fit settings.** Canvas
   mode lays out all pages of a design on a pan/zoom board; focused mode shows one
-  page. Device size and fit mode are global preview settings honored by both
-  modes and persisted per design.
+  page and intentionally fills the available pane without device constraints. Device
+  size and fit mode apply to Canvas and are persisted per design.
 
 ## Where Phase 1 Leaves Us
 
@@ -236,7 +237,7 @@ manages one sandboxed iframe per page.
 
 ### C3 — View modes and size/fit settings (D4)
 
-Two global preview settings apply in both modes:
+Two preview settings apply to Canvas mode:
 
 - **Device size** — presets (Phone / Tablet / Desktop) plus custom. A preset holds
   a width and a height.
@@ -255,7 +256,7 @@ Behavior:
   and tablet: device bezel), gap/spacing between tiles, and a page label. Chrome and
   fit follow `DESIGN_SYSTEM.md` tokens.
 - **Focused mode** shows one selected page filling the pane, with a page switcher.
-  It honors the same device size and fit setting.
+  It intentionally does not constrain the page to a simulated device size.
 - The shim's height role is active only in Artboard fit; it runs in Fixed fit for
   diagnostics and current-page reporting.
 - **Persistence.** `previewDeviceSize` and `previewFit` (and the selected page and
@@ -332,16 +333,16 @@ consistent with the Phase 1 discipline in `AGENTS.md`.
   change device size and fit, export a multi-page design offline, and recover
   preview settings after restart.
 
-## Open Decisions and Owner Sign-offs
+## Resolved Decisions and Owner Sign-offs
 
-- **ADR for the isolation downgrade (D3).** Record in `ARCHITECTURE.md` with the
-  mitigations pinned before the preview rewrite merges. Confirm the isolation floor
-  is acceptable, or choose `<webview>` (Option B) instead.
+- **ADR for the isolation downgrade (D3).** Accepted and recorded in
+  `ARCHITECTURE.md`; the Phase 2 hardening floor adds CSP and session-request allowlist
+  enforcement without returning to `<webview>`.
 - **Folder deletion semantics.** Confirmed direction: `ON DELETE SET NULL` re-roots
   a deleted folder's projects rather than blocking deletion of non-empty folders.
 - **Folders group projects, tags apply to both projects and designs.** Confirm this
   rather than folders holding designs directly.
-- **Folders in the sidebar.** v1 keeps folders Library-only; revisit if the sidebar
-  should reflect the hierarchy.
-- **Tags/folders migration timing.** They land in Track A ahead of the page-metadata
-  migration; confirm no reordering is needed against any in-flight Phase 3 work.
+- **Folders in the sidebar.** v1 keeps folders Library-only.
+- **Tags/folders migration timing.** They landed in Track A ahead of page metadata.
+- **Focused preview sizing.** Focused mode remains unconstrained and fills the pane;
+  Canvas alone owns simulated device dimensions and fit (owner decision, 2026-07-27).

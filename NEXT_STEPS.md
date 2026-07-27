@@ -4,7 +4,7 @@ This is a working plan, not a finalized product specification. The project owner
 
 ## Immediate Objective
 
-Use the completed walking skeleton to expand the implemented vertical slice toward the full Phase 1 acceptance criteria without weakening its tested persistence and preview isolation.
+Phase 2 project and design organization is complete on `feature/phase-2`. Keep it green and documented while defining the Phase 3 contract; do not silently pull focused editing or provider-configuration scope backward.
 
 The first complete user journey should be:
 
@@ -179,12 +179,13 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 ## Current Handoff State
 
-- Active work is on `feature/phase-1-project-lifecycle`; `docs/PHASE_1_GAP_AUDIT.md` is the current evidence-based completion ledger.
-- The Phase 1 functional slice now includes standalone and linked projects, local-folder and deferred Git-clone creation, multiple designs, project association, editable names, attachments, real Codex/Claude generation, per-design queues, cancellation/retry/continue, history/restoration, all preview layouts, offline export, persistent trash, global diagnostics, cross-platform notifications, dark/light themes, and restart recovery.
-- Codex and Claude discovery/prompt contracts have direct tests. Live Windows acceptance on 2026-07-22 exercised authenticated Codex CLI 0.144.6 and Claude Code 2.1.215 through generation and offline export. Both samples were responsive and interactive without console errors; the shared agent-quality contract now requires language, viewport, one main landmark, and one h1, with up to three provider repair attempts before non-blocking warnings are accepted and retained.
-- Recent polish added confirmed permanent deletion and bulk empty-trash behavior, actionable workspace success/error feedback, draft restoration after failed submission, per-design background activity, unique preview diagnostics, and persistent inline title editing.
-- Full Phase 1 completion is still withheld. Enforceable read-only access to linked projects and attachments remains explicitly deferred by the product owner and documented as a blocking security gap; broader trusted-UI visual/keyboard/forced-colors acceptance and the final requirement-by-requirement audit remain open.
-- Continue with focused, test-gated polish slices. Preserve generated-preview isolation and keep the deferred external-root restriction explicit rather than claiming completion.
+- Active work is on `feature/phase-2`; `docs/PHASE_2_PLAN.md` is the Phase 2 implementation and completion ledger.
+- Phase 2 now provides the complete project/design Library with nested folders, drag and accessible moves, tags, search, project-kind/provider/tag/folder filters, and shared sorting.
+- Multiple-design organization includes duplication, moves between any projects, project-grid multi-select, and bulk move/remove. App owns one shared design collection; Sidebar and ProjectPage no longer fetch their own copies.
+- Multiple-page designs are discovered from Git, compiled into one shared Tailwind stylesheet, previewed in Focused or Canvas mode, exported in full, and controlled through home/title/order metadata. Canvas persists preset or custom device dimensions and Artboard/Fixed fit; Focused intentionally fills the available pane.
+- The iframe preview's Phase 2 security floor combines opaque-origin sandboxing, restrictive CSP, guarded navigation, a curated external-resource allowlist, and matching session-level HTTP(S) request filtering.
+- Verification on 2026-07-27: `pnpm typecheck`, 221 unit tests, production build, and all eight Playwright Electron journeys pass. The Phase 2 journey covers multi-page creation, page/view switching, custom Canvas sizing, fit, offline export, restart, and restored settings.
+- Do not begin Phase 3 implementation until its product behavior is specified. The older Phase 1 audit gaps moved there by owner decision remain visible rather than being retroactively counted as Phase 2 work.
 
 ## Historical Handoff Notes (superseded where they conflict with the status above)
 
