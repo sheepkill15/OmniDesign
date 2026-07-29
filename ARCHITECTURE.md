@@ -723,7 +723,7 @@ accepts marker positions only from the active frame and only for opaque location
 already expects. Source keys are deterministic for an immutable page location so durable
 queued markers can return after restart, while privileged source maps continue to resolve
 and validate the authoritative path, line range, label, stable identifier, and excerpt.
-The trusted layer converts visible rectangles into directional teardrop pins, resolves
+The trusted layer converts visible rectangles into continuously aimed teardrop pins, resolves
 pin collisions in deterministic neighboring slots, and omits pins whose source elements
 do not intersect the iframe viewport.
 

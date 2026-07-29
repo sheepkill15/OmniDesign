@@ -14,14 +14,14 @@ const anchor = (overrides: Partial<FocusedAnchorRect> = {}): FocusedAnchorRect =
 })
 
 describe('focused marker layout', () => {
-  it('uses the marker corner facing the element as its teardrop point', () => {
+  it('aims the teardrop point continuously toward the element', () => {
     const below = layoutFocusedMarkers([{ id: 'below', rect: anchor(), count: 1 }]).below
     const above = layoutFocusedMarkers([{ id: 'above', rect: anchor({ top: 560, bottom: 590 }), count: 1 }]).above
 
     expect(below.side).toBe('below')
-    expect(below.point).toMatch(/^top-/)
+    expect(below.pointAngle).toBeCloseTo(-90)
     expect(above.side).toBe('above')
-    expect(above.point).toMatch(/^bottom-/)
+    expect(above.pointAngle).toBeCloseTo(90)
   })
 
   it('moves markers for nearby elements into non-overlapping slots', () => {
@@ -44,6 +44,8 @@ describe('focused marker layout', () => {
         expect(overlaps).toBe(false)
       }
     }
+    expect(placements.first.pointAngle).toBeCloseTo(-90)
+    expect(placements.second.pointAngle).toBeLessThan(-90)
   })
 
   it('does not place a marker for an element outside the viewport', () => {

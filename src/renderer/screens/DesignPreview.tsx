@@ -107,6 +107,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
   const capturedRef = useRef<string | null>(null)
   const capturingRef = useRef(false)
   const viewport = useRef<HTMLDivElement>(null)
+  const focusedInput = useRef<HTMLTextAreaElement>(null)
   const [focusedAnchorRects, setFocusedAnchorRects] = useState<Record<string, FocusedAnchorRect>>({})
   const [threadLocationIds, setThreadLocationIds] = useState<Record<string, string>>({})
 
@@ -134,7 +135,16 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
   }, [selectionActive, viewMode])
   useEffect(() => {
     viewport.current?.querySelectorAll('iframe').forEach((frame) => syncSelection(frame as HTMLIFrameElement))
-  }, [syncSelection, activePage, focusedTarget?.locationId])
+  }, [syncSelection, activePage])
+  useEffect(() => {
+    if (focusedTarget || !selectionActive || viewMode !== 'focused') return
+    viewport.current?.querySelectorAll('iframe').forEach((frame) => {
+      try { (frame as HTMLIFrameElement).contentWindow?.postMessage({ type: 'omnidesign-selection-start' }, '*') } catch { /* opaque frame not ready */ }
+    })
+  }, [focusedTarget?.locationId])
+  useEffect(() => {
+    if (focusedTarget) focusedInput.current?.focus()
+  }, [focusedTarget?.locationId])
 
   useEffect(() => {
     let current = true
@@ -316,7 +326,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
         const detailId = `focused-feedback-detail-${thread.id}`
         const pendingCount = thread.entries.filter((entry) => entry.state === 'pending').length
         return <div className="focused-feedback-marker-wrap" data-side={placement.side} key={thread.id} style={{ left: `${placement.left}px`, top: `${placement.top}px`, width: `${placement.width}px` }}>
-          <Button className="focused-feedback-marker" data-point={placement.point} data-pending={pendingCount > 0 || undefined} aria-label={`Focused edit thread ${index + 1}, ${thread.entries.length} ${thread.entries.length === 1 ? 'comment' : 'comments'}${pendingCount ? `, ${pendingCount} pending` : ''}`} aria-describedby={detailId}><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><span>{thread.entries.length}</span></Button>
+          <Button className="focused-feedback-marker" data-pending={pendingCount > 0 || undefined} style={{ '--marker-point-angle': `${placement.pointAngle}deg`, '--marker-point-x': `${placement.pointX}px`, '--marker-point-y': `${placement.pointY}px` } as CSSProperties} aria-label={`Focused edit thread ${index + 1}, ${thread.entries.length} ${thread.entries.length === 1 ? 'comment' : 'comments'}${pendingCount ? `, ${pendingCount} pending` : ''}`} aria-describedby={detailId}><span className="focused-feedback-marker-point" aria-hidden="true" /><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><span className="focused-feedback-marker-count">{thread.entries.length}</span></Button>
           <div className="focused-feedback-marker-detail" id={detailId} style={{ left: `${placement.detailLeft}px` }}>
             <span><strong>{thread.entries.length === 1 ? 'Focused edit' : `${thread.entries.length} focused edits`}</strong><small>{thread.target.label}</small></span>
             <div className="focused-feedback-thread">
@@ -331,7 +341,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
       })}
       {focusedTarget && focusedAnchorRects.editor && anchorIsVisible(focusedAnchorRects.editor) && <div className="focused-comment-popover" role="dialog" aria-label="Focused feedback" style={anchoredStyle(focusedAnchorRects.editor, 380, 190)}>
         <div className="focused-comment-context"><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><small>{focusedTarget.label} · {focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}</small><Button className="icon-button" aria-label="Close focused feedback" onPress={onClearFocused}><XMarkIcon aria-hidden="true" /></Button></div>
-        <TextField className="focused-comment-field" aria-label="Feedback for selected element"><TextArea className="focused-comment-input" autoFocus value={focusedComment} placeholder="Describe what should change…" onChange={(event) => onFocusedCommentChange(event.target.value)} onKeyDown={(event) => {
+        <TextField className="focused-comment-field" aria-label="Feedback for selected element"><TextArea ref={focusedInput} className="focused-comment-input" autoFocus value={focusedComment} placeholder="Describe what should change…" onChange={(event) => onFocusedCommentChange(event.target.value)} onKeyDown={(event) => {
           if (event.key === 'Escape') { event.preventDefault(); onClearFocused() }
           else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (canSubmitFocused && focusedComment.trim()) onSubmitFocused() }
         }} /></TextField>

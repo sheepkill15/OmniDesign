@@ -14,7 +14,9 @@ export interface FocusedMarkerPlacement {
   readonly top: number
   readonly width: number
   readonly side: 'above' | 'below'
-  readonly point: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  readonly pointAngle: number
+  readonly pointX: number
+  readonly pointY: number
   readonly detailLeft: number
 }
 
@@ -65,11 +67,20 @@ export function layoutFocusedMarkers(items: readonly { readonly id: string; read
       && candidate.left + width + COLLISION_GAP > other.left
       && candidate.top < other.bottom + COLLISION_GAP
       && candidate.top + MARKER_HEIGHT + COLLISION_GAP > other.top)) ?? candidates[0]
-    const horizontalPoint = targetX < chosen.left + width / 2 ? 'left' : 'right'
+    const markerCenterX = chosen.left + width / 2
+    const markerCenterY = chosen.top + MARKER_HEIGHT / 2
+    const targetY = chosen.side === 'below' ? rect.bottom : rect.top
+    const deltaX = targetX - markerCenterX
+    const deltaY = targetY - markerCenterY
+    const radiusX = width / 2
+    const radiusY = MARKER_HEIGHT / 2
+    const boundaryScale = 1 / Math.sqrt((deltaX * deltaX) / (radiusX * radiusX) + (deltaY * deltaY) / (radiusY * radiusY))
     placements[item.id] = {
       ...chosen,
       width,
-      point: `${chosen.side === 'below' ? 'top' : 'bottom'}-${horizontalPoint}` as FocusedMarkerPlacement['point'],
+      pointAngle: Math.atan2(deltaY, deltaX) * 180 / Math.PI,
+      pointX: width / 2 + deltaX * boundaryScale,
+      pointY: MARKER_HEIGHT / 2 + deltaY * boundaryScale,
       detailLeft: chosen.left + 300 <= rect.viewportWidth - VIEWPORT_INSET ? 0 : width - 300,
     }
     occupied.push({ left: chosen.left, top: chosen.top, right: chosen.left + width, bottom: chosen.top + MARKER_HEIGHT })

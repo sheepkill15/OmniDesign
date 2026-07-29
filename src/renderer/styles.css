@@ -3487,7 +3487,10 @@ button[aria-expanded="true"] .dropdown-caret {
 }
 
 .focused-feedback-marker {
+  --marker-point-border: var(--border-strong);
   display: inline-flex;
+  position: relative;
+  isolation: isolate;
   align-items: center;
   gap: 3px;
   height: 30px;
@@ -3504,13 +3507,22 @@ button[aria-expanded="true"] .dropdown-caret {
   pointer-events: auto;
   transition: opacity 120ms ease, transform 120ms ease;
 }
-.focused-feedback-marker[data-point="top-left"] { border-top-left-radius: 4px; }
-.focused-feedback-marker[data-point="top-right"] { border-top-right-radius: 4px; }
-.focused-feedback-marker[data-point="bottom-left"] { border-bottom-left-radius: 4px; }
-.focused-feedback-marker[data-point="bottom-right"] { border-bottom-right-radius: 4px; }
-.focused-feedback-marker[data-pending] { border-color: var(--accent); color: var(--accent); }
+.focused-feedback-marker-point {
+  position: absolute;
+  z-index: -1;
+  left: var(--marker-point-x);
+  top: var(--marker-point-y);
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--marker-point-border);
+  border-radius: 2px;
+  background: var(--surface-3);
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(calc(var(--marker-point-angle) + 45deg));
+}
+.focused-feedback-marker[data-pending] { --marker-point-border: var(--accent); border-color: var(--accent); color: var(--accent); }
 .focused-feedback-marker svg { width: 15px; }
-.focused-feedback-marker span { font-size: 10px; font-weight: 600; }
+.focused-feedback-marker-count { font-size: 10px; font-weight: 600; }
 .focused-feedback-marker-wrap:hover .focused-feedback-marker,
 .focused-feedback-marker:focus-visible { opacity: 1; transform: translateY(-1px); }
 

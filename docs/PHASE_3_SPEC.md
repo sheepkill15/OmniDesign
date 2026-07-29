@@ -147,14 +147,14 @@ AI application defaults to the design's most recently used available provider, m
 
 - Element selection is available only for the current head revision in Focused preview mode.
 - Activating selection from Canvas mode opens the chosen page in Focused mode before selection begins.
-- A preview-toolbar control enters selection mode. Escape exits without selecting.
+- A preview-toolbar toggle enters selection mode and remains authoritative until explicitly turned off. Escape clears the current hover or unsubmitted target without silently changing the toggle.
 - While selection mode is active, pointer activation is used for inspection: authored clicks, navigation, submission, and other page actions are suppressed.
 - Hover and keyboard focus expose a restrained outline and a concise semantic label without restyling the design itself.
-- Selecting one element exits selection mode and opens a compact trusted feedback popup immediately above or below the selected element, collision-fitted within the preview pane.
+- Selecting one element keeps the toolbar toggle active, clears the transient hover treatment, and opens a compact trusted feedback popup immediately above or below the selected element, collision-fitted within the preview pane.
 - The popup owns its own feedback draft so the ordinary conversation composer remains unchanged. It shows the exact target, focuses its multiline field, closes with Escape, and exposes two explicit actions: **Submit & fix** sends that one edit immediately, while **Queue** stores it for a later batch.
 - Popup placement uses a bounded element rectangle reported by the injected shim only as presentation data. Authoritative target identity still comes exclusively from the privileged immutable source map.
 
-The selected target and its draft are ephemeral. They clear after immediate submission, queueing, page or revision changes, leaving the design workspace, or application restart. The element-selection control is a persistent toggle: after activation, repeated elements remain selectable until the user explicitly turns it off, presses Escape, switches to Canvas, or leaves the design. Queued and submitted focused comments and their trusted resolved targets are durable records rather than live selection state.
+The selected target and its draft are ephemeral. They clear after immediate submission, queueing, page or revision changes, leaving the design workspace, or application restart. The element-selection control is a persistent toggle: after activation, repeated elements remain selectable until the user explicitly turns it off or leaves the design. Canvas temporarily suspends picking without changing the toggle. Queued and submitted focused comments and their trusted resolved targets are durable records rather than live selection state.
 
 ### Source Mapping
 

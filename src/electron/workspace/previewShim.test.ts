@@ -49,6 +49,8 @@ describe('preview shim injection', () => {
     expect(result).toContain("getAttribute('data-od-source-key')")
     expect(result).toContain('event.preventDefault(); event.stopPropagation()')
     expect(result).toContain("event.key === 'Escape'")
+    expect(result).toContain("if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); clearHighlight(); post({ type: 'selection-cancelled' }); }")
+    expect(result).not.toContain("if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); stopSelecting();")
     expect(result).toContain('clearHighlight();')
     expect(result).toContain('od-focused-label')
     expect(result).toContain('omnidesign-focused-anchors')

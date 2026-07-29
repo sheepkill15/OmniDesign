@@ -161,7 +161,7 @@ function shimBody(): string {
   }, true);
   document.addEventListener('keydown', function (event) {
     if (!selecting) return;
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); stopSelecting(); post({ type: 'selection-cancelled' }); }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); clearHighlight(); post({ type: 'selection-cancelled' }); }
     else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); choose(event.target); }
   }, true);
   ['error', 'warn'].forEach(function (level) {

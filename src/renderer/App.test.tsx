@@ -1220,6 +1220,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const focusedEditor = await screen.findByRole('dialog', { name: 'Focused feedback' })
     expect(within(focusedEditor).getByText(/pages\/pricing\.html:24-31/)).toBeInTheDocument()
     const followUp = within(focusedEditor).getByRole('textbox', { name: 'Feedback for selected element' })
+    expect(followUp).toHaveFocus()
     fireEvent.change(followUp, { target: { value: 'Make this call to action calmer' } })
     expect(screen.getByRole('button', { name: 'Queue' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Submit & fix' }))
@@ -1268,6 +1269,12 @@ describe('Phase 1 walking skeleton UI', () => {
         rect: { left: 40, top, right: 180, bottom: top + 40, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 },
       },
     }))
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'omnidesign-preview-shim', type: 'selection-cancelled', page: 'index.html' },
+    }))
+    expect(selectButton).toHaveAttribute('aria-pressed', 'true')
 
     select(firstTarget, 80)
     const firstPopup = await screen.findByRole('dialog', { name: 'Focused feedback' })
@@ -1446,12 +1453,15 @@ describe('Phase 1 walking skeleton UI', () => {
     }))
     await waitFor(() => expect(bridge.preview.resolveFocusedTarget).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    expect(selectElement).toHaveAttribute('aria-pressed', 'true')
     await act(async () => finishResolution?.({
       designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 5, endLine: 5,
       label: '<button>', stableId: null, excerpt: '<button>Go</button>', dynamicDescription: null,
     }))
 
     expect(screen.queryByText('index.html:5-5')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Focused' }))
+    expect(selectElement).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('configures and persists a custom canvas size while focused mode stays unconstrained', async () => {
