@@ -151,6 +151,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     preview: {
       register: vi.fn().mockResolvedValue({ token: 'token-1', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' }),
       resolveFocusedTarget: vi.fn().mockResolvedValue(null),
+      locateFocusedTargets: vi.fn(async (request: { targets: readonly { id: string; target: FocusedTarget }[] }) => request.targets.flatMap(({ id, target }) => target.locationId ? [{ id, locationId: target.locationId }] : [])),
       reportDiagnostic: vi.fn().mockResolvedValue(undefined),
       capture: vi.fn().mockResolvedValue(true),
       popOut: vi.fn().mockResolvedValue(undefined),
@@ -1186,7 +1187,7 @@ describe('Phase 1 walking skeleton UI', () => {
   it('attaches an exact focused target from the active frame, submits it, and clears the live selection', async () => {
     const bridge = installBridge()
     const target: FocusedTarget = {
-      designId: 'design-1', revisionId: 'revision-1', path: 'pages/pricing.html', startLine: 24, endLine: 31,
+      designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'pages/pricing.html', startLine: 24, endLine: 31,
       label: '<button#buy.primary>', stableId: 'pricing-cta', excerpt: '<button>Buy now</button>', dynamicDescription: null,
     }
     vi.mocked(bridge.preview.resolveFocusedTarget).mockResolvedValue(target)
@@ -1212,11 +1213,13 @@ describe('Phase 1 walking skeleton UI', () => {
       data: {
         source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html',
         locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', clickedLabel: '<button#buy.primary>', usedAncestor: false,
+        rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 },
       },
     }))
 
-    expect(await screen.findByText('pages/pricing.html:24-31')).toBeInTheDocument()
-    const followUp = screen.getByRole('textbox', { name: 'Request a design change' })
+    const focusedEditor = await screen.findByRole('dialog', { name: 'Focused feedback' })
+    expect(within(focusedEditor).getByText(/pages\/pricing\.html:24-31/)).toBeInTheDocument()
+    const followUp = within(focusedEditor).getByRole('textbox', { name: 'Feedback for selected element' })
     fireEvent.change(followUp, { target: { value: 'Make this call to action calmer' } })
     expect(screen.getByRole('button', { name: 'Queue' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Submit & fix' }))
@@ -1224,17 +1227,17 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith(
       'design-1', 'Make this call to action calmer', 'mock', 'mock-v1', undefined, [], target,
     ))
-    expect(screen.queryByText('pages/pricing.html:24-31')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Focused feedback' })).not.toBeInTheDocument()
   })
 
   it('queues multiple focused comments in the conversation and submits them as one batch', async () => {
     const bridge = installBridge()
     const firstTarget: FocusedTarget = {
-      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 12, endLine: 16,
+      designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 12, endLine: 16,
       label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
     }
     const secondTarget: FocusedTarget = {
-      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 28, endLine: 31,
+      designId: 'design-1', revisionId: 'revision-1', locationId: 'fb57d30b-fc27-4edc-b6ad-b5d0886ae152', path: 'index.html', startLine: 28, endLine: 31,
       label: '<button.primary>', stableId: 'hero-action', excerpt: '<button>Get started</button>', dynamicDescription: null,
     }
     const firstFeedback: FocusedFeedback = {
@@ -1266,22 +1269,40 @@ describe('Phase 1 walking skeleton UI', () => {
         data: {
           source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html', locationId,
           clickedLabel: label, usedAncestor: false,
+          rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 },
         },
       }))
-      await screen.findByText(expectedReference)
+      await screen.findByText(new RegExp(expectedReference.replace('.', '\\.')))
     }
 
     await selectTarget('6c81c254-bf06-4a04-8b3c-4c39779b2466', '<h1.hero-title>', 'index.html:12-16')
-    const followUp = screen.getByRole('textbox', { name: 'Request a design change' })
+    const followUp = screen.getByRole('textbox', { name: 'Feedback for selected element' })
     fireEvent.change(followUp, { target: { value: firstFeedback.comment } })
     fireEvent.click(screen.getByRole('button', { name: 'Queue' }))
     await waitFor(() => expect(bridge.workspace.queueFocusedFeedback).toHaveBeenCalledWith('design-1', firstFeedback.comment, firstTarget))
     expect(await screen.findByText('1 focused note queued')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.preview.locateFocusedTargets).toHaveBeenCalled())
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+        data: { source: 'omnidesign-preview-shim', type: 'focused-anchors', page: 'index.html', anchors: [{ id: 'focused-thread-1', locationId: firstTarget.locationId, rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 } }] },
+      }))
+    expect(await screen.findByRole('button', { name: 'Focused edit thread 1, 1 comment, 1 pending' })).toBeInTheDocument()
 
     await selectTarget('fb57d30b-fc27-4edc-b6ad-b5d0886ae152', '<button.primary>', 'index.html:28-31')
-    fireEvent.change(followUp, { target: { value: secondFeedback.comment } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Feedback for selected element' }), { target: { value: secondFeedback.comment } })
     fireEvent.click(screen.getByRole('button', { name: 'Queue' }))
     expect(await screen.findByText('2 focused notes queued')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.preview.locateFocusedTargets).toHaveBeenLastCalledWith(expect.objectContaining({
+      targets: expect.arrayContaining([{ id: 'focused-thread-1', target: firstTarget }, { id: 'focused-thread-2', target: secondTarget }]),
+    })))
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'omnidesign-preview-shim', type: 'focused-anchors', page: 'index.html', anchors: [
+          { id: 'focused-thread-1', locationId: firstTarget.locationId, rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 } },
+          { id: 'focused-thread-2', locationId: secondTarget.locationId, rect: { left: 240, top: 220, right: 360, bottom: 260, width: 120, height: 40, viewportWidth: 800, viewportHeight: 600 } },
+        ] },
+      }))
+    expect(await screen.findByRole('button', { name: 'Focused edit thread 2, 1 comment, 1 pending' })).toBeInTheDocument()
     expect(screen.getByText(firstFeedback.comment)).toBeInTheDocument()
     expect(screen.getByText(secondFeedback.comment)).toBeInTheDocument()
 
@@ -1292,6 +1313,59 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.queryByRole('region', { name: 'Focused feedback queue' })).not.toBeInTheDocument()
     expect(bridge.workspace.submitFocusedFeedbackBatch).toHaveBeenCalledTimes(1)
     expect(bridge.workspace.generate).not.toHaveBeenCalled()
+  })
+
+  it('keeps submitted focused edits grouped as a historical thread on their element', async () => {
+    const historicalTarget: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-before-edit', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const submittedFeedback: FocusedFeedback = {
+      id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885', comment: 'Reduce the heading width.', target: historicalTarget, createdAt: '2026-07-27T10:01:00.000Z',
+    }
+    const pendingFeedback: FocusedFeedback = {
+      id: 'a91b71b4-8a42-4fb8-b93e-bf398c19329d', comment: 'Try a softer weight next.', target: historicalTarget, createdAt: '2026-07-27T10:02:00.000Z',
+    }
+    const historicalDesign: OmniDesignDocument = {
+      ...design,
+      messages: [
+        ...design.messages,
+        { id: 'focused-message', role: 'user', text: 'Make the heading feel calmer.', focusedTarget: historicalTarget, createdAt: '2026-07-27T10:00:00.000Z' },
+        { id: 'focused-batch', role: 'user', text: 'Apply 1 focused edit.', focusedFeedback: [submittedFeedback], createdAt: '2026-07-27T10:01:00.000Z' },
+      ],
+    }
+    const bridge = installBridge([historicalDesign], historicalDesign)
+    const currentLocationId = 'fb57d30b-fc27-4edc-b6ad-b5d0886ae152'
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    vi.mocked(bridge.workspace.listFocusedFeedback).mockResolvedValue([pendingFeedback])
+    vi.mocked(bridge.preview.locateFocusedTargets).mockResolvedValue([{ id: 'focused-thread-1', locationId: currentLocationId }])
+    render(<App />)
+
+    const frame = await waitFor(() => {
+      const candidate = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement | null
+      expect(candidate).toBeTruthy()
+      return candidate!
+    })
+    await waitFor(() => expect(bridge.preview.locateFocusedTargets).toHaveBeenCalledWith(expect.objectContaining({
+      designId: design.id,
+      revisionId: design.selectedRevisionId,
+      targets: [{ id: 'focused-thread-1', target: historicalTarget }],
+    })))
+    await waitFor(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: { source: 'omnidesign-preview-shim', type: 'focused-anchors', page: 'index.html', anchors: [{ id: 'focused-thread-1', locationId: currentLocationId, rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 } }] },
+      }))
+      expect(screen.getByRole('button', { name: 'Focused edit thread 1, 3 comments, 1 pending' })).toBeInTheDocument()
+    })
+
+    const threadButton = screen.getByRole('button', { name: 'Focused edit thread 1, 3 comments, 1 pending' })
+    const threadDetail = document.getElementById(threadButton.getAttribute('aria-describedby')!)!
+    expect(within(threadDetail).getByText('Make the heading feel calmer.')).toBeInTheDocument()
+    expect(within(threadDetail).getByText('Reduce the heading width.')).toBeInTheDocument()
+    expect(within(threadDetail).getByText('Try a softer weight next.')).toBeInTheDocument()
+    expect(within(threadDetail).getAllByText('Submitted')).toHaveLength(2)
+    expect(within(threadDetail).getByText('Pending')).toBeInTheDocument()
   })
 
   it('drops a focused resolution that becomes stale while the preview mode changes', async () => {
@@ -1316,7 +1390,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.preview.resolveFocusedTarget).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
     await act(async () => finishResolution?.({
-      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 5, endLine: 5,
+      designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 5, endLine: 5,
       label: '<button>', stableId: null, excerpt: '<button>Go</button>', dynamicDescription: null,
     }))
 

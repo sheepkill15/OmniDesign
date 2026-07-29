@@ -13,7 +13,7 @@ The product owner defined this contract on 2026-07-27. Provider API keys, multip
 Phase 3 adds two connected capabilities:
 
 1. A project can own structured design definitions that guide new designs and can be propagated safely to existing designs.
-2. A user can select one source-authored element in a focused preview, attach a comment with exact file-and-line context, and either fix it immediately or queue several focused comments for one coordinated AI update.
+2. A user can select one source-authored element in a focused preview, enter feedback in a trusted popup anchored beside that element, and either fix it immediately or queue several spatially marked comments for one coordinated AI update.
 
 AI-directed work remains the primary editing workflow. Project definitions provide durable, high-level control; focused selection makes a conversational request more precise without becoming a pixel editor or general DOM inspector.
 
@@ -34,6 +34,7 @@ AI-directed work remains the primary editing workflow. Project definitions provi
 - A nearest-authored-ancestor fallback for elements created dynamically at runtime.
 - Focused edits that may update supporting CSS or JavaScript outside the selected element when required.
 - A persistent per-design focused-feedback queue and one-generation batch submission.
+- Trusted, semi-transparent element-thread markers positioned beside their source elements, with pending and submitted focused feedback revealed chronologically on hover or keyboard focus.
 
 ### Deferred
 
@@ -149,10 +150,11 @@ AI application defaults to the design's most recently used available provider, m
 - A preview-toolbar control enters selection mode. Escape exits without selecting.
 - While selection mode is active, pointer activation is used for inspection: authored clicks, navigation, submission, and other page actions are suppressed.
 - Hover and keyboard focus expose a restrained outline and a concise semantic label without restyling the design itself.
-- Selecting one element exits selection mode and attaches a focused-target chip to the composer.
-- With a target and comment attached, the composer exposes two explicit actions: **Submit & fix** sends that one edit immediately, while **Queue** stores it for a later batch.
+- Selecting one element exits selection mode and opens a compact trusted feedback popup immediately above or below the selected element, collision-fitted within the preview pane.
+- The popup owns its own feedback draft so the ordinary conversation composer remains unchanged. It shows the exact target, focuses its multiline field, closes with Escape, and exposes two explicit actions: **Submit & fix** sends that one edit immediately, while **Queue** stores it for a later batch.
+- Popup placement uses a bounded element rectangle reported by the injected shim only as presentation data. Authoritative target identity still comes exclusively from the privileged immutable source map.
 
-The live selection is ephemeral. It clears after immediate submission, queueing, page or revision changes, leaving the design workspace, or application restart. The user can clear it explicitly before submission. It is not restored as draft state. Once queued, however, the comment and its trusted resolved target are durable records rather than live selection state.
+The live selection is ephemeral. It clears after immediate submission, queueing, page or revision changes, leaving the design workspace, or application restart. The user can clear it explicitly before submission. It is not restored as draft state. Queued and submitted focused comments and their trusted resolved targets are durable records rather than live selection state.
 
 ### Source Mapping
 
@@ -186,12 +188,15 @@ Focused selection extends the existing injected preview shim and validated `post
 - The privileged workspace resolves the opaque identifier against the registered immutable revision and returns only a validated repository-relative file and line range.
 - File paths, line numbers, revision identifiers, and source excerpts claimed directly by generated code are never trusted.
 - Selection messages cannot request arbitrary files or read outside the selected design revision.
+- Element rectangles and marker positions are non-authoritative visual hints. The trusted renderer accepts them only from the active registered frame and only for opaque identifiers it already expects.
 
 ### Prompting and History
 
 - A focused target augments an ordinary user prompt; it does not create a separate conversation or provider session.
 - **Submit & fix** preserves the original user wording in the conversation, accompanied by a compact target reference.
-- **Queue** adds the comment and exact target to a bounded, removable list pinned above the conversation composer. The queue survives navigation and restart.
+- **Queue** adds the comment and exact target to a bounded durable queue. A compact conversation-side summary retains the batch-level **Fix all** action, while each source element has one semi-transparent thread marker above or below it in the focused preview.
+- Hovering a marker or moving keyboard focus to it reveals that element's submitted focused-edit history and pending comments in chronological order. Pending comments remain removable; submitted history is read-only. Markers follow their elements as the preview scrolls or reflows and survive navigation and restart.
+- Across revisions, a historical thread is re-anchored only when the privileged source map finds one unique match on the same page by stable `data-od-*` identity or by unchanged label and source excerpt. If no unique match exists, the submitted record remains in conversation history without guessing a preview anchor.
 - **Fix all** atomically converts the selected queue items into one user message and one generation attempt. The provider receives every comment and exact target in a single coordinated turn, and successful generation creates at most one new revision for the batch.
 - Submitted batch history lists every original comment and its exact target reference. Retry and Continue preserve the whole batch.
 - A newly created revision invalidates and clears any still-pending focused-feedback queue because its source ranges belong to the previous immutable revision.
@@ -219,7 +224,9 @@ Persist at minimum:
 - Definition-application attempts, diagnostics, provider/model choice when AI is used, and resulting revision pointers.
 - Resolved focused-target metadata on submitted messages and generation attempts.
 - Pending focused-feedback queue items, including their original comments, order, revision, exact source targets, and creation times.
+- The stable opaque source-location identifier needed to restore trusted marker placement for the same immutable revision.
 - Submitted focused-feedback batches on their conversation messages and generation attempts.
+- The per-element thread view is derived from submitted message metadata plus pending queue records; it does not create a second persistence model or provider conversation.
 
 Definition editing drafts may remain renderer-owned in the first slice, but a saved version and every pending decision must survive restart. Active definition-application jobs recover through the existing interrupted-job behavior.
 
@@ -289,8 +296,9 @@ Each track lands in small, testable commits. Track C may be prototyped while Tra
 - A source-authored selection resolves to the exact repository-relative HTML file and inclusive line range.
 - A runtime-generated element resolves to the nearest authored ancestor or produces a clear unmappable state.
 - Submitted target metadata survives in conversation and attempt history while the live selection clears.
-- A selected target and comment expose **Submit & fix** and **Queue** actions.
-- Queued comments remain visible and removable in the conversation area and survive restart.
+- A selected target opens a collision-fitted trusted feedback popup beside the element with **Submit & fix** and **Queue** actions.
+- Each element's pending and submitted focused comments appear as one subtle anchored thread marker, reveal their chronological content on hover and keyboard focus, keep only pending items removable, and survive restart.
+- Historical threads follow uniquely matched stable identities or unchanged source into the displayed revision and never attach through fuzzy or ambiguous matching.
 - **Fix all** sends every queued comment and exact target in one provider turn and creates one generation attempt rather than one attempt per comment.
 - Submitted batch history and Retry/Continue retain every comment and exact target in order.
 - A revision change cannot apply stale queued source ranges.

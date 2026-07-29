@@ -716,6 +716,21 @@ so normal validation and Git-backed revision creation apply once to the coordina
 result. A new head revision clears any unsubmitted records whose immutable source ranges
 have become stale.
 
+The focused-feedback editor and element-thread markers render in the trusted React layer above
+the sandboxed iframe. The injected shim reports bounded element rectangles only for
+placement and reflow; those rectangles are never source authority. The trusted renderer
+accepts marker positions only from the active frame and only for opaque location keys it
+already expects. Source keys are deterministic for an immutable page location so durable
+queued markers can return after restart, while privileged source maps continue to resolve
+and validate the authoritative path, line range, label, stable identifier, and excerpt.
+
+The renderer derives each element thread from persisted focused-target metadata on user
+messages plus pending queue records; it does not introduce a parallel conversation store.
+When displaying a later revision, the privileged preview service re-anchors a historical
+target only to one unique source-map entry on the same page: first by stable `data-od-*`
+identity, then by an unchanged label and exact source excerpt. Deleted, changed, foreign,
+or ambiguous targets remain in ordinary history and are not assigned a visual marker.
+
 ## Rules for Changing This Architecture
 
 - Distinguish accepted decisions from proposals and experiments.

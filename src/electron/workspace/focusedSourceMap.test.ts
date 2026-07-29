@@ -12,6 +12,7 @@ describe('focused source maps', () => {
     const injected = injectFocusedSourceKeys(html, locations)
     expect(injected).toContain(`<button data-od-id="save-action" data-od-source-key="${button?.id}">`)
     expect(html).not.toContain('data-od-source-key')
+    expect(buildFocusedSourceMap(html, 'pages/settings.html').find((location) => location.label === '<button>')?.id).toBe(button?.id)
   })
 
   it('overwrites an authored source key so generated code cannot choose the privileged mapping id', () => {

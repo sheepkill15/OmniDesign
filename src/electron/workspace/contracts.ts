@@ -175,6 +175,7 @@ const repositoryRelativeHtmlPathSchema = z.string().min(1).max(2_000).refine((va
 export const focusedTargetSchema = z.object({
   designId: z.string().min(1).max(100),
   revisionId: z.string().min(1).max(100),
+  locationId: z.string().uuid().nullable().optional(),
   path: repositoryRelativeHtmlPathSchema,
   startLine: z.number().int().positive(),
   endLine: z.number().int().positive(),
@@ -199,6 +200,16 @@ export const resolveFocusedTargetRequestSchema = z.object({
   locationId: z.string().uuid(),
   clickedLabel: z.string().trim().min(1).max(200),
   usedAncestor: z.boolean(),
+})
+
+export const locateFocusedTargetsRequestSchema = z.object({
+  designId: z.string().min(1).max(100),
+  revisionId: z.string().min(1).max(100),
+  token: z.string().uuid(),
+  targets: z.array(z.object({
+    id: z.string().min(1).max(100),
+    target: focusedTargetSchema,
+  })).max(200),
 })
 
 export const messageSchema = z.object({

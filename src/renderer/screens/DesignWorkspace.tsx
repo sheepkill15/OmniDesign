@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField } from 'react-aria-components'
 import {
   ArrowDownTrayIcon,
@@ -25,12 +25,11 @@ import {
   ViewColumnsIcon,
   WindowIcon,
   WrenchScrewdriverIcon,
-  XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { AppModal } from '../components/AppModal'
 import { DropdownButton } from '../components/DropdownButton'
 import { Markdown } from '../components/Markdown'
-import { DesignPreview } from './DesignPreview'
+import { DesignPreview, type FocusedEditThread } from './DesignPreview'
 import { AttachmentPicker, EditableTitle, GenerationActivitySection, IconButton, terminalGenerationStages, type AttachmentPickerKind, type Icon } from '../components/common'
 import { GenerationSettingsMenu, ProjectSelectionMenu } from '../components/composer'
 
@@ -38,6 +37,38 @@ type ConversationFeedItem =
   | { readonly kind: 'message'; readonly createdAt: string; readonly message: DesignMessage }
   | { readonly kind: 'step'; readonly createdAt: string; readonly step: GenerationStep }
   | { readonly kind: 'activity'; readonly createdAt: string; readonly id: string; readonly steps: GenerationStep[] }
+
+function focusedThreadKey(target: FocusedTarget): string {
+  return target.stableId
+    ? `${target.path}\u0000stable\u0000${target.stableId}`
+    : `${target.path}\u0000source\u0000${target.label}\u0000${target.excerpt}`
+}
+
+function buildFocusedEditThreads(design: OmniDesignDocument, pendingFeedback: readonly FocusedFeedback[]): readonly FocusedEditThread[] {
+  const grouped = new Map<string, { target: FocusedTarget; entries: FocusedEditThread['entries'][number][] }>()
+  const seen = new Set<string>()
+  const add = (target: FocusedTarget, entry: FocusedEditThread['entries'][number]) => {
+    if (seen.has(entry.id)) return
+    seen.add(entry.id)
+    const key = focusedThreadKey(target)
+    const thread = grouped.get(key)
+    if (thread) {
+      thread.target = target
+      thread.entries.push(entry)
+    } else grouped.set(key, { target, entries: [entry] })
+  }
+  for (const message of design.messages) {
+    if (message.role !== 'user') continue
+    if (message.focusedTarget) add(message.focusedTarget, { id: `message-${message.id}`, comment: message.text, createdAt: message.createdAt, state: 'submitted' })
+    for (const feedback of message.focusedFeedback ?? []) add(feedback.target, { id: feedback.id, comment: feedback.comment, createdAt: feedback.createdAt, state: 'submitted' })
+  }
+  for (const feedback of pendingFeedback) add(feedback.target, { id: feedback.id, feedbackId: feedback.id, comment: feedback.comment, createdAt: feedback.createdAt, state: 'pending' })
+  return [...grouped.values()].map((thread, index) => ({
+    id: `focused-thread-${index + 1}`,
+    target: thread.target,
+    entries: thread.entries.sort((first, second) => first.createdAt.localeCompare(second.createdAt)),
+  })).slice(-200)
+}
 
 // Interleave persisted user/assistant messages with the recorded generation milestones so the major
 // steps of each run appear in the conversation history in the order they happened.
@@ -167,7 +198,9 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   const [previewCustomHeight, setPreviewCustomHeight] = useState(design.layout.previewCustomHeight)
   const [selectionActive, setSelectionActive] = useState(false)
   const [focusedTarget, setFocusedTarget] = useState<FocusedTarget | null>(null)
+  const [focusedComment, setFocusedComment] = useState('')
   const [focusedFeedbackQueue, setFocusedFeedbackQueue] = useState<readonly FocusedFeedback[]>([])
+  const focusedEditThreads = useMemo(() => buildFocusedEditThreads(design, focusedFeedbackQueue), [design, focusedFeedbackQueue])
   const [customSizeOpen, setCustomSizeOpen] = useState(false)
   const [customWidthDraft, setCustomWidthDraft] = useState(String(design.layout.previewCustomWidth))
   const [customHeightDraft, setCustomHeightDraft] = useState(String(design.layout.previewCustomHeight))
@@ -270,9 +303,9 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     setPreviewCustomWidth(design.layout.previewCustomWidth)
     setPreviewCustomHeight(design.layout.previewCustomHeight)
   }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice, design.layout.previewCustomWidth, design.layout.previewCustomHeight])
-  useEffect(() => { setSelectionActive(false); setFocusedTarget(null) }, [design.id, design.selectedRevisionId, previewPage])
+  useEffect(() => { setSelectionActive(false); setFocusedTarget(null); setFocusedComment('') }, [design.id, design.selectedRevisionId, previewPage])
   useEffect(() => {
-    if (previewViewMode === 'canvas') { setSelectionActive(false); setFocusedTarget(null) }
+    if (previewViewMode === 'canvas') { setSelectionActive(false); setFocusedTarget(null); setFocusedComment('') }
   }, [previewViewMode])
   // Register the selected revision's files with the preview server, which returns the opaque token the
   // iframes load from plus the discovered pages. The preview defaults to the home page.
@@ -369,31 +402,37 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     if (!api || !draft.trim() || busy || !selectedIsHead || !hasUsableSelection) return
     const prompt = draft.trim()
     const submittedAttachments = attachments
-    const submittedTarget = focusedTarget
     setDraft('')
     setAttachments([])
-    setFocusedTarget(null)
     setSelectionActive(false)
     void api.saveDraft(design.id, '', [])
-    const updated = await runWorkspaceAction(() => submittedTarget
-      ? api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, submittedTarget)
-      : api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments), 'The prompt could not be submitted. Your draft has been restored.')
+    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments), 'The prompt could not be submitted. Your draft has been restored.')
     if (updated) onChange(updated)
     else {
       setDraft(prompt)
       setAttachments(submittedAttachments)
     }
   }
+  const submitFocusedFeedback = async () => {
+    if (!api || !focusedComment.trim() || !focusedTarget || busy || !selectedIsHead || !hasUsableSelection) return
+    const comment = focusedComment.trim()
+    const target = focusedTarget
+    setFocusedTarget(null)
+    setFocusedComment('')
+    setSelectionActive(false)
+    const updated = await runWorkspaceAction(() => api.generate(design.id, comment, selection.providerId, selection.modelId, selection.effort ?? undefined, [], target), 'The focused edit could not be submitted. Your comment has been restored.')
+    if (updated) onChange(updated)
+    else { setFocusedTarget(target); setFocusedComment(comment) }
+  }
   const queueFocusedFeedback = async () => {
-    if (!api || !draft.trim() || !focusedTarget || busy || !selectedIsHead) return
-    const comment = draft.trim()
+    if (!api || !focusedComment.trim() || !focusedTarget || busy || !selectedIsHead) return
+    const comment = focusedComment.trim()
     const updated = await runWorkspaceAction(() => api.queueFocusedFeedback(design.id, comment, focusedTarget), 'Focused feedback could not be queued. Your comment is still here.')
     if (!updated) return
     setFocusedFeedbackQueue(updated)
-    setDraft('')
     setFocusedTarget(null)
+    setFocusedComment('')
     setSelectionActive(false)
-    void api.saveDraft(design.id, '', attachments)
   }
   const removeFocusedFeedback = async (feedbackId: string) => {
     if (!api) return
@@ -554,17 +593,15 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         {design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
       </div>
       {focusedFeedbackQueue.length > 0 && <section className="focused-feedback-queue" aria-label="Focused feedback queue">
-        <header><span><QueueListIcon aria-hidden="true" /><span><strong>{focusedFeedbackQueue.length} focused note{focusedFeedbackQueue.length === 1 ? '' : 's'} queued</strong><small>They will be fixed together in one generation.</small></span></span><Button className="primary-action" isDisabled={busy || !selectedIsHead || !hasUsableSelection || !previewToken} onPress={() => void submitFocusedFeedbackBatch()}><WrenchScrewdriverIcon aria-hidden="true" />Fix all</Button></header>
-        <div className="focused-feedback-queue-list">{focusedFeedbackQueue.map((item, index) => <article key={item.id}><span className="focused-feedback-index">{index + 1}</span><span><strong>{item.comment}</strong><small>{item.target.path}:{item.target.startLine}-{item.target.endLine} · {item.target.label}</small></span><Button className="icon-button" aria-label={`Remove queued feedback ${index + 1}`} onPress={() => void removeFocusedFeedback(item.id)}><XMarkIcon aria-hidden="true" /></Button></article>)}</div>
+        <header><span><QueueListIcon aria-hidden="true" /><span><strong>{focusedFeedbackQueue.length} focused note{focusedFeedbackQueue.length === 1 ? '' : 's'} queued</strong><small>Review them on the preview, then fix them together.</small></span></span><Button className="primary-action" isDisabled={busy || !selectedIsHead || !hasUsableSelection || !previewToken} onPress={() => void submitFocusedFeedbackBatch()}><WrenchScrewdriverIcon aria-hidden="true" />Fix all</Button></header>
       </section>}
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
       <div className="workspace-composer">
-        {focusedTarget && <div className="focused-target-chip" role="status"><CursorArrowRaysIcon aria-hidden="true" /><span><strong>{focusedTarget.label}</strong><small>{focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}{focusedTarget.dynamicDescription ? ` · nearest authored ancestor for ${focusedTarget.dynamicDescription}` : ''}</small></span><Button aria-label="Clear selected element" onPress={() => setFocusedTarget(null)}>×</Button></div>}
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />{focusedTarget ? <span className="focused-feedback-actions"><Button className="secondary-action" isDisabled={!draft.trim() || busy || !selectedIsHead} onPress={() => void queueFocusedFeedback()}><QueueListIcon aria-hidden="true" />Queue</Button><Button className="primary-action" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><WrenchScrewdriverIcon aria-hidden="true" />Submit &amp; fix</Button></span> : <Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button>}</div>
+        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
         {!hasUsableSelection && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
     </section>
@@ -584,7 +621,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
             <Button className="preview-toggle-option" data-active={previewViewMode === 'focused' || undefined} aria-pressed={previewViewMode === 'focused'} onPress={() => setPreviewViewMode('focused')}><WindowIcon aria-hidden="true" />Focused</Button>
             <Button className="preview-toggle-option" data-active={previewViewMode === 'canvas' || undefined} aria-pressed={previewViewMode === 'canvas'} onPress={() => { setSelectionActive(false); setFocusedTarget(null); setPreviewViewMode('canvas') }}><Squares2X2Icon aria-hidden="true" />Canvas</Button>
           </div>
-          <Button className="preview-toggle-option" data-active={selectionActive || undefined} aria-pressed={selectionActive} isDisabled={!selectedIsHead || !previewToken || busy} onPress={() => { setFocusedTarget(null); setPreviewViewMode('focused'); setSelectionActive((current) => !current) }}><CursorArrowRaysIcon aria-hidden="true" />{selectionActive ? 'Selecting…' : 'Select element'}</Button>
+          <Button className="preview-toggle-option" data-active={selectionActive || undefined} aria-pressed={selectionActive} isDisabled={!selectedIsHead || !previewToken || busy} onPress={() => { setFocusedTarget(null); setFocusedComment(''); setPreviewViewMode('focused'); setSelectionActive((current) => !current) }}><CursorArrowRaysIcon aria-hidden="true" />{selectionActive ? 'Selecting…' : 'Select element'}</Button>
           {previewViewMode === 'focused' && previewPages.length > 1 && (
             <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<span>{currentPageLabel}</span>}>
               <Menu aria-label="Preview page" onAction={(key) => {
@@ -627,7 +664,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         <small>{previewStatus}</small>
       </div>
       {previewToken && design.selectedRevisionId
-        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && !selectedRevision.thumbnailDataUrl} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} onSelection={(target) => { setFocusedTarget(target); setSelectionActive(false); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => setSelectionActive(false)} onSelectionError={(message) => { setSelectionActive(false); setFeedback({ tone: 'error', message }) }} />
+        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && !selectedRevision.thumbnailDataUrl} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); setSelectionActive(false); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => setSelectionActive(false)} onSelectionError={(message) => { setSelectionActive(false); setFeedback({ tone: 'error', message }) }} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
         : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
     </section>
   )

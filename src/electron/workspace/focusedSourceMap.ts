@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { parse, type DefaultTreeAdapterMap } from 'parse5'
 
 type Node = DefaultTreeAdapterMap['node']
@@ -37,6 +37,11 @@ function excerptFor(html: string, startOffset: number, endOffset: number): strin
   return `${source.slice(0, 2_000)}\n…\n${source.slice(-1_999)}`
 }
 
+function sourceLocationId(pagePath: string, startOffset: number, endOffset: number): string {
+  const digest = createHash('sha256').update(`${pagePath}\0${startOffset}\0${endOffset}`).digest('hex')
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`
+}
+
 export function buildFocusedSourceMap(html: string, pagePath: string): FocusedSourceLocation[] {
   const document = parse(html, { sourceCodeLocationInfo: true })
   const locations: FocusedSourceLocation[] = []
@@ -48,7 +53,7 @@ export function buildFocusedSourceMap(html: string, pagePath: string): FocusedSo
         const authoredAttribute = location.attrs?.['data-od-source-key']
         const stableId = node.attrs.find((candidate) => candidate.name.startsWith('data-od-') && candidate.name !== 'data-od-source-key')?.value ?? null
         locations.push({
-          id: randomUUID(),
+          id: sourceLocationId(pagePath, location.startOffset, location.endOffset),
           path: pagePath,
           startLine: location.startLine,
           endLine: Math.max(location.startLine, location.endLine - (html[location.endOffset - 1] === '\n' ? 1 : 0)),

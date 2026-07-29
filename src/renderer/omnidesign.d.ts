@@ -68,6 +68,7 @@ interface DesignMessage {
 interface FocusedTarget {
   readonly designId: string
   readonly revisionId: string
+  readonly locationId?: string | null
   readonly path: string
   readonly startLine: number
   readonly endLine: number
@@ -396,6 +397,7 @@ interface Window {
     readonly preview: {
       register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>
       resolveFocusedTarget(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly page: string; readonly locationId: string; readonly clickedLabel: string; readonly usedAncestor: boolean }): Promise<FocusedTarget | null>
+      locateFocusedTargets(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly targets: readonly { readonly id: string; readonly target: FocusedTarget }[] }): Promise<readonly { readonly id: string; readonly locationId: string }[]>
       reportDiagnostic(designId: string, revisionId: string, diagnostic: { readonly level: 'warning' | 'error'; readonly message: string; readonly source: string | null; readonly line: number | null }): Promise<void>
       capture(designId: string, revisionId: string): Promise<boolean>
       popOut(request: { readonly designId: string; readonly revisionId: string; readonly page?: string }): Promise<void>

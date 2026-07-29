@@ -39,6 +39,7 @@ import {
   reconnectProjectRequestSchema,
   registerLinkedProjectRequestSchema,
   revisionPagesRequestSchema,
+  locateFocusedTargetsRequestSchema,
   resolveFocusedTargetRequestSchema,
   removeFocusedFeedbackRequestSchema,
   savePageMetadataRequestSchema,
@@ -70,6 +71,9 @@ const developmentProviderEnabled = Boolean(developmentServerUrl || process.env.O
 // Lets automated (e2e) runs suppress OS notifications so completing generations do not fire real
 // Windows toasts during the test suite.
 const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS === '1'
+// Playwright can inspect and interact with hidden BrowserWindows. Keeping every test-owned window
+// hidden prevents repeated launches and pop-outs from stealing focus from the user's desktop.
+const automatedTestWindowsHidden = process.env.OMNIDESIGN_E2E_HIDE_WINDOWS === '1'
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let previewServer: PreviewContentServer | null = null
@@ -142,7 +146,7 @@ function createMainWindow(): BrowserWindow {
     },
   })
 
-  window.once('ready-to-show', () => window.show())
+  window.once('ready-to-show', () => { if (!automatedTestWindowsHidden) window.show() })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   if (developmentServerUrl) {
     window.webContents.on('console-message', (event) => console.log(`[renderer:${event.level}] ${event.message}${event.sourceId ? ` (${event.sourceId}:${event.lineNumber})` : ''}`))
@@ -239,7 +243,7 @@ function previewFrameAncestors(): string {
 function openPreviewPopOut(token: string, page: string): void {
   if (popWindow && !popWindow.isDestroyed()) {
     void popWindow.webContents.loadURL(`omnidesign-preview://revision/${token}/${page}`)
-    popWindow.focus()
+    if (!automatedTestWindowsHidden) popWindow.focus()
     return
   }
   const created = new BrowserWindow({
@@ -247,6 +251,7 @@ function openPreviewPopOut(token: string, page: string): void {
     height: 720,
     minWidth: 320,
     minHeight: 240,
+    show: !automatedTestWindowsHidden,
     title: 'OmniDesign preview',
     backgroundColor: '#151315',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -697,6 +702,13 @@ function registerIpc(): void {
     const design = requireWorkspace().getDesign(request.designId)
     if (!design || design.activeRevisionId !== request.revisionId || design.selectedRevisionId !== request.revisionId) return null
     return requirePreviewServer().resolveFocusedTarget(request)
+  })
+  ipcMain.handle('preview:locate-focused-targets', (event, value: unknown) => {
+    authorize(event)
+    const request = locateFocusedTargetsRequestSchema.parse(value)
+    const design = requireWorkspace().getDesign(request.designId)
+    if (!design || design.selectedRevisionId !== request.revisionId) return []
+    return requirePreviewServer().locateFocusedTargets(request)
   })
   ipcMain.handle('preview:report-diagnostic', (event, value: unknown) => {
     authorize(event)

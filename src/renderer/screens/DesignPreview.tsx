@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from 'react-aria-components'
-import { MinusIcon, PlusIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Button, TextArea, TextField } from 'react-aria-components'
+import { MinusIcon, PlusIcon, ArrowsPointingOutIcon, ChatBubbleLeftEllipsisIcon, QueueListIcon, WrenchScrewdriverIcon, XMarkIcon } from '@heroicons/react/24/outline'
 
 // Must match PREVIEW_MESSAGE_SOURCE in src/electron/workspace/previewShim.ts.
 const SHIM_SOURCE = 'omnidesign-preview-shim'
@@ -11,13 +11,44 @@ const DEVICE_PRESETS: Record<Exclude<PreviewDevice, 'custom'>, { readonly width:
   desktop: { width: 1280, height: 800 },
 }
 
+interface FocusedAnchorRect {
+  readonly left: number
+  readonly top: number
+  readonly right: number
+  readonly bottom: number
+  readonly width: number
+  readonly height: number
+  readonly viewportWidth: number
+  readonly viewportHeight: number
+}
+
 type ShimMessage =
   | { readonly source: string; readonly type: 'height'; readonly page: string; readonly height: number }
   | { readonly source: string; readonly type: 'page'; readonly page: string }
   | { readonly source: string; readonly type: 'diagnostic'; readonly page: string; readonly level: 'warning' | 'error'; readonly message: string; readonly line: number | null; readonly src: string | null }
-  | { readonly source: string; readonly type: 'selection'; readonly page: string; readonly locationId: string; readonly clickedLabel: string; readonly usedAncestor: boolean }
+  | { readonly source: string; readonly type: 'selection'; readonly page: string; readonly locationId: string; readonly clickedLabel: string; readonly usedAncestor: boolean; readonly rect: FocusedAnchorRect | null }
   | { readonly source: string; readonly type: 'selection-unmappable'; readonly page: string; readonly clickedLabel: string }
   | { readonly source: string; readonly type: 'selection-cancelled'; readonly page: string }
+  | { readonly source: string; readonly type: 'focused-anchors'; readonly page: string; readonly anchors: readonly { readonly id: string; readonly locationId: string; readonly rect: FocusedAnchorRect }[] }
+
+function validAnchorRect(value: unknown): value is FocusedAnchorRect {
+  if (!value || typeof value !== 'object') return false
+  const rect = value as Record<string, unknown>
+  return ['left', 'top', 'right', 'bottom', 'width', 'height', 'viewportWidth', 'viewportHeight'].every((key) => typeof rect[key] === 'number' && Number.isFinite(rect[key]) && Math.abs(rect[key]) <= 100_000)
+    && (rect.width as number) >= 0 && (rect.height as number) >= 0
+    && (rect.right as number) >= (rect.left as number) && (rect.bottom as number) >= (rect.top as number)
+    && (rect.viewportWidth as number) > 0 && (rect.viewportHeight as number) > 0
+}
+
+function anchoredStyle(rect: FocusedAnchorRect, width: number, estimatedHeight: number, offset = 10): CSSProperties {
+  const below = rect.bottom + estimatedHeight + offset <= rect.viewportHeight || rect.top < estimatedHeight + offset
+  const left = Math.max(12, Math.min(Math.max(12, rect.viewportWidth - width - 12), rect.left + Math.min(rect.width / 2, width / 2) - width / 2))
+  return {
+    left: `${left}px`,
+    top: `${below ? Math.max(12, rect.bottom + offset) : Math.max(12, rect.top - offset)}px`,
+    transform: below ? undefined : 'translateY(-100%)',
+  }
+}
 
 function deviceDimensions(device: PreviewDevice, customWidth: number, customHeight: number): { readonly width: number; readonly height: number } {
   return device === 'custom' ? { width: customWidth, height: customHeight } : DEVICE_PRESETS[device]
@@ -38,9 +69,33 @@ export interface DesignPreviewProps {
   readonly onSelectPage: (page: string) => void
   readonly onOpenPage: (page: string) => void
   readonly selectionActive: boolean
+  readonly focusedTarget: FocusedTarget | null
+  readonly focusedComment: string
+  readonly focusedThreads: readonly FocusedEditThread[]
+  readonly focusedBusy: boolean
+  readonly canSubmitFocused: boolean
   readonly onSelection: (target: FocusedTarget) => void
   readonly onSelectionCancelled: () => void
   readonly onSelectionError: (message: string) => void
+  readonly onFocusedCommentChange: (comment: string) => void
+  readonly onQueueFocused: () => void
+  readonly onSubmitFocused: () => void
+  readonly onClearFocused: () => void
+  readonly onRemoveFocusedFeedback: (feedbackId: string) => void
+}
+
+export interface FocusedEditThreadEntry {
+  readonly id: string
+  readonly comment: string
+  readonly createdAt: string
+  readonly state: 'pending' | 'submitted'
+  readonly feedbackId?: string
+}
+
+export interface FocusedEditThread {
+  readonly id: string
+  readonly target: FocusedTarget
+  readonly entries: readonly FocusedEditThreadEntry[]
 }
 
 // Renders the design preview as sandboxed, opaque-origin iframes served over the preview scheme.
@@ -48,7 +103,7 @@ export interface DesignPreviewProps {
 // Canvas mode lays every page out as a device-framed tile on a pan/zoom board honoring the global
 // device size and fit. Height (Artboard fit), diagnostics, and current-page reporting arrive from the
 // injected shim via postMessage.
-export function DesignPreview({ designId, revisionId, token, captureNeeded, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, onSelectPage, onOpenPage, selectionActive, onSelection, onSelectionCancelled, onSelectionError }: DesignPreviewProps) {
+export function DesignPreview({ designId, revisionId, token, captureNeeded, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, onSelectPage, onOpenPage, selectionActive, focusedTarget, focusedComment, focusedThreads, focusedBusy, canSubmitFocused, onSelection, onSelectionCancelled, onSelectionError, onFocusedCommentChange, onQueueFocused, onSubmitFocused, onClearFocused, onRemoveFocusedFeedback }: DesignPreviewProps) {
   const dims = deviceDimensions(device, customWidth, customHeight)
   const [heights, setHeights] = useState<Record<string, number>>({})
   const [zoom, setZoom] = useState(0.75)
@@ -62,6 +117,8 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
   const capturedRef = useRef<string | null>(null)
   const capturingRef = useRef(false)
   const viewport = useRef<HTMLDivElement>(null)
+  const [focusedAnchorRects, setFocusedAnchorRects] = useState<Record<string, FocusedAnchorRect>>({})
+  const [threadLocationIds, setThreadLocationIds] = useState<Record<string, string>>({})
 
   const pageUrl = useCallback((path: string) => `omnidesign-preview://revision/${token}/${path.split('/').map(encodeURIComponent).join('/')}`, [token])
   const heightFor = (path: string) => fit === 'fixed' ? dims.height : Math.max(heights[path] ?? dims.height, 120)
@@ -88,6 +145,35 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
     viewport.current?.querySelectorAll('iframe').forEach((frame) => syncSelection(frame as HTMLIFrameElement))
   }, [syncSelection, activePage])
 
+  useEffect(() => {
+    let current = true
+    setThreadLocationIds({})
+    if (!focusedThreads.length) return () => { current = false }
+    void window.omnidesign?.preview.locateFocusedTargets({
+      designId,
+      revisionId,
+      token,
+      targets: focusedThreads.map((thread) => ({ id: thread.id, target: thread.target })),
+    }).then((locations) => {
+      if (current) setThreadLocationIds(Object.fromEntries(locations.map((location) => [location.id, location.locationId])))
+    }).catch(() => { if (current) setThreadLocationIds({}) })
+    return () => { current = false }
+  }, [designId, revisionId, token, focusedThreads])
+
+  const expectedFocusedAnchors = useMemo(() => [
+    ...(focusedTarget?.locationId ? [{ id: 'editor', locationId: focusedTarget.locationId }] : []),
+    ...focusedThreads.filter((thread) => thread.target.path === activePage && threadLocationIds[thread.id]).map((thread) => ({ id: thread.id, locationId: threadLocationIds[thread.id] })),
+  ], [focusedTarget?.locationId, focusedThreads, threadLocationIds, activePage])
+  const focusedAnchorSignature = expectedFocusedAnchors.map((item) => `${item.id}:${item.locationId}`).join('|')
+  const syncFocusedAnchors = useCallback((frame: HTMLIFrameElement) => {
+    try { frame.contentWindow?.postMessage({ type: 'omnidesign-focused-anchors', anchors: expectedFocusedAnchors }, '*') } catch { /* opaque frame not ready yet */ }
+  }, [expectedFocusedAnchors])
+  useEffect(() => {
+    viewport.current?.querySelectorAll('iframe').forEach((frame) => syncFocusedAnchors(frame as HTMLIFrameElement))
+    const expectedIds = new Set(expectedFocusedAnchors.map((item) => item.id))
+    setFocusedAnchorRects((current) => Object.fromEntries(Object.entries(current).filter(([id]) => expectedIds.has(id))))
+  }, [syncFocusedAnchors, activePage, expectedFocusedAnchors])
+
   // Height / diagnostics / page-sync from the injected shim.
   useEffect(() => {
     let current = true
@@ -105,17 +191,30 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
       } else if (data.type === 'selection' && selectionActive && viewMode === 'focused' && data.page === activePage) {
         if (typeof data.locationId !== 'string' || data.locationId.length > 100 || typeof data.clickedLabel !== 'string' || !data.clickedLabel.trim() || typeof data.usedAncestor !== 'boolean' || data.clickedLabel.length > 200) { onSelectionError('The selected element sent invalid location data.'); return }
         void window.omnidesign?.preview.resolveFocusedTarget({ designId, revisionId, token, page: data.page, locationId: data.locationId, clickedLabel: data.clickedLabel, usedAncestor: data.usedAncestor })
-          .then((target) => { if (current) target ? onSelection(target) : onSelectionError('This element could not be mapped reliably to the current design source.') })
+          .then((target) => {
+            if (!current) return
+            if (!target) { onSelectionError('This element could not be mapped reliably to the current design source.'); return }
+            if (data.rect && validAnchorRect(data.rect)) setFocusedAnchorRects((anchors) => ({ ...anchors, editor: data.rect! }))
+            onSelection(target)
+          })
           .catch(() => { if (current) onSelectionError('This element could not be mapped reliably to the current design source.') })
       } else if (data.type === 'selection-unmappable' && selectionActive) {
         onSelectionError('This element has no source-authored ancestor that OmniDesign can edit reliably.')
       } else if (data.type === 'selection-cancelled' && selectionActive) {
         onSelectionCancelled()
+      } else if (data.type === 'focused-anchors' && viewMode === 'focused' && data.page === activePage && Array.isArray(data.anchors) && data.anchors.length <= 201) {
+        const expected = new Map(expectedFocusedAnchors.map((item) => [item.id, item.locationId]))
+        const next: Record<string, FocusedAnchorRect> = {}
+        for (const anchor of data.anchors) {
+          if (!anchor || typeof anchor.id !== 'string' || typeof anchor.locationId !== 'string' || expected.get(anchor.id) !== anchor.locationId || !validAnchorRect(anchor.rect)) continue
+          next[anchor.id] = anchor.rect
+        }
+        setFocusedAnchorRects(next)
       }
     }
     window.addEventListener('message', onMessage)
     return () => { current = false; window.removeEventListener('message', onMessage) }
-  }, [designId, revisionId, token, viewMode, selectedPage, activePage, selectionActive, onSelectPage, onSelection, onSelectionCancelled, onSelectionError])
+  }, [designId, revisionId, token, viewMode, selectedPage, activePage, selectionActive, focusedAnchorSignature, onSelectPage, onSelection, onSelectionCancelled, onSelectionError])
 
   // A fresh revision reprepares the surface: forget stale heights and re-arm thumbnail capture.
   useEffect(() => { setHeights({}); capturedRef.current = null; capturingRef.current = false }, [revisionId, token])
@@ -207,7 +306,34 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
   // Focused mode: the selected page fills the pane, exactly like opening the HTML file itself.
   return (
     <div className="preview-focused-fill" ref={viewport}>
-      <iframe key={`${token}:${activePage}`} data-page={activePage} title={pages.find((page) => page.path === activePage)?.title ?? activePage} src={pageUrl(activePage)} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget) }} />
+      <iframe key={`${token}:${activePage}`} data-page={activePage} title={pages.find((page) => page.path === activePage)?.title ?? activePage} src={pageUrl(activePage)} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget); syncFocusedAnchors(event.currentTarget) }} />
+      {focusedThreads.map((thread, index) => {
+        const rect = focusedAnchorRects[thread.id]
+        if (!rect || thread.target.path !== activePage) return null
+        const detailId = `focused-feedback-detail-${thread.id}`
+        const pendingCount = thread.entries.filter((entry) => entry.state === 'pending').length
+        return <div className="focused-feedback-marker-wrap" key={thread.id} style={{ ...anchoredStyle(rect, 300, Math.min(320, 74 + thread.entries.length * 76), 8), marginLeft: `${Math.min(index, 4) * 6}px` }}>
+          <Button className="focused-feedback-marker" data-pending={pendingCount > 0 || undefined} aria-label={`Focused edit thread ${index + 1}, ${thread.entries.length} ${thread.entries.length === 1 ? 'comment' : 'comments'}${pendingCount ? `, ${pendingCount} pending` : ''}`} aria-describedby={detailId}><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><span>{thread.entries.length}</span></Button>
+          <div className="focused-feedback-marker-detail" id={detailId}>
+            <span><strong>{thread.entries.length === 1 ? 'Focused edit' : `${thread.entries.length} focused edits`}</strong><small>{thread.target.label}</small></span>
+            <div className="focused-feedback-thread">
+              {thread.entries.map((entry) => <article key={entry.id} data-state={entry.state}>
+                <small>{entry.state === 'pending' ? 'Pending' : 'Submitted'}</small>
+                <p>{entry.comment}</p>
+                {entry.state === 'pending' && entry.feedbackId && <Button className="text-button" onPress={() => onRemoveFocusedFeedback(entry.feedbackId!)}><XMarkIcon aria-hidden="true" />Remove</Button>}
+              </article>)}
+            </div>
+          </div>
+        </div>
+      })}
+      {focusedTarget && focusedAnchorRects.editor && <div className="focused-comment-popover" role="dialog" aria-label="Focused feedback" style={anchoredStyle(focusedAnchorRects.editor, 380, 190)}>
+        <div className="focused-comment-context"><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><small>{focusedTarget.label} · {focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}</small><Button className="icon-button" aria-label="Close focused feedback" onPress={onClearFocused}><XMarkIcon aria-hidden="true" /></Button></div>
+        <TextField className="focused-comment-field" aria-label="Feedback for selected element"><TextArea className="focused-comment-input" autoFocus value={focusedComment} placeholder="Describe what should change…" onChange={(event) => onFocusedCommentChange(event.target.value)} onKeyDown={(event) => {
+          if (event.key === 'Escape') { event.preventDefault(); onClearFocused() }
+          else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (canSubmitFocused && focusedComment.trim()) onSubmitFocused() }
+        }} /></TextField>
+        <footer><span>Ctrl/⌘ Enter</span><span><Button className="secondary-action" isDisabled={!focusedComment.trim() || focusedBusy} onPress={onQueueFocused}><QueueListIcon aria-hidden="true" />Queue</Button><Button className="primary-action" isDisabled={!focusedComment.trim() || focusedBusy || !canSubmitFocused} onPress={onSubmitFocused}><WrenchScrewdriverIcon aria-hidden="true" />Submit &amp; fix</Button></span></footer>
+      </div>}
     </div>
   )
 }

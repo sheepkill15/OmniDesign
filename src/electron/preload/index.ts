@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
   preview: {
     register: (designId: string, revisionId: string) => ipcRenderer.invoke('preview:register', { designId, revisionId }),
     resolveFocusedTarget: (request: { designId: string; revisionId: string; token: string; page: string; locationId: string; clickedLabel: string; usedAncestor: boolean }) => ipcRenderer.invoke('preview:resolve-focused-target', request),
+    locateFocusedTargets: (request: { designId: string; revisionId: string; token: string; targets: readonly { id: string; target: import('../workspace/contracts.js').FocusedTarget }[] }) => ipcRenderer.invoke('preview:locate-focused-targets', request),
     reportDiagnostic: (designId: string, revisionId: string, diagnostic: { level: 'warning' | 'error'; message: string; source: string | null; line: number | null }) => ipcRenderer.invoke('preview:report-diagnostic', { designId, revisionId, diagnostic }),
     capture: (designId: string, revisionId: string): Promise<boolean> => ipcRenderer.invoke('preview:capture', { designId, revisionId }),
     popOut: (request: { designId: string; revisionId: string; page?: string }) => ipcRenderer.invoke('preview:pop-out', request),

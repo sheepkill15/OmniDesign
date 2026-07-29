@@ -67,6 +67,7 @@ export class PreviewContentServer {
     return focusedTargetSchema.parse({
       designId: entry.designId,
       revisionId: entry.revisionId,
+      locationId: location.id,
       path: location.path,
       startLine: location.startLine,
       endLine: location.endLine,
@@ -77,12 +78,34 @@ export class PreviewContentServer {
     })
   }
 
+  public locateFocusedTargets(input: { readonly token: string; readonly designId: string; readonly revisionId: string; readonly targets: readonly { readonly id: string; readonly target: FocusedTarget }[] }): readonly { readonly id: string; readonly locationId: string }[] {
+    const entry = this.tokens.get(input.token)
+    if (!entry || entry.designId !== input.designId || entry.revisionId !== input.revisionId) return []
+    return input.targets.flatMap(({ id, target }) => {
+      if (target.designId !== input.designId) return []
+      const locations = [...(entry.locations.get(target.path)?.values() ?? [])]
+      if (!locations.length) return []
+      if (target.revisionId === input.revisionId && target.locationId) {
+        const exact = locations.find((location) => location.id === target.locationId)
+        if (exact) return [{ id, locationId: exact.id }]
+      }
+      if (target.stableId) {
+        const stableMatches = locations.filter((location) => location.stableId === target.stableId)
+        if (stableMatches.length === 1) return [{ id, locationId: stableMatches[0].id }]
+      }
+      const sourceMatches = locations.filter((location) => location.label === target.label && location.excerpt === target.excerpt)
+      return sourceMatches.length === 1 ? [{ id, locationId: sourceMatches[0].id }] : []
+    })
+  }
+
   public validatesFocusedTarget(target: FocusedTarget): boolean {
     const token = this.byKey.get(`${target.designId}\0${target.revisionId}`)
     const entry = token ? this.tokens.get(token) : undefined
     const locations = entry?.locations.get(target.path)
     if (!locations) return false
     return [...locations.values()].some((location) =>
+      (target.locationId == null || location.id === target.locationId)
+      &&
       location.path === target.path
       && location.startLine === target.startLine
       && location.endLine === target.endLine

@@ -16,7 +16,7 @@ async function launchWorkspace(userDataDirectory: string) {
     executablePath: electronExecutable,
     args: ['.'],
     cwd: projectDirectory,
-    env: { ...process.env, OMNIDESIGN_USER_DATA_DIR: userDataDirectory, OMNIDESIGN_ENABLE_MOCK_PROVIDER: '1', OMNIDESIGN_DISABLE_NOTIFICATIONS: '1' },
+    env: { ...process.env, OMNIDESIGN_USER_DATA_DIR: userDataDirectory, OMNIDESIGN_ENABLE_MOCK_PROVIDER: '1', OMNIDESIGN_DISABLE_NOTIFICATIONS: '1', OMNIDESIGN_E2E_HIDE_WINDOWS: '1' },
   })
   return { app, window: await app.firstWindow() }
 }
@@ -506,23 +506,32 @@ test('completes the Phase 3 definitions and exact focused-edit journey across re
 
     await firstRun.window.getByRole('button', { name: 'Select element' }).click()
     await firstRun.window.frameLocator('.preview-focused-fill iframe').locator('h1').click()
-    const targetReference = firstRun.window.locator('.focused-target-chip small')
-    await expect(targetReference).toHaveText(/^index\.html:\d+-\d+$/)
-    const firstExactReference = await targetReference.textContent()
-    const followUp = firstRun.window.getByRole('textbox', { name: 'Request a design change' })
+    const focusedEditor = firstRun.window.getByRole('dialog', { name: 'Focused feedback' })
+    await expect(focusedEditor).toBeVisible()
+    const targetReference = focusedEditor.locator('.focused-comment-context small')
+    await expect(targetReference).toContainText(/index\.html:\d+-\d+$/)
+    const firstExactReference = (await targetReference.textContent())?.match(/index\.html:\d+-\d+/)?.[0]
+    const followUp = focusedEditor.getByRole('textbox', { name: 'Feedback for selected element' })
     await followUp.fill('Make this heading feel more grounded')
     await firstRun.window.getByRole('button', { name: 'Queue', exact: true }).click()
-    await expect(firstRun.window.locator('.focused-target-chip')).toHaveCount(0)
+    await expect(focusedEditor).toHaveCount(0)
     await expect(firstRun.window.getByText('1 focused note queued')).toBeVisible()
+    const firstMarker = firstRun.window.getByRole('button', { name: 'Pending focused feedback 1' })
+    await expect(firstMarker).toBeVisible()
+    await firstMarker.hover()
+    await expect(firstRun.window.getByText('Make this heading feel more grounded')).toBeVisible()
 
     await firstRun.window.getByRole('button', { name: 'Select element' }).click()
     await firstRun.window.frameLocator('.preview-focused-fill iframe').locator('section').nth(1).click()
-    await expect(targetReference).toHaveText(/^index\.html:\d+-\d+$/)
-    const secondExactReference = await targetReference.textContent()
-    await followUp.fill('Give this feature block more breathing room')
+    await expect(focusedEditor).toBeVisible()
+    await expect(targetReference).toContainText(/index\.html:\d+-\d+$/)
+    const secondExactReference = (await targetReference.textContent())?.match(/index\.html:\d+-\d+/)?.[0]
+    await focusedEditor.getByRole('textbox', { name: 'Feedback for selected element' }).fill('Give this feature block more breathing room')
     await firstRun.window.getByRole('button', { name: 'Queue', exact: true }).click()
     await expect(firstRun.window.getByText('2 focused notes queued')).toBeVisible()
-    await expect(firstRun.window.getByText('Make this heading feel more grounded')).toBeVisible()
+    const secondMarker = firstRun.window.getByRole('button', { name: 'Pending focused feedback 2' })
+    await expect(secondMarker).toBeVisible()
+    await secondMarker.hover()
     await expect(firstRun.window.getByText('Give this feature block more breathing room')).toBeVisible()
     await firstRun.window.getByRole('button', { name: 'Fix all' }).click()
     await expect(firstRun.window.getByRole('region', { name: 'Focused feedback queue' })).toHaveCount(0)

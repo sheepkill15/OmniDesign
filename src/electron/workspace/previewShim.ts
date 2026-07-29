@@ -63,6 +63,8 @@ function shimBody(): string {
   }
   var selecting = false;
   var highlighted = null;
+  var focusedAnchors = [];
+  var focusedAnchorFrame = 0;
   var selectionStyle = document.createElement('style');
   selectionStyle.textContent = '.od-focused-candidate{outline:3px solid Highlight !important;outline-offset:2px !important;cursor:crosshair !important;}.od-focused-label{position:fixed;z-index:2147483647;display:none;max-width:min(320px,calc(100vw - 16px));padding:5px 8px;border:2px solid Highlight;border-radius:4px;background:Canvas;color:CanvasText;font:600 12px/1.25 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}@media(forced-colors:active){.od-focused-label{forced-color-adjust:auto;box-shadow:none;}}';
   (document.head || document.documentElement).appendChild(selectionStyle);
@@ -82,6 +84,42 @@ function shimBody(): string {
     var element = node && node.nodeType === 1 ? node : (node && node.parentElement);
     while (element && !element.getAttribute('data-od-source-key')) element = element.parentElement;
     return element;
+  }
+  function anchorRect(element) {
+    if (!element || !element.getBoundingClientRect) return null;
+    var rect = element.getBoundingClientRect();
+    var values = [rect.left, rect.top, rect.right, rect.bottom, rect.width, rect.height];
+    if (values.some(function (value) { return typeof value !== 'number' || !isFinite(value); })) return null;
+    return {
+      left: Math.max(-100000, Math.min(100000, rect.left)),
+      top: Math.max(-100000, Math.min(100000, rect.top)),
+      right: Math.max(-100000, Math.min(100000, rect.right)),
+      bottom: Math.max(-100000, Math.min(100000, rect.bottom)),
+      width: Math.max(0, Math.min(100000, rect.width)),
+      height: Math.max(0, Math.min(100000, rect.height)),
+      viewportWidth: Math.max(1, Math.min(100000, window.innerWidth || 1)),
+      viewportHeight: Math.max(1, Math.min(100000, window.innerHeight || 1))
+    };
+  }
+  function findSourceElement(locationId) {
+    var elements = document.querySelectorAll('[data-od-source-key]');
+    for (var index = 0; index < elements.length; index += 1) {
+      if (elements[index].getAttribute('data-od-source-key') === locationId) return elements[index];
+    }
+    return null;
+  }
+  function reportFocusedAnchors() {
+    focusedAnchorFrame = 0;
+    if (!focusedAnchors.length) { post({ type: 'focused-anchors', anchors: [] }); return; }
+    var anchors = focusedAnchors.map(function (item) {
+      var rect = anchorRect(findSourceElement(item.locationId));
+      return rect ? { id: item.id, locationId: item.locationId, rect: rect } : null;
+    }).filter(Boolean);
+    post({ type: 'focused-anchors', anchors: anchors });
+  }
+  function scheduleFocusedAnchors() {
+    if (focusedAnchorFrame) return;
+    focusedAnchorFrame = window.requestAnimationFrame ? window.requestAnimationFrame(reportFocusedAnchors) : window.setTimeout(reportFocusedAnchors, 16);
   }
   function highlight(node) {
     if (highlighted) highlighted.classList.remove('od-focused-candidate');
@@ -105,7 +143,7 @@ function shimBody(): string {
     var clicked = node && node.nodeType === 1 ? node : (node && node.parentElement);
     var authored = authoredAncestor(clicked);
     if (!authored) { post({ type: 'selection-unmappable', clickedLabel: elementLabel(clicked) }); stopSelecting(); return; }
-    post({ type: 'selection', locationId: authored.getAttribute('data-od-source-key'), clickedLabel: elementLabel(clicked), usedAncestor: authored !== clicked });
+    post({ type: 'selection', locationId: authored.getAttribute('data-od-source-key'), clickedLabel: elementLabel(clicked), usedAncestor: authored !== clicked, rect: anchorRect(authored) });
     stopSelecting();
   }
   document.addEventListener('mouseover', function (event) { if (selecting) highlight(event.target); }, true);
@@ -145,6 +183,8 @@ function shimBody(): string {
     } catch (e) {}
     window.addEventListener('load', reportHeight);
     window.addEventListener('resize', reportHeight);
+    window.addEventListener('resize', scheduleFocusedAnchors);
+    window.addEventListener('scroll', scheduleFocusedAnchors, true);
     // The parent asks for a fresh measurement after a layout-affecting change (device size / fit mode).
     window.addEventListener('message', function (event) {
       if (!event.data) return;
@@ -153,6 +193,13 @@ function shimBody(): string {
       else if (event.data.type === 'omnidesign-resume') setPaused(false);
       else if (event.data.type === 'omnidesign-selection-start') { selecting = true; highlight(document.activeElement || document.body); }
       else if (event.data.type === 'omnidesign-selection-stop') stopSelecting();
+      else if (event.data.type === 'omnidesign-focused-anchors') {
+        var incoming = Array.isArray(event.data.anchors) ? event.data.anchors.slice(0, 201) : [];
+        focusedAnchors = incoming.filter(function (item) {
+          return item && typeof item.id === 'string' && item.id.length <= 100 && typeof item.locationId === 'string' && item.locationId.length <= 100;
+        });
+        scheduleFocusedAnchors();
+      }
     });
     // Catch late layout (web fonts, images, Alpine expanding content) that fires no size event.
     [120, 400, 1000].forEach(function (delay) { setTimeout(reportHeight, delay); });
