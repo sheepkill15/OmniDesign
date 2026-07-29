@@ -1424,6 +1424,7 @@ describe('Phase 1 walking skeleton UI', () => {
     })
 
     const threadButton = screen.getByRole('button', { name: 'Focused edit thread 1, 3 comments, 1 pending' })
+    expect(threadButton).toHaveAttribute('data-has-pending', 'true')
     const threadDetail = document.getElementById(threadButton.getAttribute('aria-describedby')!)!
     expect(within(threadDetail).getByText('Make the heading feel calmer.')).toBeInTheDocument()
     expect(within(threadDetail).getByText('Reduce the heading width.')).toBeInTheDocument()
