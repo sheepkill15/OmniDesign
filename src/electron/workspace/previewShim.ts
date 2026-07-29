@@ -90,6 +90,9 @@ function shimBody(): string {
     var rect = element.getBoundingClientRect();
     var values = [rect.left, rect.top, rect.right, rect.bottom, rect.width, rect.height];
     if (values.some(function (value) { return typeof value !== 'number' || !isFinite(value); })) return null;
+    var viewportWidth = Math.max(1, Math.min(100000, window.innerWidth || 1));
+    var viewportHeight = Math.max(1, Math.min(100000, window.innerHeight || 1));
+    if (rect.width <= 0 || rect.height <= 0 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= viewportWidth || rect.top >= viewportHeight) return null;
     return {
       left: Math.max(-100000, Math.min(100000, rect.left)),
       top: Math.max(-100000, Math.min(100000, rect.top)),
@@ -97,8 +100,8 @@ function shimBody(): string {
       bottom: Math.max(-100000, Math.min(100000, rect.bottom)),
       width: Math.max(0, Math.min(100000, rect.width)),
       height: Math.max(0, Math.min(100000, rect.height)),
-      viewportWidth: Math.max(1, Math.min(100000, window.innerWidth || 1)),
-      viewportHeight: Math.max(1, Math.min(100000, window.innerHeight || 1))
+      viewportWidth: viewportWidth,
+      viewportHeight: viewportHeight
     };
   }
   function findSourceElement(locationId) {
@@ -133,18 +136,21 @@ function shimBody(): string {
       selectionLabel.style.display = 'block';
     } else selectionLabel.style.display = 'none';
   }
-  function stopSelecting() {
-    selecting = false;
+  function clearHighlight() {
     if (highlighted) highlighted.classList.remove('od-focused-candidate');
     highlighted = null;
     selectionLabel.style.display = 'none';
   }
+  function stopSelecting() {
+    selecting = false;
+    clearHighlight();
+  }
   function choose(node) {
     var clicked = node && node.nodeType === 1 ? node : (node && node.parentElement);
     var authored = authoredAncestor(clicked);
-    if (!authored) { post({ type: 'selection-unmappable', clickedLabel: elementLabel(clicked) }); stopSelecting(); return; }
+    if (!authored) { post({ type: 'selection-unmappable', clickedLabel: elementLabel(clicked) }); clearHighlight(); return; }
     post({ type: 'selection', locationId: authored.getAttribute('data-od-source-key'), clickedLabel: elementLabel(clicked), usedAncestor: authored !== clicked, rect: anchorRect(authored) });
-    stopSelecting();
+    clearHighlight();
   }
   document.addEventListener('mouseover', function (event) { if (selecting) highlight(event.target); }, true);
   document.addEventListener('focusin', function (event) { if (selecting) highlight(event.target); }, true);

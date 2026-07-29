@@ -723,6 +723,9 @@ accepts marker positions only from the active frame and only for opaque location
 already expects. Source keys are deterministic for an immutable page location so durable
 queued markers can return after restart, while privileged source maps continue to resolve
 and validate the authoritative path, line range, label, stable identifier, and excerpt.
+The trusted layer converts visible rectangles into directional teardrop pins, resolves
+pin collisions in deterministic neighboring slots, and omits pins whose source elements
+do not intersect the iframe viewport.
 
 The renderer derives each element thread from persisted focused-target metadata on user
 messages plus pending queue records; it does not introduce a parallel conversation store.

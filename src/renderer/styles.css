@@ -3482,7 +3482,7 @@ button[aria-expanded="true"] .dropdown-caret {
 .focused-feedback-marker-wrap {
   position: absolute;
   z-index: 3;
-  width: 286px;
+  height: 30px;
   pointer-events: none;
 }
 
@@ -3491,10 +3491,11 @@ button[aria-expanded="true"] .dropdown-caret {
   align-items: center;
   gap: 3px;
   height: 30px;
-  min-width: 30px;
+  width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  padding: 0 7px;
+  justify-content: center;
+  padding: 0 6px;
   background: var(--surface-3);
   color: var(--text-muted);
   box-shadow: var(--shadow-overlay);
@@ -3503,6 +3504,10 @@ button[aria-expanded="true"] .dropdown-caret {
   pointer-events: auto;
   transition: opacity 120ms ease, transform 120ms ease;
 }
+.focused-feedback-marker[data-point="top-left"] { border-top-left-radius: 4px; }
+.focused-feedback-marker[data-point="top-right"] { border-top-right-radius: 4px; }
+.focused-feedback-marker[data-point="bottom-left"] { border-bottom-left-radius: 4px; }
+.focused-feedback-marker[data-point="bottom-right"] { border-bottom-right-radius: 4px; }
 .focused-feedback-marker[data-pending] { border-color: var(--accent); color: var(--accent); }
 .focused-feedback-marker svg { width: 15px; }
 .focused-feedback-marker span { font-size: 10px; font-weight: 600; }
@@ -3511,12 +3516,10 @@ button[aria-expanded="true"] .dropdown-caret {
 
 .focused-feedback-marker-detail {
   position: absolute;
-  top: 35px;
-  left: 0;
+  top: calc(100% + 5px);
   display: grid;
   gap: 8px;
   width: 300px;
-  margin-top: 5px;
   padding: 10px 11px;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
@@ -3528,6 +3531,7 @@ button[aria-expanded="true"] .dropdown-caret {
   transform: translateY(-4px);
   transition: opacity 120ms ease, transform 120ms ease;
 }
+.focused-feedback-marker-wrap[data-side="above"] .focused-feedback-marker-detail { top: auto; bottom: calc(100% + 5px); transform: translateY(4px); }
 .focused-feedback-marker-wrap:hover .focused-feedback-marker-detail,
 .focused-feedback-marker-wrap:focus-within .focused-feedback-marker-detail { opacity: 1; pointer-events: auto; transform: translateY(0); }
 .focused-feedback-marker-detail > span { display: flex; justify-content: space-between; gap: 10px; }
@@ -3549,19 +3553,12 @@ button[aria-expanded="true"] .dropdown-caret {
 .focused-target-chip small, .focused-target-reference { color: var(--text-muted); font-size: 12px; }
 .focused-target-chip > button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font-size: 18px; }
 .focused-target-reference { margin-top: 8px; }
-.definition-status { align-items: center; border: 1px solid var(--border); border-radius: 999px; color: var(--text-subtle); display: inline-flex; font-size: 11px; padding: 4px 8px; white-space: nowrap; }
-.definition-status[data-state="failed"], .definition-status[data-state="unavailable"] { border-color: var(--danger); color: var(--danger); }
-.definition-status[data-state="applying"] { border-style: dashed; }
-
 @media (forced-colors: active) {
   .definition-section [data-invalid] input { border-color: Mark; }
-  .definition-field-error,
-  .definition-status[data-state="failed"],
-  .definition-status[data-state="unavailable"] { color: Mark; }
+  .definition-field-error { color: Mark; }
   .definition-setup-option,
   .definition-setup-symbol,
   .definition-setup-option-icon,
-  .definition-status,
   .focused-feedback-queue,
   .focused-feedback-queue > header,
   .focused-feedback-queue article + article,

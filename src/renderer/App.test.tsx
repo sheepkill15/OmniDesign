@@ -822,7 +822,7 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     expect(await screen.findByText('Project definitions version 2 is ready.')).toBeInTheDocument()
-    expect(screen.getByText('Definitions: Pending version 2')).toBeInTheDocument()
+    expect(screen.queryByText('Definitions: Pending version 2')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Apply to all' }))
 
     await waitFor(() => expect(bridge.workspace.applyProjectDesignDefinitionsToAll).toHaveBeenCalledWith('project-1', 2))
@@ -1228,6 +1228,9 @@ describe('Phase 1 walking skeleton UI', () => {
       'design-1', 'Make this call to action calmer', 'mock', 'mock-v1', undefined, [], target,
     ))
     expect(screen.queryByRole('dialog', { name: 'Focused feedback' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Select element' })).toHaveAttribute('aria-pressed', 'true'))
+    fireEvent.click(screen.getByRole('button', { name: 'Select element' }))
+    expect(screen.getByRole('button', { name: 'Select element' })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('queues multiple focused comments in the conversation and submits them as one batch', async () => {
@@ -1261,9 +1264,11 @@ describe('Phase 1 walking skeleton UI', () => {
     const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
     const selectTarget = async (locationId: string, label: string, expectedReference: string) => {
       const selectButton = screen.getByRole('button', { name: 'Select element' })
-      fireEvent.keyDown(selectButton, { key: 'Enter' })
-      fireEvent.keyUp(selectButton, { key: 'Enter' })
-      await screen.findByRole('button', { name: 'Selecting…' })
+      if (selectButton.getAttribute('aria-pressed') !== 'true') {
+        fireEvent.keyDown(selectButton, { key: 'Enter' })
+        fireEvent.keyUp(selectButton, { key: 'Enter' })
+      }
+      await waitFor(() => expect(selectButton).toHaveAttribute('aria-pressed', 'true'))
       window.dispatchEvent(new MessageEvent('message', {
         source: frame.contentWindow,
         data: {
@@ -1381,7 +1386,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const selectElement = screen.getByRole('button', { name: 'Select element' })
     await waitFor(() => expect(selectElement).toBeEnabled())
     fireEvent.click(selectElement)
-    await screen.findByRole('button', { name: 'Selecting…' })
+    await waitFor(() => expect(selectElement).toHaveAttribute('aria-pressed', 'true'))
     const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
     window.dispatchEvent(new MessageEvent('message', {
       source: frame.contentWindow,
@@ -1434,6 +1439,36 @@ describe('Phase 1 walking skeleton UI', () => {
 
     // Back in focused mode: the canvas-only fit controls are gone.
     await waitFor(() => expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument())
+  })
+
+  it('recognizes when an in-preview link navigates the focused frame to another design page', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.preview.register).mockResolvedValue({
+      token: 'token-1',
+      pages: [
+        { path: 'index.html', title: 'Home', order: 0, isHome: true },
+        { path: 'about.html', title: 'About', order: 1, isHome: false },
+      ],
+      entryPagePath: 'index.html',
+    })
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    const frame = await waitFor(() => {
+      const candidate = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement | null
+      expect(candidate?.dataset.page).toBe('index.html')
+      return candidate!
+    })
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'omnidesign-preview-shim', type: 'page', page: 'about.html' },
+    }))
+
+    await waitFor(() => expect((document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement).dataset.page).toBe('about.html'))
+    expect(screen.getByRole('button', { name: 'Preview page' })).toHaveTextContent('About')
   })
 
   it('recovers saved designs into the home list', async () => {

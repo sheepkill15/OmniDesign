@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Button, TextArea, TextField } from 'react-aria-components'
 import { MinusIcon, PlusIcon, ArrowsPointingOutIcon, ChatBubbleLeftEllipsisIcon, QueueListIcon, WrenchScrewdriverIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { anchorIsVisible, layoutFocusedMarkers, type FocusedAnchorRect } from './focusedMarkerLayout'
 
 // Must match PREVIEW_MESSAGE_SOURCE in src/electron/workspace/previewShim.ts.
 const SHIM_SOURCE = 'omnidesign-preview-shim'
@@ -9,17 +10,6 @@ const DEVICE_PRESETS: Record<Exclude<PreviewDevice, 'custom'>, { readonly width:
   phone: { width: 390, height: 844 },
   tablet: { width: 834, height: 1112 },
   desktop: { width: 1280, height: 800 },
-}
-
-interface FocusedAnchorRect {
-  readonly left: number
-  readonly top: number
-  readonly right: number
-  readonly bottom: number
-  readonly width: number
-  readonly height: number
-  readonly viewportWidth: number
-  readonly viewportHeight: number
 }
 
 type ShimMessage =
@@ -124,6 +114,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
   const heightFor = (path: string) => fit === 'fixed' ? dims.height : Math.max(heights[path] ?? dims.height, 120)
   const homePath = pages.find((page) => page.isHome)?.path ?? pages[0]?.path ?? null
   const activePage = selectedPage ?? homePath ?? 'index.html'
+  const pagePathSignature = pages.map((page) => page.path).join('|')
   // The one page allowed to animate: the focused page in focused mode, or the hovered/home tile on the
   // canvas. The shim in every other frame is told to pause.
   const livePath = viewMode === 'focused'
@@ -164,6 +155,10 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
     ...(focusedTarget?.locationId ? [{ id: 'editor', locationId: focusedTarget.locationId }] : []),
     ...focusedThreads.filter((thread) => thread.target.path === activePage && threadLocationIds[thread.id]).map((thread) => ({ id: thread.id, locationId: threadLocationIds[thread.id] })),
   ], [focusedTarget?.locationId, focusedThreads, threadLocationIds, activePage])
+  const focusedMarkerPlacements = useMemo(() => layoutFocusedMarkers(focusedThreads.flatMap((thread) => {
+    const rect = focusedAnchorRects[thread.id]
+    return rect && thread.target.path === activePage ? [{ id: thread.id, rect, count: thread.entries.length }] : []
+  })), [focusedThreads, focusedAnchorRects, activePage])
   const focusedAnchorSignature = expectedFocusedAnchors.map((item) => `${item.id}:${item.locationId}`).join('|')
   const syncFocusedAnchors = useCallback((frame: HTMLIFrameElement) => {
     try { frame.contentWindow?.postMessage({ type: 'omnidesign-focused-anchors', anchors: expectedFocusedAnchors }, '*') } catch { /* opaque frame not ready yet */ }
@@ -181,7 +176,15 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
       const data = event.data as ShimMessage | undefined
       if (!data || data.source !== SHIM_SOURCE || !data.page) return
       const frame = [...(viewport.current?.querySelectorAll('iframe') ?? [])].find((candidate) => (candidate as HTMLIFrameElement).contentWindow === event.source) as HTMLIFrameElement | undefined
-      if (!frame || frame.dataset.page !== data.page) return
+      if (!frame) return
+      if (data.type === 'page' && frame.dataset.page !== data.page) {
+        if (viewMode === 'focused' && pages.some((page) => page.path === data.page)) {
+          frame.dataset.page = data.page
+          if (data.page !== selectedPage) onSelectPage(data.page)
+        }
+        return
+      }
+      if (frame.dataset.page !== data.page) return
       if (data.type === 'height') {
         setHeights((current) => current[data.page] === data.height ? current : { ...current, [data.page]: data.height })
       } else if (data.type === 'diagnostic') {
@@ -214,7 +217,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
     }
     window.addEventListener('message', onMessage)
     return () => { current = false; window.removeEventListener('message', onMessage) }
-  }, [designId, revisionId, token, viewMode, selectedPage, activePage, selectionActive, focusedAnchorSignature, onSelectPage, onSelection, onSelectionCancelled, onSelectionError])
+  }, [designId, revisionId, token, viewMode, selectedPage, activePage, selectionActive, focusedAnchorSignature, pagePathSignature, pages, onSelectPage, onSelection, onSelectionCancelled, onSelectionError])
 
   // A fresh revision reprepares the surface: forget stale heights and re-arm thumbnail capture.
   useEffect(() => { setHeights({}); capturedRef.current = null; capturingRef.current = false }, [revisionId, token])
@@ -308,13 +311,13 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
     <div className="preview-focused-fill" ref={viewport}>
       <iframe key={`${token}:${activePage}`} data-page={activePage} title={pages.find((page) => page.path === activePage)?.title ?? activePage} src={pageUrl(activePage)} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget); syncFocusedAnchors(event.currentTarget) }} />
       {focusedThreads.map((thread, index) => {
-        const rect = focusedAnchorRects[thread.id]
-        if (!rect || thread.target.path !== activePage) return null
+        const placement = focusedMarkerPlacements[thread.id]
+        if (!placement) return null
         const detailId = `focused-feedback-detail-${thread.id}`
         const pendingCount = thread.entries.filter((entry) => entry.state === 'pending').length
-        return <div className="focused-feedback-marker-wrap" key={thread.id} style={{ ...anchoredStyle(rect, 300, Math.min(320, 74 + thread.entries.length * 76), 8), marginLeft: `${Math.min(index, 4) * 6}px` }}>
-          <Button className="focused-feedback-marker" data-pending={pendingCount > 0 || undefined} aria-label={`Focused edit thread ${index + 1}, ${thread.entries.length} ${thread.entries.length === 1 ? 'comment' : 'comments'}${pendingCount ? `, ${pendingCount} pending` : ''}`} aria-describedby={detailId}><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><span>{thread.entries.length}</span></Button>
-          <div className="focused-feedback-marker-detail" id={detailId}>
+        return <div className="focused-feedback-marker-wrap" data-side={placement.side} key={thread.id} style={{ left: `${placement.left}px`, top: `${placement.top}px`, width: `${placement.width}px` }}>
+          <Button className="focused-feedback-marker" data-point={placement.point} data-pending={pendingCount > 0 || undefined} aria-label={`Focused edit thread ${index + 1}, ${thread.entries.length} ${thread.entries.length === 1 ? 'comment' : 'comments'}${pendingCount ? `, ${pendingCount} pending` : ''}`} aria-describedby={detailId}><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><span>{thread.entries.length}</span></Button>
+          <div className="focused-feedback-marker-detail" id={detailId} style={{ left: `${placement.detailLeft}px` }}>
             <span><strong>{thread.entries.length === 1 ? 'Focused edit' : `${thread.entries.length} focused edits`}</strong><small>{thread.target.label}</small></span>
             <div className="focused-feedback-thread">
               {thread.entries.map((entry) => <article key={entry.id} data-state={entry.state}>
@@ -326,7 +329,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
           </div>
         </div>
       })}
-      {focusedTarget && focusedAnchorRects.editor && <div className="focused-comment-popover" role="dialog" aria-label="Focused feedback" style={anchoredStyle(focusedAnchorRects.editor, 380, 190)}>
+      {focusedTarget && focusedAnchorRects.editor && anchorIsVisible(focusedAnchorRects.editor) && <div className="focused-comment-popover" role="dialog" aria-label="Focused feedback" style={anchoredStyle(focusedAnchorRects.editor, 380, 190)}>
         <div className="focused-comment-context"><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><small>{focusedTarget.label} · {focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}</small><Button className="icon-button" aria-label="Close focused feedback" onPress={onClearFocused}><XMarkIcon aria-hidden="true" /></Button></div>
         <TextField className="focused-comment-field" aria-label="Feedback for selected element"><TextArea className="focused-comment-input" autoFocus value={focusedComment} placeholder="Describe what should change…" onChange={(event) => onFocusedCommentChange(event.target.value)} onKeyDown={(event) => {
           if (event.key === 'Escape') { event.preventDefault(); onClearFocused() }
