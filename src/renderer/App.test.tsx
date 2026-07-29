@@ -1233,6 +1233,58 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('button', { name: 'Select element' })).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('returns fully to active selection after closing an unsubmitted focused popup', async () => {
+    const bridge = installBridge()
+    const firstTarget: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const secondTarget: FocusedTarget = {
+      ...firstTarget,
+      locationId: 'fb57d30b-fc27-4edc-b6ad-b5d0886ae152',
+      startLine: 28,
+      endLine: 31,
+      label: '<button.primary>',
+      stableId: 'hero-action',
+      excerpt: '<button>Get started</button>',
+    }
+    vi.mocked(bridge.preview.resolveFocusedTarget).mockResolvedValueOnce(firstTarget).mockResolvedValueOnce(secondTarget)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+    const selectButton = screen.getByRole('button', { name: 'Select element' })
+    fireEvent.click(selectButton)
+    await waitFor(() => expect(selectButton).toHaveAttribute('aria-pressed', 'true'))
+    const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage')
+    const select = (target: FocusedTarget, top: number) => window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html', locationId: target.locationId,
+        clickedLabel: target.label, usedAncestor: false,
+        rect: { left: 40, top, right: 180, bottom: top + 40, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 },
+      },
+    }))
+
+    select(firstTarget, 80)
+    const firstPopup = await screen.findByRole('dialog', { name: 'Focused feedback' })
+    expect(within(firstPopup).getByText(/index\.html:12-16/)).toBeInTheDocument()
+    postMessage.mockClear()
+    fireEvent.click(within(firstPopup).getByRole('button', { name: 'Close focused feedback' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Focused feedback' })).not.toBeInTheDocument()
+    expect(selectButton).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith({ type: 'omnidesign-selection-start' }, '*'))
+
+    select(secondTarget, 180)
+    const secondPopup = await screen.findByRole('dialog', { name: 'Focused feedback' })
+    expect(within(secondPopup).getByText(/index\.html:28-31/)).toBeInTheDocument()
+    expect(bridge.preview.resolveFocusedTarget).toHaveBeenCalledTimes(2)
+  })
+
   it('queues multiple focused comments in the conversation and submits them as one batch', async () => {
     const bridge = installBridge()
     const firstTarget: FocusedTarget = {

@@ -134,7 +134,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
   }, [selectionActive, viewMode])
   useEffect(() => {
     viewport.current?.querySelectorAll('iframe').forEach((frame) => syncSelection(frame as HTMLIFrameElement))
-  }, [syncSelection, activePage])
+  }, [syncSelection, activePage, focusedTarget?.locationId])
 
   useEffect(() => {
     let current = true
