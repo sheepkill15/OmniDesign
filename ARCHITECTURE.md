@@ -576,6 +576,30 @@ Verify current documentation again before implementation because APIs and platfo
 - [Tauri](https://v2.tauri.app/start/)
 - [Capacitor](https://capacitorjs.com/docs)
 
+## Delivery Architecture
+
+### ADR 2026-07-30: GitHub Actions validates pull requests and packages main (accepted, implemented)
+
+GitHub Actions is the accepted automation boundary for the open-source
+repository. Every pull request runs TypeScript checks, the unit and component
+suite, a production build, and the Electron end-to-end suite on Windows. Every
+push to `main` repeats the release-candidate checks before packaging native
+desktop installers.
+
+Desktop packaging uses `electron-builder`. Windows produces an x64 NSIS
+installer on a Windows runner. macOS produces separate x64 and arm64 DMGs on
+native Intel and Apple Silicon runners rather than constructing a universal
+bundle around platform-native Tailwind dependencies. Successful packages are
+retained as GitHub Actions artifacts; permanent releases, semantic versioning,
+auto-update channels, code signing, and Apple notarization remain separate
+release-engineering decisions.
+
+The workflows use read-only repository permissions and frozen pnpm installs.
+Signing credentials must enter only through GitHub Actions secrets when signed
+distribution is introduced. Unsigned artifacts are explicitly internal-testing
+outputs because Windows SmartScreen and macOS Gatekeeper do not treat them as
+trusted public releases.
+
 ## Phase 2 Architecture Decisions
 
 ### ADR 2026-07-24: Pages are discovered from Git (accepted, implemented)

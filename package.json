@@ -2,6 +2,7 @@
   "name": "omnidesign",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@11.15.1",
   "description": "AI-first desktop design tool",
   "main": "dist-electron/main/index.js",
   "scripts": {
@@ -13,8 +14,11 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "start": "electron .",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json",
-    "test": "vitest run --environment jsdom --exclude=dist-electron/** --exclude=tests/e2e/**",
+    "test": "vitest run --environment jsdom --testTimeout=10000 --exclude=dist-electron/** --exclude=tests/e2e/**",
     "test:e2e": "pnpm build && playwright test -c playwright.e2e.config.ts",
+    "package:win": "pnpm build && electron-builder --win --x64 --publish never",
+    "package:mac:arm64": "pnpm build && electron-builder --mac --arm64 --publish never",
+    "package:mac:x64": "pnpm build && electron-builder --mac --x64 --publish never",
     "vendor:alpine": "node scripts/vendor-alpine.mjs"
   },
   "dependencies": {
@@ -41,11 +45,17 @@
     "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
     "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
     "jsdom": "^29.1.1",
     "playwright": "1.61.1",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10",
     "wait-on": "^9.0.10"
+  },
+  "optionalDependencies": {
+    "lightningcss-darwin-arm64": "1.32.0",
+    "lightningcss-darwin-x64": "1.32.0",
+    "lightningcss-win32-x64-msvc": "1.32.0"
   }
 }

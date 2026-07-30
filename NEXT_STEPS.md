@@ -92,13 +92,16 @@ The product must demonstrate the level of UI and UX quality expected from a desi
 
 Before full implementation, decide and record:
 
-- Electron packaging and update tooling.
+- Auto-update channels, semantic release versioning, and signed public
+  distribution. GitHub Actions plus `electron-builder` now package unsigned
+  Windows x64 and native Intel/Apple Silicon macOS artifacts.
 - Application state-management approach.
 - SQLite library and migration strategy.
 - Runtime schema-validation library.
 - Logging, diagnostics, and error boundaries.
 - Test runners and responsibilities for each test layer.
-- Continuous-integration targets for Windows, macOS, and Linux.
+- Whether Linux packaging becomes a supported delivery target. Pull-request CI
+  and Windows/macOS delivery targets are now implemented.
 - Supported operating-system versions and architectures.
 - Development, preview, and production Content Security Policies.
 
@@ -189,6 +192,11 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - The product-trust polish keeps the first completed result free of automatic setup dialogs, displays the applied definition version in the toolbar, runs persisted per-revision quality checks across every page at phone and desktop widths, offers explicit provider-backed repair from findings, and compares an earlier revision with the current head using Git-authored file evidence that excludes managed build output.
 - Verification on 2026-07-27: `pnpm typecheck`, 258 unit tests across 25 files, production build, and all nine Playwright Electron journeys pass. The Phase 3 journey covers definition setup, version decisions, deterministic propagation, two exact focused selections, conversation-side queueing, one batch generation and immutable revision, restart, and recovered batch history.
 - Product-trust verification on 2026-07-30: `pnpm typecheck`, 274 tests across 27 files, production build, and all 10 Playwright Electron journeys pass sequentially. The suite now also proves an unobstructed first result, a persisted built-browser quality pass even when optional thumbnail capture fails, provider-backed repair wiring, and Git-derived comparison of an earlier revision with the current head. Versioned reports replace older quality results on the next active-revision preview. The existing Vite advisory remains: the main renderer chunk is 544.68 kB (157.29 kB gzip), above the 500 kB advisory threshold.
+- GitHub Actions now runs typecheck, unit/component tests, a production build,
+  and Windows Electron E2E for every pull request. Every push to `main` repeats
+  release verification and uploads unsigned Windows x64 plus macOS x64 and
+  arm64 installers; signing, notarization, versioned releases, and auto-update
+  remain open release-engineering work.
 
 ## Historical Handoff Notes (superseded where they conflict with the status above)
 

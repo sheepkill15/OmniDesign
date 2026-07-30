@@ -18,3 +18,13 @@ pnpm test
 pnpm run typecheck
 pnpm run build
 ```
+
+## CI/CD
+
+Pull requests run typechecking, unit and component tests, a production build,
+and the Electron end-to-end suite through GitHub Actions. Every push to `main`
+that passes the release checks produces a Windows x64 installer and separate
+Apple Silicon and Intel macOS disk images.
+
+See [`docs/CI_CD.md`](docs/CI_CD.md) for artifact names, branch-protection
+settings, local packaging commands, and the current unsigned-build boundary.
