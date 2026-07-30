@@ -732,14 +732,19 @@ function registerIpc(): void {
     } catch {
       return false
     }
-    const png = await thumbnailCapturer.capture(request.designId, request.revisionId, files, entryPage)
-    if (!png) return false
+    const result = await thumbnailCapturer.capture(request.designId, request.revisionId, files, entryPage)
+    if (!result.checked) return false
     try {
-      workspaceStore?.saveThumbnail(request.designId, request.revisionId, png)
+      if (result.png) workspaceStore?.saveThumbnail(request.designId, request.revisionId, result.png)
+      workspaceStore?.saveRevisionQualityReport(request.designId, request.revisionId, result.findings)
     } catch {
       return false
     }
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (result.png) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
+      mainWindow.webContents.send('preview:diagnostic', { designId: request.designId, revisionId: request.revisionId })
+    }
+    sendWorkspaceChanged(request.designId)
     return true
   })
   ipcMain.handle('preview:pop-out', (event, value: unknown) => {

@@ -40,6 +40,7 @@ interface DesignRevision {
   readonly providerId: string
   readonly modelId: string
   readonly definitionVersion?: number | null
+  readonly qualityCheckedAt?: string | null
   readonly createdAt: string
   readonly thumbnailDataUrl: string | null
   readonly diagnostics: readonly PreviewDiagnostic[]

@@ -623,6 +623,26 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('persists and replaces a completed visual quality report for one revision', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const revisionId = store.addRevision(created.id, 'First').activeRevisionId!
+    store.saveRevisionQualityReport(created.id, revisionId, [
+      { level: 'error', message: 'Horizontal overflow at 390 px.', source: 'index.html', line: null },
+      { level: 'error', message: 'Horizontal overflow at 390 px.', source: 'index.html', line: null },
+    ])
+    expect(store.getDesign(created.id)?.revisions[0]).toMatchObject({
+      qualityCheckedAt: expect.any(String),
+      diagnostics: [{ kind: 'quality', level: 'error', message: 'Horizontal overflow at 390 px.' }],
+    })
+
+    store.saveRevisionQualityReport(created.id, revisionId, [])
+    store.close()
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.revisions[0]).toMatchObject({ qualityCheckedAt: expect.any(String), diagnostics: [] })
+    reopened.close()
+  })
+
   it('persists queued focused feedback and submits it atomically as one generation batch', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')

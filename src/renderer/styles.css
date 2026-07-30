@@ -2384,6 +2384,28 @@ button[aria-expanded="true"] .dropdown-caret {
 .workspace-feedback small { overflow-wrap: anywhere; color: var(--text-subtle); font-size: 11px; line-height: 1.45; }
 .workspace-feedback .text-button { flex: 0 0 auto; margin-left: auto; }
 
+.revision-quality-report {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  margin: 12px 0;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--border));
+  background: color-mix(in srgb, var(--warning) 7%, var(--surface-2));
+}
+
+.revision-quality-report > span { display: flex; align-items: center; gap: 10px; }
+.revision-quality-report > span > svg { width: 18px; color: var(--warning); }
+.revision-quality-report > span > span { display: grid; gap: 2px; }
+.revision-quality-report strong { color: var(--text); font-size: 12px; }
+.revision-quality-report small { color: var(--text-subtle); font-size: 11px; }
+.revision-quality-report details { grid-column: 1 / -1; }
+.revision-quality-report summary { width: fit-content; cursor: pointer; color: var(--text-subtle); font-size: 11px; }
+.revision-quality-report ul { display: grid; gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }
+.revision-quality-report li { display: grid; grid-template-columns: minmax(80px, auto) minmax(0, 1fr); gap: 10px; color: var(--text-subtle); font-size: 11px; }
+.revision-quality-report li strong { overflow-wrap: anywhere; }
+.revision-quality-report .secondary-action { align-self: center; }
+
 .historical-banner {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;

@@ -39,7 +39,7 @@ const design: OmniDesignDocument = {
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
-  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
+  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:00:02.000Z', createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
 const engagedDesign: OmniDesignDocument = {
@@ -53,7 +53,7 @@ const engagedDesign: OmniDesignDocument = {
   ],
   revisions: [
     ...design.revisions,
-    { id: 'revision-2', parentRevisionId: 'revision-1', prompt: 'Make the overview more compact', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:05:00.000Z', thumbnailDataUrl: null, diagnostics: [] },
+    { id: 'revision-2', parentRevisionId: 'revision-1', prompt: 'Make the overview more compact', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:05:02.000Z', createdAt: '2026-07-20T10:05:00.000Z', thumbnailDataUrl: null, diagnostics: [] },
   ],
 }
 
@@ -1062,6 +1062,36 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('img', { name: 'Preview of revision current head' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
     expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent(new Date(thumbnailDesign.revisions[0].createdAt).toLocaleString())
     expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent('A calm dashboard')
+  })
+
+  it('shows persisted visual quality findings and submits an explicit repair prompt', async () => {
+    const qualityDesign: OmniDesignDocument = {
+      ...design,
+      revisions: [{
+        ...design.revisions[0],
+        diagnostics: [
+          { id: 'quality-1', kind: 'quality', level: 'error', message: 'Horizontal overflow at 390 px (48 px beyond the viewport).', source: 'index.html', line: null, createdAt: '2026-07-20T10:00:02.000Z' },
+          { id: 'quality-2', kind: 'quality', level: 'warning', message: 'No main content landmark was found.', source: 'index.html', line: null, createdAt: '2026-07-20T10:00:02.000Z' },
+        ],
+      }],
+    }
+    const bridge = installBridge([], qualityDesign)
+    render(<App />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'What would you like to design?' }), { target: { value: 'A calm dashboard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create design' }))
+    expect(await screen.findByText('Visual quality check found 2 issues.')).toBeInTheDocument()
+    expect(screen.getByText('Local · 2 quality issues')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Fix issues' }))
+
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith(
+      'design-1',
+      expect.stringContaining('[error] index.html: Horizontal overflow at 390 px'),
+      'mock',
+      'mock-v1',
+      undefined,
+      [],
+    ))
   })
 
   it('shows the selected provider and saved state in the design header', async () => {

@@ -149,6 +149,7 @@ interface RevisionRow {
   model_id: string
   git_commit: string | null
   definition_version: number | null
+  quality_checked_at: string | null
   created_at: string
 }
 
@@ -593,6 +594,10 @@ CREATE TABLE focused_feedback_queue (
 CREATE INDEX focused_feedback_queue_by_design ON focused_feedback_queue(design_id, created_at);
 ALTER TABLE messages ADD COLUMN focused_feedback_json TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE generation_jobs ADD COLUMN focused_feedback_json TEXT NOT NULL DEFAULT '[]';
+`
+
+const migrationForty = `
+ALTER TABLE revisions ADD COLUMN quality_checked_at TEXT;
 `
 
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
@@ -1594,6 +1599,26 @@ export class WorkspaceStore {
     `).run(randomUUID(), revisionId, diagnostic.kind, diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line, new Date().toISOString())
   }
 
+  public saveRevisionQualityReport(designId: string, revisionId: string, diagnostics: readonly Omit<PreviewDiagnostic, 'id' | 'createdAt' | 'kind'>[]): void {
+    this.requireRevision(designId, revisionId)
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.database.prepare("DELETE FROM preview_diagnostics WHERE revision_id = ? AND kind = 'quality'").run(revisionId)
+      const insert = this.database.prepare(`
+        INSERT INTO preview_diagnostics (id, revision_id, kind, level, message, source, line, created_at)
+        VALUES (?, ?, 'quality', ?, ?, ?, ?, ?)
+      `)
+      const seen = new Set<string>()
+      for (const diagnostic of diagnostics) {
+        const key = JSON.stringify([diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line])
+        if (seen.has(key)) continue
+        seen.add(key)
+        insert.run(randomUUID(), revisionId, diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line, now)
+      }
+      this.database.prepare('UPDATE revisions SET quality_checked_at = ? WHERE id = ?').run(now, revisionId)
+    })
+  }
+
   public saveThumbnail(designId: string, revisionId: string, png: Uint8Array): void {
     this.requireRevision(designId, revisionId)
     const thumbnailDirectory = path.join(this.artifactsDirectory, designId, 'thumbnails')
@@ -1638,7 +1663,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1662,7 +1687,7 @@ export class WorkspaceStore {
     const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, focused_target_json, focused_feedback_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
-      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at
+      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, quality_checked_at, created_at
       FROM revisions WHERE design_id = ? ORDER BY created_at, rowid
     `).all(row.id) as unknown as RevisionRow[]
     const invalidCandidateRows = this.database.prepare(`
@@ -1718,6 +1743,7 @@ export class WorkspaceStore {
         modelId: revision.model_id,
         gitCommit: revision.git_commit,
         definitionVersion: revision.definition_version,
+        qualityCheckedAt: revision.quality_checked_at,
         createdAt: revision.created_at,
         thumbnailDataUrl: this.readThumbnailDataUrl(this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(revision.id) as { thumbnail_path: string } | undefined),
         diagnostics: this.database.prepare(`

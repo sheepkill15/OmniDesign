@@ -227,6 +227,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   }, [mode])
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
+  const qualityDiagnostics = selectedRevision?.diagnostics.filter((diagnostic) => diagnostic.kind === 'quality') ?? []
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
   // Only surface a rejected candidate while it is still the design's latest outcome. Once a later
   // revision lands (e.g. a repair attempt succeeded), the rejection is history, not a current problem.
@@ -413,6 +414,13 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
       setAttachments(submittedAttachments)
     }
   }
+  const fixQualityIssues = async () => {
+    if (!api || !qualityDiagnostics.length || busy || !selectedIsHead || !hasUsableSelection) return
+    const findings = qualityDiagnostics.map((diagnostic) => `- [${diagnostic.level}] ${diagnostic.source ?? 'design'}: ${diagnostic.message}`).join('\n')
+    const prompt = `Fix the visual quality issues below. Preserve the intended content and design direction, make the smallest coherent changes, and keep every page responsive and accessible.\n\n${findings}`
+    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, []), 'The quality repair could not be submitted.')
+    if (updated) onChange(updated)
+  }
   const submitFocusedFeedback = async () => {
     if (!api || !focusedComment.trim() || !focusedTarget || busy || !selectedIsHead || !hasUsableSelection) return
     const comment = focusedComment.trim()
@@ -559,7 +567,13 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     }
   }
 
-  const previewStatus = selectedRevision ? 'Offline · validated' : 'Waiting for revision'
+  const previewStatus = !selectedRevision
+    ? 'Waiting for revision'
+    : !selectedRevision.qualityCheckedAt
+      ? 'Local · checking quality'
+      : qualityDiagnostics.length
+        ? `Local · ${qualityDiagnostics.length} quality issue${qualityDiagnostics.length === 1 ? '' : 's'}`
+        : 'Local · quality checked'
   const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
@@ -577,6 +591,11 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
           <strong>This version wasn’t applied</strong>
           <p>OmniDesign kept your last working design.</p>
           <details><summary>What went wrong</summary><p>{latestInvalidCandidate!.diagnostic}</p></details>
+        </section>}
+        {qualityDiagnostics.length > 0 && <section className="revision-quality-report" role="status">
+          <span><ExclamationTriangleIcon aria-hidden="true" /><span><strong>Visual quality check found {qualityDiagnostics.length} issue{qualityDiagnostics.length === 1 ? '' : 's'}.</strong><small>Every page was rendered at phone and desktop widths.</small></span></span>
+          <details><summary>Review findings</summary><ul>{qualityDiagnostics.map((diagnostic) => <li key={diagnostic.id}><strong>{diagnostic.source ?? 'Design'}</strong>{diagnostic.message}</li>)}</ul></details>
+          {selectedIsHead && <Button className="secondary-action" isDisabled={busy || !hasUsableSelection} onPress={() => void fixQualityIssues()}><WrenchScrewdriverIcon aria-hidden="true" />Fix issues</Button>}
         </section>}
         {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
         {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
@@ -654,7 +673,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         <small>{previewStatus}</small>
       </div>
       {previewToken && design.selectedRevisionId
-        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && !selectedRevision.thumbnailDataUrl} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => { setFocusedTarget(null); setFocusedComment('') }} onSelectionError={(message) => setFeedback({ tone: 'error', message })} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
+        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && (!selectedRevision.thumbnailDataUrl || !selectedRevision.qualityCheckedAt)} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => { setFocusedTarget(null); setFocusedComment('') }} onSelectionError={(message) => setFeedback({ tone: 'error', message })} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
         : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
     </section>
   )
