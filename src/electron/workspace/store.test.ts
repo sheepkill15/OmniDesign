@@ -307,11 +307,35 @@ describe('WorkspaceStore', () => {
   it('persists the workspace layout mode and divider across reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    store.saveLayout(created.id, { conversationWidth: 57, mode: 'preview' })
+    store.saveLayout(created.id, {
+      conversationWidth: 57,
+      mode: 'preview',
+      previewViewMode: 'canvas',
+      previewFit: 'fixed',
+      previewDevice: 'custom',
+      previewCustomWidth: 1440,
+      previewCustomHeight: 960,
+      previewPage: 'about.html',
+      previewZoom: 1.25,
+      previewPanX: 84,
+      previewPanY: -36,
+    })
     store.close()
 
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 57, mode: 'preview' })
+    expect(reopened.getDesign(created.id)?.layout).toEqual({
+      conversationWidth: 57,
+      mode: 'preview',
+      previewViewMode: 'canvas',
+      previewFit: 'fixed',
+      previewDevice: 'custom',
+      previewCustomWidth: 1440,
+      previewCustomHeight: 960,
+      previewPage: 'about.html',
+      previewZoom: 1.25,
+      previewPanX: 84,
+      previewPanY: -36,
+    })
     reopened.close()
   })
 
@@ -319,8 +343,33 @@ describe('WorkspaceStore', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
     // Preview settings gain sensible defaults for rows saved before Phase 2 added them.
-    expect(store.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop' })
+    expect(store.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewZoom: 0.75, previewPanX: 0, previewPanY: 0 })
     store.close()
+  })
+
+  it('persists validated provider availability for immediate startup reads', () => {
+    const { directory, store } = createStore()
+    store.saveCachedProviderStatuses([{
+      id: 'codex',
+      name: 'Codex',
+      installed: true,
+      authenticated: true,
+      detail: 'Ready',
+      models: [{ id: 'gpt-5.6', name: 'GPT-5.6', effortLevels: [{ id: 'high', name: 'High', isDefault: true }] }],
+    }])
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getCachedProviderStatuses()).toEqual([{
+      id: 'codex',
+      name: 'Codex',
+      installed: true,
+      authenticated: true,
+      detail: 'Ready',
+      models: [{ id: 'gpt-5.6', name: 'GPT-5.6', effortLevels: [{ id: 'high', name: 'High', isDefault: true }] }],
+    }])
+    expect(() => reopened.saveCachedProviderStatuses([{ id: 'mock' } as never])).toThrow()
+    reopened.close()
   })
 
   it('persists the last-open design across reopen and clears it on request', () => {

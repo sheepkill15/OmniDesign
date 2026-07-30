@@ -1484,7 +1484,7 @@ button:not(:disabled):active {
   background: var(--surface-1);
 }
 
-.provider-row > span:nth-child(2) {
+.provider-row-copy {
   display: grid;
   gap: 4px;
 }
@@ -1510,6 +1510,99 @@ button:not(:disabled):active {
   color: var(--text-subtle);
   font-size: 12px;
   text-align: right;
+}
+
+.provider-row-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.provider-setup-action { min-width: 92px; justify-content: center; }
+
+.provider-setup-modal { width: min(560px, calc(100vw - 32px)); }
+
+.provider-setup-modal [role='dialog'] { gap: 18px; padding: 26px; }
+
+.provider-setup-intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+
+.provider-setup-intro > svg {
+  width: 20px;
+  color: var(--text-subtle);
+}
+
+.provider-setup-intro p { color: var(--text-subtle); font-size: 13px; }
+.provider-setup-intro strong { color: var(--text); font-weight: 600; }
+
+.provider-setup-steps {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.provider-setup-steps li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.provider-setup-steps li > span {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.provider-setup-steps li > div { min-width: 0; display: grid; gap: 5px; }
+.provider-setup-steps strong { font-size: 13px; font-weight: 600; }
+.provider-setup-steps p { font-size: 12px; }
+
+.provider-setup-steps code {
+  overflow-x: auto;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: all;
+  white-space: nowrap;
+}
+
+.provider-setup-privacy { font-size: 12px; }
+
+.local-tools-intro {
+  max-width: 620px;
+  margin: -3px 0 0;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.local-tool-list { margin-top: 12px; }
+
+@media (max-width: 640px) {
+  .provider-row { grid-template-columns: auto minmax(0, 1fr); }
+  .provider-row-actions { grid-column: 2; justify-items: start; }
+  .provider-state { text-align: left; }
 }
 
 .settings-empty {

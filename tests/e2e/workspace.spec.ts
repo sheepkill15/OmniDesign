@@ -465,11 +465,12 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
     await firstRun.window.getByRole('textbox', { name: 'Custom preview height' }).fill('960')
     await firstRun.window.getByRole('button', { name: 'Apply size' }).click()
     await firstRun.window.getByRole('button', { name: 'Fixed' }).click()
+    await firstRun.window.getByRole('button', { name: 'Zoom in' }).click()
 
     await expect.poll(() => firstRun.window.evaluate(async () => {
       const current = (await window.omnidesign!.workspace.list())[0]
       return current.layout
-    })).toMatchObject({ previewViewMode: 'canvas', previewFit: 'fixed', previewDevice: 'custom', previewCustomWidth: 1440, previewCustomHeight: 960, previewPage: 'pages/about.html' })
+    })).toMatchObject({ previewViewMode: 'canvas', previewFit: 'fixed', previewDevice: 'custom', previewCustomWidth: 1440, previewCustomHeight: 960, previewPage: 'pages/about.html', previewZoom: 0.85, previewPanX: 0, previewPanY: 0 })
 
     const exportPath = path.join(userDataDirectory, 'multi-page-design.zip')
     await firstRun.app.evaluate(({ dialog }, destination) => {
@@ -490,6 +491,7 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
     await expect(secondRun.window.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     await expect(secondRun.window.getByRole('button', { name: 'Device size' })).toContainText('Custom')
     await expect(secondRun.window.getByRole('button', { name: 'Fixed' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(secondRun.window.getByText('85%')).toBeVisible()
     await expect(secondRun.window.locator('.preview-tile')).toHaveCount(2)
   } finally {
     await activeApp?.close().catch(() => undefined)

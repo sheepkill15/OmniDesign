@@ -50,6 +50,9 @@ export const layoutSchema = z.object({
   previewCustomWidth: z.number().int().min(240).max(3840).default(1280),
   previewCustomHeight: z.number().int().min(320).max(4320).default(800),
   previewPage: z.string().min(1).nullable().default(null),
+  previewZoom: z.number().min(0.2).max(2).default(0.75),
+  previewPanX: z.number().min(-100_000).max(100_000).default(0),
+  previewPanY: z.number().min(-100_000).max(100_000).default(0),
 })
 
 export const designPageSchema = z.object({

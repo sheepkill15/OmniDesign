@@ -24,31 +24,53 @@ const developmentProvider: ProviderStatus = {
   models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }],
 }
 
-function useProviders(): { readonly label: string; readonly providers: readonly ProviderStatus[]; readonly loading: boolean; readonly error: string | null; readonly refresh: () => void } {
+function useProviders(): { readonly providers: readonly ProviderStatus[]; readonly loading: boolean; readonly error: string | null; readonly refresh: () => void } {
   const developmentEnabled = import.meta.env.DEV || window.omnidesign?.providers.developmentProviderEnabled
-  const [label, setLabel] = useState('Development provider')
   const [providers, setProviders] = useState<ProviderStatus[]>(developmentEnabled ? [developmentProvider] : [])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const refresh = useCallback(() => {
     const api = window.omnidesign?.providers
-    if (!api) return
+    if (!api) { setLoading(false); return }
     setLoading(true)
     setError(null)
-    void api.discover().then((available) => {
-      setProviders(available)
-      const provider = available.find((candidate) => candidate.installed && candidate.authenticated)
-      setLabel(provider ? `${provider.name} available · Development provider active` : 'Development provider')
-    }).catch((reason: unknown) => {
-      setProviders(developmentEnabled ? [developmentProvider] : [])
-      setLabel('Development provider')
+    void api.refresh().then(setProviders).catch((reason: unknown) => {
       setError(reason instanceof Error && reason.message ? reason.message : 'Provider discovery failed unexpectedly.')
     }).finally(() => setLoading(false))
-  }, [developmentEnabled])
+  }, [])
   useEffect(() => {
-    refresh()
+    const api = window.omnidesign?.providers
+    if (!api) { setLoading(false); return }
+    let active = true
+    let receivedUpdate = false
+    const applyUpdate = (available: readonly ProviderStatus[]) => {
+      receivedUpdate = true
+      if (active) setProviders([...available])
+    }
+    const unsubscribe = api.onUpdated(applyUpdate)
+    void api.getCached().then((available) => {
+      if (active && !receivedUpdate) setProviders(available)
+    }).catch(() => undefined).finally(() => { if (active) refresh() })
+    return () => { active = false; unsubscribe() }
   }, [refresh])
-  return { label, providers, loading, error, refresh }
+  return { providers, loading, error, refresh }
+}
+
+function useLocalDependencies(): { readonly dependencies: readonly LocalDependencyStatus[]; readonly loading: boolean; readonly error: string | null; readonly refresh: () => void } {
+  const [dependencies, setDependencies] = useState<LocalDependencyStatus[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const refresh = useCallback(() => {
+    const api = window.omnidesign?.environment
+    if (!api) { setLoading(false); return }
+    setLoading(true)
+    setError(null)
+    void api.discover().then(setDependencies).catch((reason: unknown) => {
+      setError(reason instanceof Error && reason.message ? reason.message : 'Local tools could not be checked.')
+    }).finally(() => setLoading(false))
+  }, [])
+  useEffect(refresh, [refresh])
+  return { dependencies, loading, error, refresh }
 }
 
 export function App() {
@@ -78,6 +100,7 @@ export function App() {
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const providerState = useProviders()
+  const localDependencyState = useLocalDependencies()
   const workspaceApi = window.omnidesign?.workspace
   // Reopen the design that was open when the app last closed (its page is restored from the design's own
   // persisted layout). `restoreDone` gates the persistence effect so it never writes over the stored id
@@ -227,7 +250,7 @@ export function App() {
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
   const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
-  const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
+  const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh(); localDependencyState.refresh() }
   const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
   const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
   const openDefinitions = (project: ProjectSummary, setupPath: 'proposal' | 'manual' | null = null) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDefinitionSetupPath(setupPath); setDefinitionsProject(project) }
@@ -401,16 +424,16 @@ export function App() {
         : trashOpen
         ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} onEmpty={emptyTrash} />
         : providersOpen
-        ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} onRefresh={providerState.refresh} />
+        ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} dependencies={localDependencyState.dependencies} dependenciesLoading={localDependencyState.loading} dependenciesError={localDependencyState.error} platform={window.omnidesign.environment.platform} onRefresh={() => { providerState.refresh(); localDependencyState.refresh() }} onOpenSetup={window.omnidesign.providers.openSetup} onOpenDependencySetup={window.omnidesign.environment.openSetup} />
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} initialError={settingsError} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : definitionsProject
         ? <DesignDefinitions project={definitionsProject} providers={providerState.providers} initialSetupPath={definitionSetupPath} onBack={() => { setDefinitionsProject(null); setDefinitionSetupPath(null) }} onSaved={definitionsSaved} />
         : activeDesign
-        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
+        ? <DesignWorkspace design={activeDesign} providers={providerState.providers} providersLoading={providerState.loading} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
         : activeProject
-        ? <ProjectPage project={activeProject} projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onRefresh={async () => { await refresh() }} onOpenProviders={openProviders} onOpenDefinitions={() => openDefinitions(activeProject)} />
-        : <Home projects={projects} designs={designs} providers={providerState.providers} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}
+        ? <ProjectPage project={activeProject} projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onRefresh={async () => { await refresh() }} onOpenProviders={openProviders} onOpenDefinitions={() => openDefinitions(activeProject)} />
+        : <Home projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}
       <AppModal isOpen={definitionPromptProject !== null} onOpenChange={(open) => { if (!open) setDefinitionPromptProject(null) }} className="definition-setup-modal" title={`Set up design definitions for ${definitionPromptProject?.name ?? 'this project'}?`}>
         {(close) => <>
           <div className="definition-setup-intro">

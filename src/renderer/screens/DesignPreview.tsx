@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 import { Button, TextArea, TextField } from 'react-aria-components'
 import { MinusIcon, PlusIcon, ArrowsPointingOutIcon, ChatBubbleLeftEllipsisIcon, QueueListIcon, WrenchScrewdriverIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { anchorIsVisible, layoutFocusedMarkers, type FocusedAnchorRect } from './focusedMarkerLayout'
@@ -56,6 +56,8 @@ export interface DesignPreviewProps {
   readonly customWidth: number
   readonly customHeight: number
   readonly selectedPage: string | null
+  readonly canvasViewport: CanvasViewport
+  readonly onCanvasViewportChange: Dispatch<SetStateAction<CanvasViewport>>
   readonly onSelectPage: (page: string) => void
   readonly onOpenPage: (page: string) => void
   readonly selectionActive: boolean
@@ -72,6 +74,12 @@ export interface DesignPreviewProps {
   readonly onSubmitFocused: () => void
   readonly onClearFocused: () => void
   readonly onRemoveFocusedFeedback: (feedbackId: string) => void
+}
+
+export interface CanvasViewport {
+  readonly zoom: number
+  readonly panX: number
+  readonly panY: number
 }
 
 export interface FocusedEditThreadEntry {
@@ -93,11 +101,9 @@ export interface FocusedEditThread {
 // Canvas mode lays every page out as a device-framed tile on a pan/zoom board honoring the global
 // device size and fit. Height (Artboard fit), diagnostics, and current-page reporting arrive from the
 // injected shim via postMessage.
-export function DesignPreview({ designId, revisionId, token, captureNeeded, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, onSelectPage, onOpenPage, selectionActive, focusedTarget, focusedComment, focusedThreads, focusedBusy, canSubmitFocused, onSelection, onSelectionCancelled, onSelectionError, onFocusedCommentChange, onQueueFocused, onSubmitFocused, onClearFocused, onRemoveFocusedFeedback }: DesignPreviewProps) {
+export function DesignPreview({ designId, revisionId, token, captureNeeded, pages, viewMode, fit, device, customWidth, customHeight, selectedPage, canvasViewport, onCanvasViewportChange, onSelectPage, onOpenPage, selectionActive, focusedTarget, focusedComment, focusedThreads, focusedBusy, canSubmitFocused, onSelection, onSelectionCancelled, onSelectionError, onFocusedCommentChange, onQueueFocused, onSubmitFocused, onClearFocused, onRemoveFocusedFeedback }: DesignPreviewProps) {
   const dims = deviceDimensions(device, customWidth, customHeight)
   const [heights, setHeights] = useState<Record<string, number>>({})
-  const [zoom, setZoom] = useState(0.75)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
   // Canvas mode keeps every tile loaded but runs the design's animation loops in only one at a time —
   // the hovered one, or the home page by default. The rest are told (over postMessage, via the injected
   // shim) to pause their requestAnimationFrame loops, so switching the active tile never reloads a frame
@@ -253,8 +259,8 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
 
   const onWheel = (event: React.WheelEvent) => {
     if (viewMode !== 'canvas') return
-    if (event.ctrlKey || event.metaKey) setZoom((current) => Math.min(2, Math.max(0.2, current - event.deltaY * 0.0015)))
-    else setPan((current) => ({ x: current.x - event.deltaX, y: current.y - event.deltaY }))
+    if (event.ctrlKey || event.metaKey) onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, Math.max(0.2, current.zoom - event.deltaY * 0.0015)) }))
+    else onCanvasViewportChange((current) => ({ ...current, panX: current.panX - event.deltaX, panY: current.panY - event.deltaY }))
   }
   const panState = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
   const onPointerDown = (event: React.PointerEvent) => {
@@ -263,14 +269,15 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
     if ((event.target as HTMLElement).closest('.preview-tile-frame, .preview-tile-label, .preview-canvas-controls')) return
     event.preventDefault()
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-    panState.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }
+    panState.current = { x: event.clientX, y: event.clientY, panX: canvasViewport.panX, panY: canvasViewport.panY }
   }
   const onPointerMove = (event: React.PointerEvent) => {
-    if (!panState.current) return
-    setPan({ x: panState.current.panX + (event.clientX - panState.current.x), y: panState.current.panY + (event.clientY - panState.current.y) })
+    const origin = panState.current
+    if (!origin) return
+    onCanvasViewportChange((current) => ({ ...current, panX: origin.panX + (event.clientX - origin.x), panY: origin.panY + (event.clientY - origin.y) }))
   }
   const endPan = () => { panState.current = null }
-  const resetView = () => { setZoom(0.75); setPan({ x: 0, y: 0 }) }
+  const resetView = () => { onCanvasViewportChange({ zoom: 0.75, panX: 0, panY: 0 }) }
 
   // Hovering a tile (after it settles briefly, to avoid activating every tile during a fast sweep)
   // makes that one the single live tile.
@@ -286,7 +293,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
   if (viewMode === 'canvas') {
     return (
       <div className="preview-canvas" ref={viewport} data-panning={panState.current ? true : undefined} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}>
-        <div className="preview-board" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
+        <div className="preview-board" style={{ transform: `translate(${canvasViewport.panX}px, ${canvasViewport.panY}px) scale(${canvasViewport.zoom})` }}>
           {pages.map((page) => {
             const isLive = page.path === livePath
             return (
@@ -307,9 +314,9 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
           })}
         </div>
         <div className="preview-canvas-controls" role="group" aria-label="Canvas zoom">
-          <Button className="icon-button" aria-label="Zoom out" onPress={() => setZoom((current) => Math.max(0.2, current - 0.1))}><MinusIcon aria-hidden="true" /></Button>
-          <span className="preview-zoom-value">{Math.round(zoom * 100)}%</span>
-          <Button className="icon-button" aria-label="Zoom in" onPress={() => setZoom((current) => Math.min(2, current + 0.1))}><PlusIcon aria-hidden="true" /></Button>
+          <Button className="icon-button" aria-label="Zoom out" onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.max(0.2, current.zoom - 0.1) }))}><MinusIcon aria-hidden="true" /></Button>
+          <span className="preview-zoom-value">{Math.round(canvasViewport.zoom * 100)}%</span>
+          <Button className="icon-button" aria-label="Zoom in" onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, current.zoom + 0.1) }))}><PlusIcon aria-hidden="true" /></Button>
           <Button className="icon-button" aria-label="Reset view" onPress={resetView}><ArrowsPointingOutIcon aria-hidden="true" /></Button>
         </div>
       </div>

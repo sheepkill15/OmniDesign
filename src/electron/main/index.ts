@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
+import { providerSetupUrl } from '../provider/providerSetup.js'
+import { discoverLocalDependencies, isLocalDependencyId, localDependencySetupUrl } from '../environment/localDependencies.js'
 import { buildConversationRecap, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
-import type { ProviderPrompt } from '../provider/types.js'
+import type { ProviderPrompt, ProviderStatus } from '../provider/types.js'
 import {
   createDesignRequestSchema,
   attachmentSchema,
@@ -77,6 +79,7 @@ const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS ===
 // hidden prevents repeated launches and pop-outs from stealing focus from the user's desktop.
 const automatedTestWindowsHidden = process.env.OMNIDESIGN_E2E_HIDE_WINDOWS === '1'
 const providers = new ProviderService()
+const developmentProviderStatus = { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Available for local development and automated testing.', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] } as const
 let mainWindow: BrowserWindow | null = null
 let previewServer: PreviewContentServer | null = null
 let thumbnailCapturer: ThumbnailCapturer | null = null
@@ -88,6 +91,7 @@ let generationQueue: GenerationQueue | null = null
 let updateService: UpdateService | null = null
 let closingAfterGenerationConfirmation = false
 const lastPersistedStageByDesign = new Map<string, string>()
+let providerRefresh: Promise<readonly (ProviderStatus | typeof developmentProviderStatus)[]> | null = null
 
 // Designs, their Git repositories, and the SQLite database live under the app's userData directory
 // (on Windows that is %APPDATA%\Roaming\<app>\workspace). Tests point userData at a temp directory.
@@ -181,6 +185,25 @@ function requireWorkspace(): WorkspaceService {
   return workspace
 }
 
+function includeDevelopmentProvider(statuses: readonly ProviderStatus[]): readonly (ProviderStatus | typeof developmentProviderStatus)[] {
+  return developmentProviderEnabled ? [developmentProviderStatus, ...statuses] : statuses
+}
+
+function cachedProviderStatuses(): readonly (ProviderStatus | typeof developmentProviderStatus)[] {
+  return includeDevelopmentProvider(requireWorkspaceStore().getCachedProviderStatuses())
+}
+
+function refreshProviderStatuses(): Promise<readonly (ProviderStatus | typeof developmentProviderStatus)[]> {
+  if (providerRefresh) return providerRefresh
+  providerRefresh = providers.discover().then((discovered) => {
+    requireWorkspaceStore().saveCachedProviderStatuses(discovered)
+    const available = includeDevelopmentProvider(discovered)
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('providers:updated', available)
+    return available
+  }).finally(() => { providerRefresh = null })
+  return providerRefresh
+}
+
 function requireWorkspaceStore(): WorkspaceStore {
   if (!workspaceStore) throw new Error('Workspace store is not ready.')
   return workspaceStore
@@ -272,12 +295,27 @@ function openPreviewPopOut(token: string, page: string): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('providers:discover', async (event) => {
+  ipcMain.handle('providers:get-cached', (event) => {
     authorize(event)
-    const discovered = await providers.discover()
-    return developmentProviderEnabled
-      ? [{ id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Available for local development and automated testing.', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] }, ...discovered]
-      : discovered
+    return cachedProviderStatuses()
+  })
+  ipcMain.handle('providers:refresh', (event) => {
+    authorize(event)
+    return refreshProviderStatuses()
+  })
+  ipcMain.handle('providers:open-setup', (event, providerId: unknown) => {
+    authorize(event)
+    if (!isProviderId(providerId)) throw new Error('Invalid provider setup request.')
+    return shell.openExternal(providerSetupUrl(providerId))
+  })
+  ipcMain.handle('environment:discover', (event) => {
+    authorize(event)
+    return discoverLocalDependencies()
+  })
+  ipcMain.handle('environment:open-setup', (event, dependencyId: unknown) => {
+    authorize(event)
+    if (!isLocalDependencyId(dependencyId)) throw new Error('Invalid local dependency setup request.')
+    return shell.openExternal(localDependencySetupUrl(dependencyId, process.platform))
   })
   ipcMain.handle('providers:prompt', (event, request: unknown) => {
     authorize(event)
@@ -919,6 +957,7 @@ void app.whenReady().then(() => {
   thumbnailCapturer = new ThumbnailCapturer(session.defaultSession, previewServer)
   mainWindow = createMainWindow()
   registerIpc()
+  void refreshProviderStatuses().catch(() => undefined)
   updateService = new UpdateService({
     enabled: shouldEnableUpdates(app.isPackaged, process.platform),
     async promptForRestart(version) {
