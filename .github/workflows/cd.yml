@@ -118,15 +118,15 @@ jobs:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
-      - name: Package and notarize macOS application
+      - name: Package macOS application
         if: matrix.platform == 'macos'
-        run: pnpm run ${{ matrix.command }}
+        run: node scripts/package-macos.mjs ${{ matrix.command }}
         env:
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          OMNIDESIGN_MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          OMNIDESIGN_MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          OMNIDESIGN_APPLE_ID: ${{ secrets.APPLE_ID }}
+          OMNIDESIGN_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          OMNIDESIGN_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload installer
         uses: actions/upload-artifact@v7

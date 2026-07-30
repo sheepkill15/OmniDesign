@@ -60,6 +60,13 @@ credentials are missing, but no GitHub update release is published. Windows
 SmartScreen may warn until Windows signing is configured and publisher
 reputation is established.
 
+The macOS package jobs pass secrets through OmniDesign-prefixed staging
+variables. A complete set is mapped to electron-builder's signing and
+notarization variables; when all five are absent, the jobs explicitly disable
+certificate auto-discovery and produce unsigned inspection artifacts. A partial
+set fails before packaging with the missing secret names instead of passing an
+empty `CSC_LINK` that electron-builder could interpret as the repository path.
+
 ## Recommended repository settings
 
 Protect `main` in GitHub and require a pull request plus these status checks:
