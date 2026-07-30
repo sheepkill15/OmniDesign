@@ -632,14 +632,14 @@ describe('WorkspaceStore', () => {
       { level: 'error', message: 'Horizontal overflow at 390 px.', source: 'index.html', line: null },
     ])
     expect(store.getDesign(created.id)?.revisions[0]).toMatchObject({
-      qualityCheckedAt: expect.any(String),
+      qualityCheckedAt: expect.any(String), qualityCheckVersion: 1,
       diagnostics: [{ kind: 'quality', level: 'error', message: 'Horizontal overflow at 390 px.' }],
     })
 
     store.saveRevisionQualityReport(created.id, revisionId, [])
     store.close()
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id)?.revisions[0]).toMatchObject({ qualityCheckedAt: expect.any(String), diagnostics: [] })
+    expect(reopened.getDesign(created.id)?.revisions[0]).toMatchObject({ qualityCheckedAt: expect.any(String), qualityCheckVersion: 1, diagnostics: [] })
     reopened.close()
   })
 

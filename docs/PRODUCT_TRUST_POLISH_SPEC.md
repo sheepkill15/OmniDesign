@@ -54,7 +54,9 @@ These checks are a deterministic baseline, not a claim of complete visual correc
 Verified on 2026-07-30, sequentially:
 
 - `pnpm typecheck` passed.
-- `pnpm test` passed: 273 tests across 27 files.
-- `pnpm build` passed. Vite retains the existing advisory that the main renderer chunk is larger than 500 kB (544.65 kB, 157.26 kB gzip).
+- `pnpm test` passed: 274 tests across 27 files.
+- `pnpm build` passed. Vite retains the existing advisory that the main renderer chunk is larger than 500 kB (544.68 kB, 157.29 kB gzip).
 - `pnpm exec playwright test -c playwright.e2e.config.ts` passed: all 10 built-Electron journeys in 3.1 minutes.
 - `git diff --check` passed.
+
+The screenshot-failure regression was verified separately in the built app and then in the full suite: an unavailable thumbnail no longer creates a page-render finding. Report versions make prior results stale and replace them on the next active-revision preview.

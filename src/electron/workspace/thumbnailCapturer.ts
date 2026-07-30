@@ -80,8 +80,13 @@ export class ThumbnailCapturer {
             await new Promise((resolve) => setTimeout(resolve, 260))
             for (let attempt = 0; attempt < 6; attempt += 1) {
               if (window.isDestroyed()) break
-              const image = await window.webContents.capturePage()
-              if (!image.isEmpty()) { png = image.resize({ width: THUMBNAIL_WIDTH }).toPNG(); break }
+              try {
+                const image = await window.webContents.capturePage()
+                if (!image.isEmpty()) { png = image.resize({ width: THUMBNAIL_WIDTH }).toPNG(); break }
+              } catch {
+                // A screenshot is optional evidence. It must not turn a completed page audit into a
+                // false rendering failure; retry briefly and keep the quality report if capture fails.
+              }
               await new Promise((resolve) => setTimeout(resolve, 200))
             }
           }

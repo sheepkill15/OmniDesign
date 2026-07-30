@@ -4,6 +4,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { attachmentSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
 import type { Attachment, Design, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import { REVISION_QUALITY_VERSION } from './revisionQuality.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -150,6 +151,7 @@ interface RevisionRow {
   git_commit: string | null
   definition_version: number | null
   quality_checked_at: string | null
+  quality_check_version: number | null
   created_at: string
 }
 
@@ -598,6 +600,10 @@ ALTER TABLE generation_jobs ADD COLUMN focused_feedback_json TEXT NOT NULL DEFAU
 
 const migrationForty = `
 ALTER TABLE revisions ADD COLUMN quality_checked_at TEXT;
+`
+
+const migrationFortyOne = `
+ALTER TABLE revisions ADD COLUMN quality_check_version INTEGER CHECK (quality_check_version IS NULL OR quality_check_version > 0);
 `
 
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
@@ -1615,7 +1621,7 @@ export class WorkspaceStore {
         seen.add(key)
         insert.run(randomUUID(), revisionId, diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line, now)
       }
-      this.database.prepare('UPDATE revisions SET quality_checked_at = ? WHERE id = ?').run(now, revisionId)
+      this.database.prepare('UPDATE revisions SET quality_checked_at = ?, quality_check_version = ? WHERE id = ?').run(now, REVISION_QUALITY_VERSION, revisionId)
     })
   }
 
@@ -1663,7 +1669,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1687,7 +1693,7 @@ export class WorkspaceStore {
     const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, focused_target_json, focused_feedback_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
-      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, quality_checked_at, created_at
+      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, quality_checked_at, quality_check_version, created_at
       FROM revisions WHERE design_id = ? ORDER BY created_at, rowid
     `).all(row.id) as unknown as RevisionRow[]
     const invalidCandidateRows = this.database.prepare(`
@@ -1744,6 +1750,7 @@ export class WorkspaceStore {
         gitCommit: revision.git_commit,
         definitionVersion: revision.definition_version,
         qualityCheckedAt: revision.quality_checked_at,
+        qualityCheckVersion: revision.quality_check_version,
         createdAt: revision.created_at,
         thumbnailDataUrl: this.readThumbnailDataUrl(this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(revision.id) as { thumbnail_path: string } | undefined),
         diagnostics: this.database.prepare(`

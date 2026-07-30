@@ -1,3 +1,5 @@
+export const REVISION_QUALITY_VERSION = 1
+
 export interface RevisionPageAudit {
   readonly viewportWidth: number
   readonly documentWidth: number

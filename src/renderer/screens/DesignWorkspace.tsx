@@ -38,6 +38,8 @@ type ConversationFeedItem =
   | { readonly kind: 'step'; readonly createdAt: string; readonly step: GenerationStep }
   | { readonly kind: 'activity'; readonly createdAt: string; readonly id: string; readonly steps: GenerationStep[] }
 
+const REVISION_QUALITY_VERSION = 1
+
 function focusedThreadKey(target: FocusedTarget): string {
   return target.stableId
     ? `${target.path}\u0000stable\u0000${target.stableId}`
@@ -229,7 +231,8 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   }, [mode])
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
-  const qualityDiagnostics = selectedRevision?.diagnostics.filter((diagnostic) => diagnostic.kind === 'quality') ?? []
+  const qualityCheckCurrent = selectedRevision?.qualityCheckVersion === REVISION_QUALITY_VERSION
+  const qualityDiagnostics = qualityCheckCurrent ? selectedRevision?.diagnostics.filter((diagnostic) => diagnostic.kind === 'quality') ?? [] : []
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
   // Only surface a rejected candidate while it is still the design's latest outcome. Once a later
   // revision lands (e.g. a repair attempt succeeded), the rejection is history, not a current problem.
@@ -578,7 +581,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
 
   const previewStatus = !selectedRevision
     ? 'Waiting for revision'
-    : !selectedRevision.qualityCheckedAt
+    : !qualityCheckCurrent
       ? 'Local · checking quality'
       : qualityDiagnostics.length
         ? `Local · ${qualityDiagnostics.length} quality issue${qualityDiagnostics.length === 1 ? '' : 's'}`
@@ -684,7 +687,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         <small>{previewStatus}</small>
       </div>
       {previewToken && design.selectedRevisionId
-        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && (!selectedRevision.thumbnailDataUrl || !selectedRevision.qualityCheckedAt)} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => { setFocusedTarget(null); setFocusedComment('') }} onSelectionError={(message) => setFeedback({ tone: 'error', message })} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
+        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && (!selectedRevision.thumbnailDataUrl || !qualityCheckCurrent)} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => { setFocusedTarget(null); setFocusedComment('') }} onSelectionError={(message) => setFeedback({ tone: 'error', message })} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
         : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
     </section>
   )
@@ -708,7 +711,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
                   {revision.thumbnailDataUrl
                     ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
                     : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
-                  <span><strong>{index === 0 ? `Current head · ${new Date(revision.createdAt).toLocaleString()}` : new Date(revision.createdAt).toLocaleString()}</strong><small title={revision.prompt}>Request · {revision.prompt}</small><small className="history-meta">{revision.qualityCheckedAt ? revision.diagnostics.some((diagnostic) => diagnostic.kind === 'quality') ? 'Quality issues found' : 'Quality checked' : 'Quality pending'} · {revision.providerId}</small></span>
+                  <span><strong>{index === 0 ? `Current head · ${new Date(revision.createdAt).toLocaleString()}` : new Date(revision.createdAt).toLocaleString()}</strong><small title={revision.prompt}>Request · {revision.prompt}</small><small className="history-meta">{revision.qualityCheckVersion === REVISION_QUALITY_VERSION ? revision.diagnostics.some((diagnostic) => diagnostic.kind === 'quality') ? 'Quality issues found' : 'Quality checked' : 'Quality pending'} · {revision.providerId}</small></span>
                 </MenuItem>
               ))}
             </Menu>

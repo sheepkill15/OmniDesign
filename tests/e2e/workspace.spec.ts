@@ -42,6 +42,13 @@ test('creates and recovers a standalone design in the built Electron app', async
   try {
     const firstRun = await launchWorkspace(userDataDirectory)
     activeApp = firstRun.app
+    await firstRun.app.evaluate(({ app, BrowserWindow }) => {
+      const trustedWindowId = BrowserWindow.getAllWindows()[0]?.id
+      app.once('browser-window-created', (_event, created) => {
+        if (created.id === trustedWindowId) return
+        created.webContents.capturePage = () => Promise.reject(new Error('Simulated thumbnail capture failure'))
+      })
+    })
     await expect(firstRun.window.getByRole('heading', { name: 'Start with an idea.' })).toBeVisible()
     const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
     await prompt.fill('A calm analytics dashboard')

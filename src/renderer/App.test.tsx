@@ -39,7 +39,7 @@ const design: OmniDesignDocument = {
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
-  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:00:02.000Z', createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
+  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:00:02.000Z', qualityCheckVersion: 1, createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
 const engagedDesign: OmniDesignDocument = {
@@ -53,7 +53,7 @@ const engagedDesign: OmniDesignDocument = {
   ],
   revisions: [
     ...design.revisions,
-    { id: 'revision-2', parentRevisionId: 'revision-1', prompt: 'Make the overview more compact', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:05:02.000Z', createdAt: '2026-07-20T10:05:00.000Z', thumbnailDataUrl: null, diagnostics: [] },
+    { id: 'revision-2', parentRevisionId: 'revision-1', prompt: 'Make the overview more compact', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:05:02.000Z', qualityCheckVersion: 1, createdAt: '2026-07-20T10:05:00.000Z', thumbnailDataUrl: null, diagnostics: [] },
   ],
 }
 
@@ -1122,6 +1122,25 @@ describe('Phase 1 walking skeleton UI', () => {
       undefined,
       [],
     ))
+  })
+
+  it('rechecks and hides findings from an older quality-report version', async () => {
+    const staleQualityDesign: OmniDesignDocument = {
+      ...design,
+      revisions: [{
+        ...design.revisions[0],
+        qualityCheckVersion: null,
+        diagnostics: [{ id: 'stale-quality', kind: 'quality', level: 'error', message: 'The page could not be rendered for visual quality checks.', source: 'index.html', line: null, createdAt: '2026-07-20T10:00:02.000Z' }],
+      }],
+    }
+    const bridge = installBridge([], staleQualityDesign)
+    render(<App />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'What would you like to design?' }), { target: { value: 'A calm dashboard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create design' }))
+    expect(await screen.findByText('Local · checking quality')).toBeInTheDocument()
+    expect(screen.queryByText('The page could not be rendered for visual quality checks.')).not.toBeInTheDocument()
+    await waitFor(() => expect(bridge.preview.capture).toHaveBeenCalledWith('design-1', 'revision-1'))
   })
 
   it('shows the selected provider and saved state in the design header', async () => {
