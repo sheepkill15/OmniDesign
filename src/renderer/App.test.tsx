@@ -90,6 +90,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
   const projects = [...projectMap.values()]
   const bridge = {
     providers: {
+      platform: 'win32',
       getCached: vi.fn().mockResolvedValue([
         { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Ready', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] },
         { id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] },
@@ -98,6 +99,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
         { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Ready', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] },
         { id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] },
       ]),
+      openSetup: vi.fn().mockResolvedValue(undefined),
       prompt: vi.fn(),
       onUpdated: vi.fn((listener: (providers: readonly ProviderStatus[]) => void) => { providerListeners.push(listener); return () => undefined }),
       onActivity: vi.fn().mockReturnValue(() => undefined),
@@ -338,6 +340,33 @@ describe('Phase 1 walking skeleton UI', () => {
 
     await waitFor(() => expect(bridge.providers.getCached).toHaveBeenCalledOnce())
     await waitFor(() => expect(bridge.providers.refresh).toHaveBeenCalledTimes(3))
+  })
+
+  it('guides missing and signed-out providers through their official CLI setup', async () => {
+    const bridge = installBridge()
+    const unavailableProviders: ProviderStatus[] = [
+      { id: 'codex', name: 'Codex', installed: false, authenticated: false, detail: 'Codex CLI is unavailable.', models: [] },
+      { id: 'claude', name: 'Claude', installed: true, authenticated: false, detail: 'Installed, but not signed in.', models: [] },
+    ]
+    vi.mocked(bridge.providers.getCached).mockResolvedValue(unavailableProviders)
+    vi.mocked(bridge.providers.refresh).mockResolvedValue(unavailableProviders)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up Codex CLI' }))
+
+    const codexDialog = screen.getByRole('dialog', { name: 'Set up Codex' })
+    expect(codexDialog).toHaveTextContent('npm install --global @openai/codex')
+    expect(codexDialog).toHaveTextContent('codex login')
+    fireEvent.click(screen.getByRole('button', { name: 'Open official guide' }))
+    await waitFor(() => expect(bridge.providers.openSetup).toHaveBeenCalledWith('codex'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Set up Codex' })).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to Claude Code' }))
+    const claudeDialog = screen.getByRole('dialog', { name: 'Sign in to Claude' })
+    expect(claudeDialog).not.toHaveTextContent('winget install Anthropic.ClaudeCode')
+    expect(claudeDialog).toHaveTextContent('claude')
   })
 
   it('renders cached providers while their background refresh is still running', async () => {

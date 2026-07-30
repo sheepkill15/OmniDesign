@@ -406,7 +406,7 @@ export function App() {
         : trashOpen
         ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} onEmpty={emptyTrash} />
         : providersOpen
-        ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} onRefresh={providerState.refresh} />
+        ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} platform={window.omnidesign.providers.platform} onRefresh={providerState.refresh} onOpenSetup={window.omnidesign.providers.openSetup} />
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} initialError={settingsError} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : definitionsProject

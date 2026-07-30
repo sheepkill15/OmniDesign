@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
+import { providerSetupUrl } from '../provider/providerSetup.js'
 import { buildConversationRecap, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
 import type { ProviderPrompt, ProviderStatus } from '../provider/types.js'
 import {
@@ -300,6 +301,11 @@ function registerIpc(): void {
   ipcMain.handle('providers:refresh', (event) => {
     authorize(event)
     return refreshProviderStatuses()
+  })
+  ipcMain.handle('providers:open-setup', (event, providerId: unknown) => {
+    authorize(event)
+    if (!isProviderId(providerId)) throw new Error('Invalid provider setup request.')
+    return shell.openExternal(providerSetupUrl(providerId))
   })
   ipcMain.handle('providers:prompt', (event, request: unknown) => {
     authorize(event)
