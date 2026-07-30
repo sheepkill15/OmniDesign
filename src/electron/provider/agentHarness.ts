@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { Attachment, Message } from '../workspace/contracts.js'
+import type { Attachment, FocusedFeedback, FocusedTarget, Message } from '../workspace/contracts.js'
 import { PREVIEW_ALLOWED_HOSTS } from '../workspace/previewPolicy.js'
 
 const RECAP_MAX_MESSAGES = 16
@@ -18,6 +18,42 @@ export function buildConversationRecap(messages: readonly Pick<Message, 'role' |
   // Trim from the oldest end until within the character budget, keeping recent turns whole.
   while (turns.length > 1 && turns.join('\n').length > RECAP_MAX_CHARS) turns.shift()
   return turns.join('\n')
+}
+
+export function createFocusedEditPrompt(prompt: string, target: FocusedTarget): string {
+  return [
+    prompt,
+    '',
+    'Focused edit target:',
+    `- Source: ${target.path}:${target.startLine}-${target.endLine}`,
+    `- Element: ${target.label}${target.stableId ? ` (stable identifier: ${target.stableId})` : ''}`,
+    ...(target.dynamicDescription ? [`- The clicked runtime element was ${target.dynamicDescription}; the source location above is its nearest authored ancestor.`] : []),
+    '- Keep the requested outcome focused on this element. You may update supporting CSS, JavaScript, shared components, or adjacent markup when necessary.',
+    '- Source excerpt:',
+    '```html',
+    target.excerpt,
+    '```',
+  ].join('\n')
+}
+
+export function createFocusedFeedbackBatchPrompt(feedback: readonly FocusedFeedback[]): string {
+  if (!feedback.length) throw new Error('Focused feedback is required.')
+  return [
+    `Apply all ${feedback.length} queued focused feedback item${feedback.length === 1 ? '' : 's'} together in one coordinated update. Address every item and preserve the intent of the others while making each change.`,
+    '',
+    ...feedback.flatMap((item, index) => [
+      `Feedback ${index + 1}: ${item.comment}`,
+      `- Source: ${item.target.path}:${item.target.startLine}-${item.target.endLine}`,
+      `- Element: ${item.target.label}${item.target.stableId ? ` (stable identifier: ${item.target.stableId})` : ''}`,
+      ...(item.target.dynamicDescription ? [`- The clicked runtime element was ${item.target.dynamicDescription}; the source location above is its nearest authored ancestor.`] : []),
+      '- You may update supporting CSS, JavaScript, shared components, or adjacent markup when necessary.',
+      '- Source excerpt:',
+      '```html',
+      item.target.excerpt,
+      '```',
+      '',
+    ]),
+  ].join('\n').trim()
 }
 
 const MAX_RESPONSE_LENGTH = 100_000

@@ -61,8 +61,10 @@ optional and is not part of the completion floor.
 2. Support multiple designs per project.
 3. Support multiple pages per design.
 
-Some Phase 1 audit items remain open (see `phase1-release-audit-fixset`); the
-product owner has **moved those to Phase 3** and they are out of scope here.
+Some Phase 1 audit items remain open (see `phase1-release-audit-fixset`) and
+were out of scope for Phase 2. Provider-harness and external-root enforcement
+work is now deferred to an unassigned provider-infrastructure milestone rather
+than Phase 3 (product-owner decision, 2026-07-27).
 
 ## Decisions Locked in Planning
 

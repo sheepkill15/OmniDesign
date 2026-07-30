@@ -1,4 +1,4 @@
-import type { Attachment, GenerationActivity, GenerationJob } from './contracts.js'
+import type { Attachment, FocusedFeedback, FocusedTarget, GenerationActivity, GenerationJob } from './contracts.js'
 import { WorkspaceStore } from './store.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
@@ -21,8 +21,8 @@ export class GenerationQueue {
     if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Generation queue concurrency must be at least one.')
   }
 
-  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = []): GenerationJob {
-    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments)
+  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = []): GenerationJob {
+    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments, 'fresh', definitionTargetVersion, focusedTarget, focusedFeedback)
     this.onActivity({ designId, stage: 'queued', detail: 'Waiting to start…' })
     void this.drain()
     return job
@@ -39,6 +39,10 @@ export class GenerationQueue {
     if (!job) throw new Error('Generation job not found.')
     if (job.state === 'queued') {
       const cancelled = this.store.cancelQueuedGenerationJob(jobId)
+      if (cancelled.definitionTargetVersion) {
+        this.store.failProjectDefinitionApplication(cancelled.designId, cancelled.definitionTargetVersion, 'Definition application was cancelled.')
+        this.store.finishProjectDefinitionApplicationAttemptForJob(cancelled.id, 'cancelled', 'Definition application was cancelled.')
+      }
       this.pauseDesign(cancelled.designId)
       this.onActivity({ designId: cancelled.designId, stage: 'cancelled', detail: 'Queued generation was cancelled.' })
       void this.drain()
@@ -52,6 +56,10 @@ export class GenerationQueue {
 
   public retry(jobId: string): GenerationJob {
     const job = this.store.retryGenerationJob(jobId)
+    if (job.definitionTargetVersion) {
+      this.store.beginProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
+      this.store.startProjectDefinitionApplicationAttempt(job.designId, job.definitionTargetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: job.providerId, modelId: job.modelId, effort: job.effort ?? null })
+    }
     this.pausedDesignIds.delete(job.designId)
     this.store.resumeGenerationQueue(job.designId)
     this.onActivity({ designId: job.designId, stage: 'queued', detail: 'Generation retry is queued.' })
@@ -60,7 +68,12 @@ export class GenerationQueue {
   }
 
   public remove(jobId: string): GenerationJob {
+    const queued = this.store.getGenerationJob(jobId)
+    if (queued?.definitionTargetVersion) this.store.finishProjectDefinitionApplicationAttemptForJob(queued.id, 'cancelled', 'Definition application was removed from the queue.')
     const removed = this.store.removeQueuedGenerationJob(jobId)
+    if (removed.definitionTargetVersion) {
+      this.store.failProjectDefinitionApplication(removed.designId, removed.definitionTargetVersion, 'Definition application was removed from the queue.')
+    }
     this.onActivity({ designId: removed.designId, stage: 'queued', detail: 'Queued generation was removed.' })
     void this.drain()
     return removed
@@ -74,6 +87,10 @@ export class GenerationQueue {
 
   public continue(jobId: string): GenerationJob {
     const job = this.store.continueGenerationJob(jobId)
+    if (job.definitionTargetVersion) {
+      this.store.beginProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
+      this.store.startProjectDefinitionApplicationAttempt(job.designId, job.definitionTargetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: job.providerId, modelId: job.modelId, effort: job.effort ?? null })
+    }
     this.pausedDesignIds.delete(job.designId)
     this.store.resumeGenerationQueue(job.designId)
     this.onActivity({ designId: job.designId, stage: 'queued', detail: 'Continuing from the retained partial workspace.' })
@@ -131,11 +148,21 @@ export class GenerationQueue {
       }
       pauseQueue = signal.aborted || failed
       this.store.setGenerationJobState(job.id, signal.aborted ? 'cancelled' : failed ? 'failed' : 'completed', signal.aborted ? 'Cancelled by the user.' : failed ? 'Generation did not produce a valid revision.' : null)
+      if (job.definitionTargetVersion && (signal.aborted || failed)) {
+        const diagnostic = signal.aborted ? 'Definition application was cancelled.' : 'AI generation did not produce a valid revision.'
+        this.store.failProjectDefinitionApplication(job.designId, job.definitionTargetVersion, diagnostic)
+        this.store.finishProjectDefinitionApplicationAttemptForJob(job.id, signal.aborted ? 'cancelled' : 'failed', diagnostic)
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Generation failed.'
       const stage = signal.aborted ? 'cancelled' : 'failed'
       pauseQueue = true
       this.store.setGenerationJobState(job.id, stage, signal.aborted ? 'Cancelled by the user.' : detail)
+      if (job.definitionTargetVersion) {
+        const diagnostic = signal.aborted ? 'Definition application was cancelled.' : detail
+        this.store.failProjectDefinitionApplication(job.designId, job.definitionTargetVersion, diagnostic)
+        this.store.finishProjectDefinitionApplicationAttemptForJob(job.id, signal.aborted ? 'cancelled' : 'failed', diagnostic)
+      }
       this.onActivity({ designId: job.designId, stage, detail: signal.aborted ? 'Generation was cancelled.' : detail })
     } finally {
       if (pauseQueue) this.pauseDesign(job.designId)

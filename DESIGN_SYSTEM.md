@@ -87,6 +87,8 @@ The palette is intentionally low-saturation. It contains strong accessible pairs
 
 Status and validation communication must always combine color with an icon and clear wording. Provider, generation, history, warning, success, and error states may never rely on hue alone.
 
+Revision quality uses progressive disclosure. The preview toolbar carries the compact persisted state (`checking`, `checked`, or an issue count); actionable findings appear as one calm conversation notice with explicit wording, expandable file-specific detail, and a single repair action. History rows distinguish the originating request from evidence about the result. Earlier-versus-current comparison uses paired snapshots plus a compact authored-file ledger; managed build noise stays hidden. Neither a green state nor an AI response may imply that subjective design review is complete.
+
 ### Theme Policy
 
 - OmniDesign is dark-first. The dark theme is the default and the primary context for design review and visual-quality decisions.

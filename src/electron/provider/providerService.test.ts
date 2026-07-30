@@ -143,6 +143,20 @@ describe('ProviderService', () => {
     expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: 'thread-1' }), expect.any(Function))
   })
 
+  it('runs analysis directly in the selected writable repository with the other repositories available', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+
+    await service.runAnalysisAgent({ requestId: 'request-analysis', providerId: 'codex', modelId: 'model-1', prompt: 'Analyze it', workspacePath: 'C:\\projects\\aurora', referencePaths: ['C:\\workspace\\design-1'], instructions: 'Return JSON only.' })
+
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      workspacePath: 'C:\\projects\\aurora',
+      referencePaths: ['C:\\workspace\\design-1'],
+      instructions: 'Return JSON only.',
+      prompt: 'Analyze it',
+    }), expect.any(Function))
+  })
+
   it('rejects duplicate adapter identities', () => {
     expect(() => new ProviderService([createAdapter('codex'), createAdapter('codex')])).toThrow(
       'Provider adapter identifiers must be unique.',

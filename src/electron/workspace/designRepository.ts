@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync 
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { alpineRuntimeBase64 } from './alpineRuntime.js'
+import type { RevisionComparison } from './contracts.js'
 
 // Compiled Tailwind CSS and the vendored Alpine runtime live in this committed folder; index.html
 // links to them. Agents are told to leave it alone — OmniDesign regenerates it on every revision.
@@ -104,6 +105,14 @@ export class DesignRepositoryManager {
     return readFileSync(path.join(this.initialize(designId), ENTRY_HTML_PATH), 'utf8')
   }
 
+  public writeSourceFiles(designId: string, sourceFiles: RevisionFiles): void {
+    const repositoryPath = this.initialize(designId)
+    for (const [relativePath, content] of Object.entries(sourceFiles)) {
+      if (relativePath === BUILD_DIR || relativePath.startsWith(`${BUILD_DIR}/`)) continue
+      this.writeFile(repositoryPath, this.normalizeGeneratedPath(relativePath), content)
+    }
+  }
+
   /**
    * Read the design's current working-tree files (every tracked-or-untracked file the agent authored,
    * plus the managed build assets), keyed by relative path. Used to compile Tailwind across all pages
@@ -146,6 +155,31 @@ export class DesignRepositoryManager {
       if (content !== null) files[relativePath] = content
     }
     return files
+  }
+
+  public compareRevisions(designId: string, baseCommit: string, targetCommit: string, baseRevisionId: string, targetRevisionId: string): RevisionComparison {
+    const repositoryPath = this.initialize(designId)
+    const statuses = new Map<string, RevisionComparison['files'][number]['status']>()
+    for (const line of this.run(repositoryPath, ['diff', '--name-status', '--no-renames', baseCommit, targetCommit, '--']).split('\n').filter(Boolean)) {
+      const [code, relativePath] = line.split('\t')
+      if (!relativePath || relativePath.startsWith(`${BUILD_DIR}/`)) continue
+      statuses.set(relativePath, code === 'A' ? 'added' : code === 'D' ? 'removed' : 'modified')
+    }
+    const stats = new Map<string, { additions: number | null; deletions: number | null }>()
+    for (const line of this.run(repositoryPath, ['diff', '--numstat', '--no-renames', baseCommit, targetCommit, '--']).split('\n').filter(Boolean)) {
+      const [added, deleted, relativePath] = line.split('\t')
+      if (!relativePath || relativePath.startsWith(`${BUILD_DIR}/`)) continue
+      stats.set(relativePath, { additions: added === '-' ? null : Number(added), deletions: deleted === '-' ? null : Number(deleted) })
+    }
+    const files = [...statuses].map(([relativePath, status]) => ({ path: relativePath, status, ...(stats.get(relativePath) ?? { additions: null, deletions: null }) }))
+      .sort((left, right) => left.path.localeCompare(right.path))
+    return {
+      baseRevisionId,
+      targetRevisionId,
+      files,
+      additions: files.reduce((total, file) => total + (file.additions ?? 0), 0),
+      deletions: files.reduce((total, file) => total + (file.deletions ?? 0), 0),
+    }
   }
 
   /**

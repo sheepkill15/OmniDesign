@@ -107,6 +107,28 @@ describe('GenerationQueue', () => {
     store.close()
   })
 
+  it('persists AI definition-application identity and returns failed work to a recoverable pending decision', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    store.saveProjectDesignDefinitions(design.projectId, { schemaVersion: 1, colors: [], typography: [], spacing: [], shape: [], visualGuidance: 'New direction', aiAgentInstructions: '' })
+    store.beginProjectDefinitionApplication(design.id, 1)
+    const queue = new GenerationQueue(store, async () => { throw new Error('Provider unavailable.') }, () => undefined)
+    const job = queue.enqueue(design.id, 'Apply definitions', 'codex', 'gpt-5.6', null, [], 1)
+
+    await waitFor(() => store.getGenerationJob(job.id)?.state === 'failed')
+    expect(store.getGenerationJob(job.id)).toMatchObject({ definitionTargetVersion: 1 })
+    expect(store.getDesign(design.id)).toMatchObject({ pendingDefinitionVersion: 1, definitionApplicationState: 'failed', definitionApplicationError: 'Provider unavailable.' })
+    const retry = queue.retry(job.id)
+    expect(retry.definitionTargetVersion).toBe(1)
+    expect(store.getDesign(design.id)?.definitionApplicationState).toBe('applying')
+    await waitFor(() => store.getGenerationJob(retry.id)?.state === 'failed')
+    expect(store.listProjectDefinitionApplicationAttempts(design.id)).toMatchObject([{
+      targetVersion: 1, mechanism: 'ai', state: 'failed', generationJobId: retry.id,
+      providerId: 'codex', modelId: 'gpt-5.6', diagnostic: 'Provider unavailable.', resultingRevisionId: null,
+    }])
+    store.close()
+  })
+
   it('automatically retries transient provider failures up to three times (four attempts)', async () => {
     const store = createStore()
     const design = store.createStandaloneDesign('First', 'Design')

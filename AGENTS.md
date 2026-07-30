@@ -89,7 +89,7 @@ This is the preparation required to begin Phase 1 responsibly; it does not repla
 
 - Make Codex integration work.
 - Make Claude integration work.
-- Support the relevant user-owned subscriptions through the installed-CLI discovery pilot. API-key configuration, the provider setup UI, and multiple configurations per provider are deferred to Phase 3 (product-owner decision, 2026-07-21).
+- Support the relevant user-owned subscriptions through the installed-CLI discovery pilot. API-key providers, direct provider APIs, an OmniDesign-owned harness, provider setup, and multiple configurations per provider are deferred to an unassigned provider-infrastructure milestone (product-owner decision, 2026-07-27, superseding their earlier Phase 3 assignment).
 - Make design generation work for an already established project.
 - Make standalone design generation work for a new project.
 - Produce minimally interactive HTML designs.
@@ -105,7 +105,6 @@ This is the preparation required to begin Phase 1 responsibly; it does not repla
 ### Phase 3: Focused Editing and Project-Level Design Definitions
 
 - Make focused edits through AI work reliably.
-- Provide full provider configuration and setup: API-key configuration with operating-system credential storage, multiple configurations per provider, and automatic configuration testing (moved here from Phase 1 on 2026-07-21).
 - Support project-level definitions such as:
   - Color palette
   - Fonts
@@ -114,7 +113,16 @@ This is the preparation required to begin Phase 1 responsibly; it does not repla
   - Other shared design-system values and tokens
 - Generate these definitions automatically with AI when appropriate.
 - Use the definitions consistently throughout a design.
-- Automatically update the design when the user changes a project-level definition.
+- Ask per design whether to apply changed project-level definitions, with an option to apply them to all designs in the project.
+- Prefer CSS variables and other deterministic updates when they can apply definition changes safely; use normal AI generation when interpretation or structural work is required.
+
+### Deferred Provider Infrastructure (phase unassigned)
+
+- API-key providers and direct provider API integrations.
+- An OmniDesign-owned provider harness.
+- Provider setup with operating-system credential storage, multiple configurations per provider, and automatic configuration testing.
+- Phase 3 continues to rely on the installed, authenticated Codex and Claude CLI harnesses already supported by OmniDesign (product-owner decision, 2026-07-27).
+- Pass original project and design repositories directly to those harnesses without making safety copies; their read-write access is accepted for now (product-owner decision, 2026-07-27).
 
 ### Phase 4: Design Branching
 

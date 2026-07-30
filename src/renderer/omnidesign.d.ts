@@ -39,6 +39,9 @@ interface DesignRevision {
   readonly prompt: string
   readonly providerId: string
   readonly modelId: string
+  readonly definitionVersion?: number | null
+  readonly qualityCheckedAt?: string | null
+  readonly qualityCheckVersion?: number | null
   readonly createdAt: string
   readonly thumbnailDataUrl: string | null
   readonly diagnostics: readonly PreviewDiagnostic[]
@@ -59,6 +62,41 @@ interface DesignMessage {
   readonly role: 'user' | 'assistant' | 'system'
   readonly text: string
   readonly attachments?: readonly DesignAttachment[]
+  readonly focusedTarget?: FocusedTarget | null
+  readonly focusedFeedback?: readonly FocusedFeedback[]
+  readonly createdAt: string
+}
+
+interface RevisionComparison {
+  readonly baseRevisionId: string
+  readonly targetRevisionId: string
+  readonly files: readonly {
+    readonly path: string
+    readonly status: 'added' | 'modified' | 'removed'
+    readonly additions: number | null
+    readonly deletions: number | null
+  }[]
+  readonly additions: number
+  readonly deletions: number
+}
+
+interface FocusedTarget {
+  readonly designId: string
+  readonly revisionId: string
+  readonly locationId?: string | null
+  readonly path: string
+  readonly startLine: number
+  readonly endLine: number
+  readonly label: string
+  readonly stableId: string | null
+  readonly excerpt: string
+  readonly dynamicDescription: string | null
+}
+
+interface FocusedFeedback {
+  readonly id: string
+  readonly comment: string
+  readonly target: FocusedTarget
   readonly createdAt: string
 }
 
@@ -122,6 +160,9 @@ interface GenerationJob {
   readonly attachments: readonly DesignAttachment[]
   readonly mode?: 'fresh' | 'continue'
   readonly providerSessionId?: string | null
+  readonly definitionTargetVersion?: number | null
+  readonly focusedTarget?: FocusedTarget | null
+  readonly focusedFeedback?: readonly FocusedFeedback[]
   readonly state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   readonly createdAt: string
   readonly startedAt: string | null
@@ -139,6 +180,11 @@ interface OmniDesignDocument {
   readonly updatedAt: string
   readonly activeRevisionId: string | null
   readonly selectedRevisionId: string | null
+  readonly definitionVersion?: number | null
+  readonly pendingDefinitionVersion?: number | null
+  readonly keptDefinitionVersion?: number | null
+  readonly definitionApplicationState?: 'current' | 'pending' | 'applying' | 'kept' | 'failed' | 'unavailable'
+  readonly definitionApplicationError?: string | null
   readonly draft: string
   readonly draftAttachments: readonly DesignAttachment[]
   readonly thumbnailDataUrl: string | null
@@ -190,11 +236,52 @@ interface ProjectSummary {
   readonly lastProviderId: string | null
   readonly folderId: string | null
   readonly tags: readonly Tag[]
+  readonly currentDefinitionVersion: number | null
+  readonly definitionPromptSuppressed: boolean
 }
 
 interface ProjectDetail {
   readonly project: ProjectSummary
   readonly designs: readonly OmniDesignDocument[]
+}
+
+interface NamedDesignDefinition {
+  readonly name: string
+  readonly value: string
+  readonly description: string | null
+}
+
+interface TypographyDesignDefinition {
+  readonly name: string
+  readonly fontFamily: string
+  readonly fontSize: string
+  readonly fontWeight: string
+  readonly lineHeight: string
+  readonly letterSpacing: string | null
+  readonly description: string | null
+}
+
+interface ProjectDesignDefinitions {
+  readonly schemaVersion: 1
+  readonly colors: readonly NamedDesignDefinition[]
+  readonly typography: readonly TypographyDesignDefinition[]
+  readonly spacing: readonly NamedDesignDefinition[]
+  readonly shape: readonly NamedDesignDefinition[]
+  readonly visualGuidance: string
+  readonly aiAgentInstructions: string
+}
+
+interface ProjectDesignDefinitionVersion {
+  readonly id: string
+  readonly projectId: string
+  readonly version: number
+  readonly definitions: ProjectDesignDefinitions
+  readonly createdAt: string
+}
+
+interface ProjectDesignDefinitionState {
+  readonly current: ProjectDesignDefinitionVersion | null
+  readonly promptSuppressed: boolean
 }
 
 interface TrashItem {
@@ -251,6 +338,13 @@ interface Window {
       list(): Promise<OmniDesignDocument[]>
       listProjects(): Promise<ProjectSummary[]>
       getProject(projectId: string): Promise<ProjectDetail | null>
+      getProjectDesignDefinitions(projectId: string): Promise<ProjectDesignDefinitionState | null>
+      saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): Promise<ProjectDesignDefinitionVersion>
+      proposeProjectDesignDefinitions(projectId: string, providerId: 'mock' | 'codex' | 'claude', modelId: string, effort?: string | null): Promise<ProjectDesignDefinitions>
+      setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): Promise<ProjectDesignDefinitionState>
+      keepProjectDesignDefinitions(designId: string, targetVersion: number): Promise<OmniDesignDocument>
+      applyProjectDesignDefinitions(designId: string, targetVersion: number, selection?: { readonly providerId: 'codex' | 'claude'; readonly modelId: string; readonly effort: string | null } | null): Promise<OmniDesignDocument>
+      applyProjectDesignDefinitionsToAll(projectId: string, targetVersion: number): Promise<readonly OmniDesignDocument[]>
       associateDesign(designId: string, projectId: string): Promise<OmniDesignDocument>
       duplicateDesign(designId: string): Promise<OmniDesignDocument>
       associateAndRestart(designId: string, projectId: string): Promise<OmniDesignDocument | null>
@@ -277,7 +371,11 @@ interface Window {
       renameDesign(designId: string, title: string): Promise<OmniDesignDocument>
       renameProject(projectId: string, name: string): Promise<ProjectSummary>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
-      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
+      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null): Promise<OmniDesignDocument>
+      listFocusedFeedback(designId: string): Promise<FocusedFeedback[]>
+      queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): Promise<FocusedFeedback[]>
+      removeFocusedFeedback(designId: string, feedbackId: string): Promise<FocusedFeedback[]>
+      submitFocusedFeedbackBatch(designId: string, feedbackIds: readonly string[], providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string): Promise<OmniDesignDocument>
       chooseProjectFolder(): Promise<string | null>
       chooseAttachments(kind: 'files' | 'folder'): Promise<DesignAttachment[]>
       openAttachment(attachment: DesignAttachment): Promise<void>
@@ -287,6 +385,7 @@ interface Window {
       continueGeneration(jobId: string): Promise<GenerationJob>
       resumeGenerationQueue(designId: string): Promise<OmniDesignDocument>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
+      compareRevisions(designId: string, baseRevisionId: string, targetRevisionId: string): Promise<RevisionComparison>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
       saveLayout(designId: string, layout: Layout): Promise<void>
@@ -313,6 +412,8 @@ interface Window {
     }
     readonly preview: {
       register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>
+      resolveFocusedTarget(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly page: string; readonly locationId: string; readonly clickedLabel: string; readonly usedAncestor: boolean }): Promise<FocusedTarget | null>
+      locateFocusedTargets(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly targets: readonly { readonly id: string; readonly target: FocusedTarget }[] }): Promise<readonly { readonly id: string; readonly locationId: string }[]>
       reportDiagnostic(designId: string, revisionId: string, diagnostic: { readonly level: 'warning' | 'error'; readonly message: string; readonly source: string | null; readonly line: number | null }): Promise<void>
       capture(designId: string, revisionId: string): Promise<boolean>
       popOut(request: { readonly designId: string; readonly revisionId: string; readonly page?: string }): Promise<void>

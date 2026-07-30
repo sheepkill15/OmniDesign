@@ -3,14 +3,16 @@ import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
-import { buildConversationRecap, normalizeAgentReply } from '../provider/agentHarness.js'
+import { buildConversationRecap, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
 import type { ProviderPrompt } from '../provider/types.js'
 import {
   createDesignRequestSchema,
   attachmentSchema,
   attachmentPickerRequestSchema,
+  applyProjectDefinitionsToAllRequestSchema,
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
+  compareRevisionsRequestSchema,
   createFolderRequestSchema,
   createTagRequestSchema,
   designIdRequestSchema,
@@ -20,6 +22,7 @@ import {
   previewDiagnosticReportSchema,
   previewPopOutRequestSchema,
   previewRegisterRequestSchema,
+  proposeProjectDesignDefinitionsRequestSchema,
   renameFolderRequestSchema,
   tagIdRequestSchema,
   tagTargetRequestSchema,
@@ -30,17 +33,25 @@ import {
   generationStageLabel,
   lastOpenDesignSchema,
   projectIdRequestSchema,
+  projectDefinitionDecisionRequestSchema,
+  queueFocusedFeedbackRequestSchema,
   renameDesignRequestSchema,
   renameProjectRequestSchema,
   reconnectProjectRequestSchema,
   registerLinkedProjectRequestSchema,
   revisionPagesRequestSchema,
+  locateFocusedTargetsRequestSchema,
+  resolveFocusedTargetRequestSchema,
+  removeFocusedFeedbackRequestSchema,
   savePageMetadataRequestSchema,
+  saveProjectDesignDefinitionsRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
   setEntryPageRequestSchema,
+  setProjectDefinitionPromptSuppressedRequestSchema,
+  submitFocusedFeedbackBatchRequestSchema,
   themeSchema,
   trashItemRequestSchema,
 } from '../workspace/contracts.js'
@@ -53,6 +64,7 @@ import { isAllowedPreviewNetworkUrl, isAllowedPreviewUrl } from '../workspace/pr
 import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
 import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
+import { createMockProjectDefinitionProposal, createProjectDefinitionProposalPrompt, parseProjectDefinitionProposal, selectProjectDefinitionAnalysisRoots } from '../workspace/projectDefinitionProposal.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
@@ -60,6 +72,9 @@ const developmentProviderEnabled = Boolean(developmentServerUrl || process.env.O
 // Lets automated (e2e) runs suppress OS notifications so completing generations do not fire real
 // Windows toasts during the test suite.
 const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS === '1'
+// Playwright can inspect and interact with hidden BrowserWindows. Keeping every test-owned window
+// hidden prevents repeated launches and pop-outs from stealing focus from the user's desktop.
+const automatedTestWindowsHidden = process.env.OMNIDESIGN_E2E_HIDE_WINDOWS === '1'
 const providers = new ProviderService()
 let mainWindow: BrowserWindow | null = null
 let previewServer: PreviewContentServer | null = null
@@ -132,7 +147,7 @@ function createMainWindow(): BrowserWindow {
     },
   })
 
-  window.once('ready-to-show', () => window.show())
+  window.once('ready-to-show', () => { if (!automatedTestWindowsHidden) window.show() })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   if (developmentServerUrl) {
     window.webContents.on('console-message', (event) => console.log(`[renderer:${event.level}] ${event.message}${event.sourceId ? ` (${event.sourceId}:${event.lineNumber})` : ''}`))
@@ -162,6 +177,11 @@ function authorize(event: Electron.IpcMainInvokeEvent): void {
 function requireWorkspace(): WorkspaceService {
   if (!workspace) throw new Error('Workspace is not ready.')
   return workspace
+}
+
+function requireWorkspaceStore(): WorkspaceStore {
+  if (!workspaceStore) throw new Error('Workspace store is not ready.')
+  return workspaceStore
 }
 
 function requireGenerationQueue(): GenerationQueue {
@@ -224,7 +244,7 @@ function previewFrameAncestors(): string {
 function openPreviewPopOut(token: string, page: string): void {
   if (popWindow && !popWindow.isDestroyed()) {
     void popWindow.webContents.loadURL(`omnidesign-preview://revision/${token}/${page}`)
-    popWindow.focus()
+    if (!automatedTestWindowsHidden) popWindow.focus()
     return
   }
   const created = new BrowserWindow({
@@ -232,6 +252,7 @@ function openPreviewPopOut(token: string, page: string): void {
     height: 720,
     minWidth: 320,
     minHeight: 240,
+    show: !automatedTestWindowsHidden,
     title: 'OmniDesign preview',
     backgroundColor: '#151315',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -320,6 +341,82 @@ function registerIpc(): void {
   ipcMain.handle('workspace:get-project', (event, value: unknown) => {
     authorize(event)
     return requireWorkspace().getProject(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:get-project-design-definitions', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().getProjectDesignDefinitionState(projectIdRequestSchema.parse(value).projectId)
+  })
+  ipcMain.handle('workspace:save-project-design-definitions', (event, value: unknown) => {
+    authorize(event)
+    const request = saveProjectDesignDefinitionsRequestSchema.parse(value)
+    return requireWorkspace().saveProjectDesignDefinitions(request.projectId, request.definitions)
+  })
+  ipcMain.handle('workspace:propose-project-design-definitions', async (event, value: unknown) => {
+    authorize(event)
+    const request = proposeProjectDesignDefinitionsRequestSchema.parse(value)
+    const projectContext = requireWorkspace().getProject(request.projectId)
+    if (!projectContext) throw new Error('Project not found.')
+    const { project, designs } = projectContext
+    if (request.providerId === 'mock') return createMockProjectDefinitionProposal(project.name)
+    const designRepositoryPaths = designs
+      .filter((design) => Boolean(design.activeRevisionId))
+      .map((design) => requireWorkspace().getDesignRepositoryPath(design.id))
+    const analysisRoots = selectProjectDefinitionAnalysisRoots(project.sourceProjectPath, project.sourceAvailable, designRepositoryPaths)
+    if (!analysisRoots) throw new Error('This project has no linked source or completed designs to analyze yet.')
+    const reply = await providers.runAnalysisAgent({
+      requestId: randomUUID(),
+      providerId: request.providerId,
+      modelId: request.modelId,
+      ...(request.effort ? { effort: request.effort } : {}),
+      workspacePath: analysisRoots.workspacePath,
+      ...(analysisRoots.referencePaths.length ? { referencePaths: analysisRoots.referencePaths } : {}),
+      prompt: createProjectDefinitionProposalPrompt(project.name),
+      instructions: 'Inspect the original project and design repositories directly. Do not modify files. Return only the requested JSON object and no Markdown.',
+    })
+    return parseProjectDefinitionProposal(reply.text)
+  })
+  ipcMain.handle('workspace:set-project-definition-prompt-suppressed', (event, value: unknown) => {
+    authorize(event)
+    const request = setProjectDefinitionPromptSuppressedRequestSchema.parse(value)
+    return requireWorkspace().setProjectDefinitionPromptSuppressed(request.projectId, request.suppressed)
+  })
+  ipcMain.handle('workspace:keep-project-design-definitions', (event, value: unknown) => {
+    authorize(event)
+    const request = projectDefinitionDecisionRequestSchema.parse(value)
+    const design = requireWorkspace().keepProjectDesignDefinitions(request.designId, request.targetVersion)
+    sendWorkspaceChanged(request.designId)
+    return design
+  })
+  ipcMain.handle('workspace:apply-project-design-definitions', async (event, value: unknown) => {
+    authorize(event)
+    const request = projectDefinitionDecisionRequestSchema.parse(value)
+    let design = await requireWorkspace().applyProjectDesignDefinitions(request.designId, request.targetVersion)
+    if (design.definitionApplicationState === 'unavailable' && request.providerId && request.modelId) {
+      const prompt = requireWorkspace().prepareAIProjectDefinitionApplication(request.designId, request.targetVersion)
+      const job = requireGenerationQueue().enqueue(request.designId, prompt, request.providerId, request.modelId, request.effort, [], request.targetVersion)
+      requireWorkspaceStore().startProjectDefinitionApplicationAttempt(request.designId, request.targetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
+      design = requireWorkspace().getDesign(request.designId) ?? design
+    }
+    sendWorkspaceChanged(request.designId)
+    return design
+  })
+  ipcMain.handle('workspace:apply-project-design-definitions-to-all', async (event, value: unknown) => {
+    authorize(event)
+    const request = applyProjectDefinitionsToAllRequestSchema.parse(value)
+    const designs = await requireWorkspace().applyProjectDesignDefinitionsToAll(request.projectId, request.targetVersion)
+    const availableProviders = await providers.discover()
+    for (let index = 0; index < designs.length; index += 1) {
+      const design = designs[index]
+      if (design.definitionApplicationState !== 'unavailable' || design.lastSelection.providerId === 'mock') continue
+      const available = availableProviders.some((provider) => provider.id === design.lastSelection.providerId && provider.installed && provider.authenticated && provider.models.some((model) => model.id === design.lastSelection.modelId))
+      if (!available) continue
+      const prompt = requireWorkspace().prepareAIProjectDefinitionApplication(design.id, request.targetVersion)
+      const job = requireGenerationQueue().enqueue(design.id, prompt, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort, [], request.targetVersion)
+      requireWorkspaceStore().startProjectDefinitionApplicationAttempt(design.id, request.targetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: design.lastSelection.providerId, modelId: design.lastSelection.modelId, effort: design.lastSelection.effort })
+      designs[index] = requireWorkspace().getDesign(design.id) ?? design
+    }
+    for (const design of designs) sendWorkspaceChanged(design.id)
+    return designs
   })
   ipcMain.handle('workspace:rename-project', (event, value: unknown) => {
     authorize(event)
@@ -450,11 +547,50 @@ function registerIpc(): void {
     popWindow = null
     requireWorkspace().purgeTrashItem(request.kind, request.id)
   })
+  const validateCurrentFocusedTarget = (designId: string, target: import('../workspace/contracts.js').FocusedTarget) => {
+    const design = requireWorkspace().getDesign(designId)
+    if (!design
+      || target.designId !== designId
+      || design.activeRevisionId !== target.revisionId
+      || design.selectedRevisionId !== target.revisionId
+      || !requirePreviewServer().validatesFocusedTarget(target)) {
+      throw new Error('The selected element is stale or does not belong to the current design revision.')
+    }
+  }
   ipcMain.handle('workspace:generate', (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
+    if (request.focusedTarget) validateCurrentFocusedTarget(request.designId, request.focusedTarget)
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
-    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null)
+    return requireWorkspace().getDesign(request.designId)
+  })
+  ipcMain.handle('workspace:list-focused-feedback', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspaceStore().listFocusedFeedback(designIdRequestSchema.parse(value).designId)
+  })
+  ipcMain.handle('workspace:queue-focused-feedback', (event, value: unknown) => {
+    authorize(event)
+    const request = queueFocusedFeedbackRequestSchema.parse(value)
+    validateCurrentFocusedTarget(request.designId, request.target)
+    return requireWorkspaceStore().queueFocusedFeedback(request.designId, request.comment, request.target)
+  })
+  ipcMain.handle('workspace:remove-focused-feedback', (event, value: unknown) => {
+    authorize(event)
+    const request = removeFocusedFeedbackRequestSchema.parse(value)
+    return requireWorkspaceStore().removeFocusedFeedback(request.designId, request.feedbackId)
+  })
+  ipcMain.handle('workspace:submit-focused-feedback-batch', (event, value: unknown) => {
+    authorize(event)
+    const request = submitFocusedFeedbackBatchRequestSchema.parse(value)
+    const byId = new Map(requireWorkspaceStore().listFocusedFeedback(request.designId).map((item) => [item.id, item]))
+    const feedback = request.feedbackIds.map((id) => byId.get(id))
+    if (feedback.some((item) => !item)) throw new Error('Queued focused feedback changed before it could be submitted.')
+    const resolved = feedback.map((item) => item!)
+    for (const item of resolved) validateCurrentFocusedTarget(request.designId, item.target)
+    requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
+    const prompt = `Apply ${resolved.length} queued focused edit${resolved.length === 1 ? '' : 's'}.`
+    requireGenerationQueue().enqueue(request.designId, prompt, request.providerId, request.modelId, request.effort, [], null, null, resolved)
     return requireWorkspace().getDesign(request.designId)
   })
   ipcMain.handle('workspace:cancel-generation', (event, value: unknown) => {
@@ -507,6 +643,11 @@ function registerIpc(): void {
     authorize(event)
     const request = selectRevisionRequestSchema.parse(value)
     return requireWorkspace().selectRevision(request.designId, request.revisionId)
+  })
+  ipcMain.handle('workspace:compare-revisions', (event, value: unknown) => {
+    authorize(event)
+    const request = compareRevisionsRequestSchema.parse(value)
+    return requireWorkspace().compareRevisions(request.designId, request.baseRevisionId, request.targetRevisionId)
   })
   ipcMain.handle('workspace:restore-revision', (event, value: unknown) => {
     authorize(event)
@@ -561,6 +702,20 @@ function registerIpc(): void {
     const token = requirePreviewServer().register(request.designId, request.revisionId, files)
     return { token, pages, entryPagePath }
   })
+  ipcMain.handle('preview:resolve-focused-target', (event, value: unknown) => {
+    authorize(event)
+    const request = resolveFocusedTargetRequestSchema.parse(value)
+    const design = requireWorkspace().getDesign(request.designId)
+    if (!design || design.activeRevisionId !== request.revisionId || design.selectedRevisionId !== request.revisionId) return null
+    return requirePreviewServer().resolveFocusedTarget(request)
+  })
+  ipcMain.handle('preview:locate-focused-targets', (event, value: unknown) => {
+    authorize(event)
+    const request = locateFocusedTargetsRequestSchema.parse(value)
+    const design = requireWorkspace().getDesign(request.designId)
+    if (!design || design.selectedRevisionId !== request.revisionId) return []
+    return requirePreviewServer().locateFocusedTargets(request)
+  })
   ipcMain.handle('preview:report-diagnostic', (event, value: unknown) => {
     authorize(event)
     const request = previewDiagnosticReportSchema.parse(value)
@@ -583,14 +738,19 @@ function registerIpc(): void {
     } catch {
       return false
     }
-    const png = await thumbnailCapturer.capture(request.designId, request.revisionId, files, entryPage)
-    if (!png) return false
+    const result = await thumbnailCapturer.capture(request.designId, request.revisionId, files, entryPage)
+    if (!result.checked) return false
     try {
-      workspaceStore?.saveThumbnail(request.designId, request.revisionId, png)
+      if (result.png) workspaceStore?.saveThumbnail(request.designId, request.revisionId, result.png)
+      workspaceStore?.saveRevisionQualityReport(request.designId, request.revisionId, result.findings)
     } catch {
       return false
     }
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (result.png) mainWindow.webContents.send('preview:thumbnail', { designId: request.designId, revisionId: request.revisionId })
+      mainWindow.webContents.send('preview:diagnostic', { designId: request.designId, revisionId: request.revisionId })
+    }
+    sendWorkspaceChanged(request.designId)
     return true
   })
   ipcMain.handle('preview:pop-out', (event, value: unknown) => {
@@ -660,9 +820,18 @@ void app.whenReady().then(() => {
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
       let agentPrompt = job.mode === 'continue' ? `Continue the interrupted design task from the retained partial workspace. Original request: ${job.prompt}` : job.prompt
+      // A retry normally resumes the provider thread that already received the new-design context.
+      // Re-send it only when there is no resumable session (for example, the first attempt failed
+      // before the provider returned a session id).
+      const storedSession = store.getDesignProviderSession(job.designId)
+      if (job.mode === 'fresh' && !job.providerSessionId && !storedSession) {
+        const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId)
+        if (definitionContext) agentPrompt = `${agentPrompt}\n\n${definitionContext}`
+      }
+      if (job.focusedFeedback?.length) agentPrompt = createFocusedFeedbackBatchPrompt(job.focusedFeedback)
+      else if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
       // Resume the design's own provider conversation when the selected provider matches the stored
       // session; otherwise this is a fresh session (first prompt, a provider switch, or a stale session).
-      const storedSession = store.getDesignProviderSession(job.designId)
       let providerSessionId = job.providerSessionId ?? (storedSession && storedSession.providerId === job.providerId ? storedSession.sessionId : undefined)
       // When starting fresh, give the agent a recap of the conversation so far so it is not blind to it.
       // The last message is the current prompt (added at enqueue), so it is excluded from the recap.
@@ -719,10 +888,20 @@ void app.whenReady().then(() => {
         if (reply.sessionId) rememberSession(reply.sessionId)
         if (signal.aborted) throw new Error('Generation was cancelled.')
         const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
-        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, job.prompt, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3)
-        if (saved.invalidCandidates.length === invalidCount) return
+        const revisionReason = job.definitionTargetVersion ? `Apply project definitions version ${job.definitionTargetVersion}` : job.prompt
+        const priorRevisionId = requireWorkspace().getDesign(job.designId)?.activeRevisionId ?? null
+        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, revisionReason, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3, job.definitionTargetVersion)
+        if (saved.invalidCandidates.length === invalidCount) {
+          if (job.definitionTargetVersion) {
+            store.completeProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
+            store.finishProjectDefinitionApplicationAttemptForJob(job.id, 'completed', null, saved.activeRevisionId !== priorRevisionId ? saved.activeRevisionId : null)
+          }
+          return
+        }
         const diagnostic = saved.invalidCandidates.at(-1)?.diagnostic ?? 'The candidate did not pass validation.'
-        agentPrompt = `Repair the current index.html in place and finish the original request. Validation feedback: ${diagnostic}`
+        agentPrompt = `Repair the current design in place and finish the original request. Validation feedback: ${diagnostic}`
+        if (job.focusedFeedback?.length) agentPrompt = createFocusedFeedbackBatchPrompt(job.focusedFeedback)
+        else if (job.focusedTarget) agentPrompt = createFocusedEditPrompt(agentPrompt, job.focusedTarget)
       }
     },
     recordActivity,

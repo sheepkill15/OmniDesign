@@ -1,11 +1,12 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectSummary, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
 import { generateMockDesign } from './mockGenerator.js'
 import { WorkspaceStore } from './store.js'
 import { cloneRepository } from './gitClone.js'
+import { canUpdateProjectThemeDeterministically, createProjectDefinitionApplicationPrompt, createProjectDefinitionPromptContext, materializeProjectTheme } from './projectTheme.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
 
@@ -40,6 +41,77 @@ export class WorkspaceService {
     return this.store.getDesign(designId)
   }
   public renameProject(projectId: string, name: string): ProjectSummary { return this.store.renameProject(projectId, name) }
+  public getProjectDesignDefinitionState(projectId: string): ProjectDesignDefinitionState | null { return this.store.getProjectDesignDefinitionState(projectId) }
+  public listProjectDesignDefinitionVersions(projectId: string): ProjectDesignDefinitionVersion[] { return this.store.listProjectDesignDefinitionVersions(projectId) }
+  public saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): ProjectDesignDefinitionVersion { return this.store.saveProjectDesignDefinitions(projectId, definitions) }
+  public setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): ProjectDesignDefinitionState { return this.store.setProjectDefinitionPromptSuppressed(projectId, suppressed) }
+  public keepProjectDesignDefinitions(designId: string, targetVersion: number): Design { return this.store.keepProjectDesignDefinitions(designId, targetVersion) }
+
+  public async applyProjectDesignDefinitions(designId: string, targetVersion: number): Promise<Design> {
+    const design = this.store.getDesign(designId)
+    if (!design || design.pendingDefinitionVersion !== targetVersion) throw new Error('The requested project-definition decision is no longer pending.')
+    const target = this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === targetVersion)
+    if (!target) throw new Error('The requested project definitions are missing.')
+    const current = design.definitionVersion
+      ? this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === design.definitionVersion) ?? null
+      : null
+    if (design.activeRevisionId && (!current || !canUpdateProjectThemeDeterministically(current.definitions, target.definitions))) {
+      const diagnostic = 'This change needs AI interpretation. Choose an available provider to apply it.'
+      this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'ai', state: 'unavailable', diagnostic })
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic, true)
+    }
+    const attempt = this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'deterministic' })
+    if (design.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')) {
+      const diagnostic = 'Finish or stop the design’s active work before applying project definitions.'
+      this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'failed', diagnostic)
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic)
+    }
+
+    this.store.beginProjectDefinitionApplication(designId, targetVersion)
+    try {
+      this.repositories.checkoutMain(designId)
+      const sourceFiles = materializeProjectTheme(this.repositories.readWorkingTreeFiles(designId), target)
+      this.repositories.writeSourceFiles(designId, sourceFiles)
+      if (!design.activeRevisionId) {
+        const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion)
+        this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'completed')
+        return completed
+      }
+      const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
+      validateDesignFiles(sourceFiles)
+      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply project definitions version ${targetVersion}`)
+      const revised = gitCommit ? this.store.addRevision(designId, `Apply project definitions version ${targetVersion}`, 'omnidesign', 'deterministic', gitCommit, `Applied project definitions version ${targetVersion}.`, targetVersion) : null
+      const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion)
+      this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'completed', null, revised?.activeRevisionId ?? null)
+      return completed
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Project definitions could not be applied.'
+      this.store.failProjectDefinitionApplication(designId, targetVersion, message)
+      this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'failed', message)
+      throw error
+    }
+  }
+
+  public async applyProjectDesignDefinitionsToAll(projectId: string, targetVersion: number): Promise<Design[]> {
+    const pending = this.store.listDesignsByProject(projectId).filter((design) => design.pendingDefinitionVersion === targetVersion)
+    const results: Design[] = []
+    for (const design of pending) {
+      try { results.push(await this.applyProjectDesignDefinitions(design.id, targetVersion)) }
+      catch { const failed = this.store.getDesign(design.id); if (failed) results.push(failed) }
+    }
+    return results
+  }
+
+  public prepareAIProjectDefinitionApplication(designId: string, targetVersion: number): string {
+    const design = this.store.getDesign(designId)
+    if (!design || design.pendingDefinitionVersion !== targetVersion) throw new Error('The requested project-definition decision is no longer pending.')
+    const versions = this.store.listProjectDesignDefinitionVersions(design.projectId)
+    const target = versions.find((candidate) => candidate.version === targetVersion)
+    if (!target) throw new Error('The requested project definitions are missing.')
+    const current = design.definitionVersion ? versions.find((candidate) => candidate.version === design.definitionVersion) ?? null : null
+    this.store.beginProjectDefinitionApplication(designId, targetVersion)
+    return createProjectDefinitionApplicationPrompt(current, target)
+  }
   public renameDesign(designId: string, title: string): Design { return this.store.renameDesign(designId, title) }
   public setTitlePending(designId: string, pending: boolean): void { this.store.setTitlePending(designId, pending) }
   public setAdaptationPending(designId: string, pending: boolean): void { this.store.setAdaptationPending(designId, pending) }
@@ -111,7 +183,19 @@ export class WorkspaceService {
     const design = this.createDesignRecord('', title, target)
     onActivity({ designId: design.id, stage: 'queued', detail: 'Setting up your design…' })
     this.repositories.initialize(design.id)
+    const definitionVersion = this.definitionVersionForDesign(design)
+    if (definitionVersion) {
+      const files = materializeProjectTheme(this.repositories.readWorkingTreeFiles(design.id), definitionVersion)
+      this.repositories.writeSourceFiles(design.id, files)
+    }
     return design
+  }
+
+  public getInitialProjectDefinitionPromptContext(designId: string): string {
+    const design = this.store.getDesign(designId)
+    if (!design || design.activeRevisionId) return ''
+    const definitionVersion = this.definitionVersionForDesign(design)
+    return definitionVersion ? createProjectDefinitionPromptContext(definitionVersion) : ''
   }
 
   public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0, generatedFiles?: RevisionFiles): Promise<Design> {
@@ -123,6 +207,11 @@ export class WorkspaceService {
     const isIteration = current.activeRevisionId ?? undefined
     let generated = generatedFiles ? { html: generatedHtml ?? generatedFiles['index.html'] ?? '', files: generatedFiles } : generateMockDesign(prompt, isIteration)
     if (generatedHtml && !generatedFiles) generated = { html: generatedHtml, files: { 'index.html': generatedHtml } }
+    const definitionVersion = current.activeRevisionId ? null : this.definitionVersionForDesign(current)
+    if (definitionVersion) {
+      const files = materializeProjectTheme(generated.files, definitionVersion)
+      generated = { html: files['index.html'] ?? generated.html, files }
+    }
 
     for (let repairAttempt = 0; repairAttempt <= maxRepairAttempts; repairAttempt += 1) {
       try {
@@ -187,6 +276,15 @@ export class WorkspaceService {
     return this.repositories.readRevisionFiles(designId, revision.gitCommit)
   }
 
+  public compareRevisions(designId: string, baseRevisionId: string, targetRevisionId: string): RevisionComparison {
+    const design = this.store.getDesign(designId)
+    const base = design?.revisions.find((revision) => revision.id === baseRevisionId)
+    const target = design?.revisions.find((revision) => revision.id === targetRevisionId)
+    if (!base || !target) throw new Error('Revision not found.')
+    if (!base.gitCommit || !target.gitCommit) throw new Error('Revision comparison is unavailable for legacy revisions.')
+    return this.repositories.compareRevisions(designId, base.gitCommit, target.gitCommit, baseRevisionId, targetRevisionId)
+  }
+
   /**
    * Discover a revision's pages from its committed files and resolve which one is the home page,
    * merging any persisted per-path metadata (display title, order, home override) the design carries.
@@ -217,12 +315,21 @@ export class WorkspaceService {
     response: string,
     onActivity: ActivityListener,
     allowRepair = false,
+    definitionTargetVersion: number | null = null,
   ): Promise<Design> {
     const current = this.store.getDesign(designId)
     if (!current) throw new Error('Design not found.')
 
     try {
-      const sourceFiles = this.repositories.readWorkingTreeFiles(designId)
+      let sourceFiles = this.repositories.readWorkingTreeFiles(designId)
+      const definitionVersion = definitionTargetVersion
+        ? this.store.listProjectDesignDefinitionVersions(current.projectId).find((candidate) => candidate.version === definitionTargetVersion) ?? null
+        : current.activeRevisionId ? null : this.definitionVersionForDesign(current)
+      if (definitionTargetVersion && !definitionVersion) throw new Error('The requested project definitions are missing.')
+      if (definitionVersion) {
+        sourceFiles = materializeProjectTheme(sourceFiles, definitionVersion)
+        this.repositories.writeSourceFiles(designId, sourceFiles)
+      }
       onActivity({ designId, stage: 'compiling', detail: 'Preparing the design’s styles.' })
       const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
@@ -233,7 +340,7 @@ export class WorkspaceService {
         onActivity({ designId, stage: 'complete', detail: 'No changes were needed.' })
         return this.store.addAssistantResponse(designId, response)
       }
-      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response)
+      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response, definitionTargetVersion ?? current.definitionVersion ?? null)
       onActivity({ designId, stage: 'complete', detail: 'Your design is ready.' })
       return saved
     } catch (error) {
@@ -314,6 +421,11 @@ export class WorkspaceService {
     const entry = resolveEntryPage(discoverPages(files))
     if (entry && files[entry] !== undefined) return files[entry]
     return this.repositories.readIndexHtml(designId)
+  }
+
+  private definitionVersionForDesign(design: Design): ProjectDesignDefinitionVersion | null {
+    if (!design.definitionVersion) return null
+    return this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === design.definitionVersion) ?? null
   }
 
   private throwIfCancelled(signal: AbortSignal | undefined): void {
