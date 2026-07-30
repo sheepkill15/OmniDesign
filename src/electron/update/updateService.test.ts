@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import { UpdateService } from './updateService.js'
+import { shouldEnableUpdates, UpdateService } from './updateService.js'
 
 class FakeUpdater extends EventEmitter {
   autoDownload = false
@@ -19,6 +19,18 @@ function createHarness(enabled = true) {
 }
 
 describe('UpdateService', () => {
+  it('never enables update checks for development processes', () => {
+    expect(shouldEnableUpdates(false, 'win32')).toBe(false)
+    expect(shouldEnableUpdates(false, 'darwin')).toBe(false)
+    expect(shouldEnableUpdates(false, 'linux')).toBe(false)
+  })
+
+  it('enables update checks only for packaged Windows and macOS applications', () => {
+    expect(shouldEnableUpdates(true, 'win32')).toBe(true)
+    expect(shouldEnableUpdates(true, 'darwin')).toBe(true)
+    expect(shouldEnableUpdates(true, 'linux')).toBe(false)
+  })
+
   it('checks and downloads updates only when packaged updates are enabled', () => {
     const enabled = createHarness()
     enabled.service.start()

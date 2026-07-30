@@ -65,7 +65,7 @@ import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
 import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
 import { createMockProjectDefinitionProposal, createProjectDefinitionProposalPrompt, parseProjectDefinitionProposal, selectProjectDefinitionAnalysisRoots } from '../workspace/projectDefinitionProposal.js'
-import { UpdateService } from '../update/updateService.js'
+import { shouldEnableUpdates, UpdateService } from '../update/updateService.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
@@ -920,7 +920,7 @@ void app.whenReady().then(() => {
   mainWindow = createMainWindow()
   registerIpc()
   updateService = new UpdateService({
-    enabled: app.isPackaged && (process.platform === 'win32' || process.platform === 'darwin'),
+    enabled: shouldEnableUpdates(app.isPackaged, process.platform),
     async promptForRestart(version) {
       if (!mainWindow || mainWindow.isDestroyed()) return false
       const activeJobs = store.listGenerationJobs(['queued', 'running'])
