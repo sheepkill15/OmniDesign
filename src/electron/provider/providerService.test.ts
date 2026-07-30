@@ -1,9 +1,15 @@
+import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { isRecoverableSessionResumeError, parseClaudeEfforts, parseClaudeModels } from './claudeAdapter.js'
 import { describeCodexTool, isRecoverableThreadResumeError } from './codexAdapter.js'
 import type { ProviderAdapter, ProviderAdapterPrompt } from './providerAdapter.js'
 import { isProviderId, ProviderService } from './providerService.js'
 import { providerFailure } from './providerUtils.js'
+
+const workspacePath = path.resolve('test-workspace', 'design')
+const projectPath = path.resolve('test-projects', 'aurora')
+const referencePath = path.resolve('test-references')
+const analysisReferencePath = path.resolve('test-workspace', 'design-1')
 
 function createAdapter(id: 'codex' | 'claude'): ProviderAdapter {
   return {
@@ -72,12 +78,12 @@ describe('ProviderService', () => {
       modelId: 'model-1',
       effort: 'high',
       prompt: 'Build it',
-      referencePaths: ['C:\\references'],
+      referencePaths: [referencePath],
     }, activity)).resolves.toEqual({ providerId: 'claude', modelId: 'model-1', text: 'Done' })
 
     expect(codex.prompt).not.toHaveBeenCalled()
     expect(claude.prompt).toHaveBeenCalledWith(
-      { modelId: 'model-1', effort: 'high', prompt: 'Build it', referencePaths: ['C:\\references'] },
+      { modelId: 'model-1', effort: 'high', prompt: 'Build it', referencePaths: [referencePath] },
       expect.any(Function),
     )
     expect(activity).toHaveBeenCalledWith({
@@ -111,15 +117,15 @@ describe('ProviderService', () => {
     vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: '  The design is ready.  ' })
 
     await expect(service.runDesignAgent({
-      requestId: 'request-2', providerId: 'codex', modelId: 'model-1', prompt: 'Refine the hierarchy', workspacePath: 'C:\\workspace\\design',
+      requestId: 'request-2', providerId: 'codex', modelId: 'model-1', prompt: 'Refine the hierarchy', workspacePath,
     })).resolves.toEqual({ providerId: 'codex', modelId: 'model-1', response: 'The design is ready.' })
 
     // No output shape is imposed on the agent — only instructions and the workspace are passed through.
     const [adapterRequest] = vi.mocked(codex.prompt).mock.calls[0]
     expect(adapterRequest).not.toHaveProperty('outputSchema')
     expect(adapterRequest).toEqual(expect.objectContaining({
-      workspacePath: 'C:\\workspace\\design',
-      instructions: expect.stringContaining('C:\\workspace\\design'),
+      workspacePath,
+      instructions: expect.stringContaining(workspacePath),
     }))
   })
 
@@ -128,9 +134,9 @@ describe('ProviderService', () => {
     const service = new ProviderService([codex])
     vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: 'Done' })
 
-    await service.runDesignAgent({ requestId: 'request-3', providerId: 'codex', modelId: 'model-1', prompt: 'Match Aurora', workspacePath: 'C:\\workspace\\design', sourceProjectPath: 'C:\\projects\\aurora' })
+    await service.runDesignAgent({ requestId: 'request-3', providerId: 'codex', modelId: 'model-1', prompt: 'Match Aurora', workspacePath, sourceProjectPath: projectPath })
 
-    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ referencePaths: ['C:\\projects\\aurora'], instructions: expect.stringContaining('Inspect its relevant source') }), expect.any(Function))
+    expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ referencePaths: [projectPath], instructions: expect.stringContaining('Inspect its relevant source') }), expect.any(Function))
   })
 
   it('passes provider session identity through design-agent continuation', async () => {
@@ -138,7 +144,7 @@ describe('ProviderService', () => {
     const service = new ProviderService([codex])
     vi.mocked(codex.prompt).mockResolvedValueOnce({ modelId: 'model-1', text: 'Done', sessionId: 'thread-1' })
 
-    await expect(service.runDesignAgent({ requestId: 'request-continue', providerId: 'codex', modelId: 'model-1', prompt: 'Continue', workspacePath: 'C:\\workspace\\design', resumeSessionId: 'thread-1' })).resolves.toMatchObject({ sessionId: 'thread-1' })
+    await expect(service.runDesignAgent({ requestId: 'request-continue', providerId: 'codex', modelId: 'model-1', prompt: 'Continue', workspacePath, resumeSessionId: 'thread-1' })).resolves.toMatchObject({ sessionId: 'thread-1' })
 
     expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: 'thread-1' }), expect.any(Function))
   })
@@ -147,11 +153,11 @@ describe('ProviderService', () => {
     const codex = createAdapter('codex')
     const service = new ProviderService([codex])
 
-    await service.runAnalysisAgent({ requestId: 'request-analysis', providerId: 'codex', modelId: 'model-1', prompt: 'Analyze it', workspacePath: 'C:\\projects\\aurora', referencePaths: ['C:\\workspace\\design-1'], instructions: 'Return JSON only.' })
+    await service.runAnalysisAgent({ requestId: 'request-analysis', providerId: 'codex', modelId: 'model-1', prompt: 'Analyze it', workspacePath: projectPath, referencePaths: [analysisReferencePath], instructions: 'Return JSON only.' })
 
     expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({
-      workspacePath: 'C:\\projects\\aurora',
-      referencePaths: ['C:\\workspace\\design-1'],
+      workspacePath: projectPath,
+      referencePaths: [analysisReferencePath],
       instructions: 'Return JSON only.',
       prompt: 'Analyze it',
     }), expect.any(Function))
