@@ -15,14 +15,15 @@ This is a narrow implementation pilot. It is not the completed Phase 1 provider 
 - Derive selectable effort levels from Codex model capabilities and Claude Code's installed CLI help. Leaving effort on Provider default omits an override.
 - Normalize the activity common to both providers as status, text, tool, result, and diagnostic events. Provider-specific and unrecognized protocol messages remain inside their adapters and are not exposed to the application.
 - Send a plain text prompt to one selected provider/model and present its response in the trusted renderer.
+- Cache validated non-secret provider availability, model, and effort metadata in application-local SQLite. Launch reads the cache immediately, starts one de-duplicated discovery refresh in the main process, and publishes the refreshed result to the renderer without exposing provider processes or credentials.
 
 ## Safety boundary
 
-The renderer receives only `discover` and `prompt` IPC operations. It cannot access a shell, the filesystem, a provider process, or credentials. The initial Codex turn uses read-only sandboxing and no approvals; the initial Claude prompt uses plan permission mode.
+The renderer receives only cached-status reads, explicit status refresh, refresh notifications, and prompt IPC operations. It cannot access a shell, the filesystem, a provider process, or credentials. Cached status contains capability metadata only, never sign-in tokens or other secrets. The initial Codex turn uses read-only sandboxing and no approvals; the initial Claude prompt uses plan permission mode.
 
 ## Deliberately deferred
 
-- API-key configuration, multiple accounts, provider settings, refresh/update actions, attachments, project-context access, conversation persistence, cancellation, retries, and design generation orchestration.
+- API-key configuration, multiple accounts, provider setup and installation/update management, attachments, project-context access, conversation persistence, cancellation, retries, and design generation orchestration.
 - Claude's exact subscription-entitled model discovery, if and when Claude Code exposes a stable supported mechanism.
 - Moving these prototype contracts into the planned provider-contract package after the walking skeleton establishes the package boundaries.
 

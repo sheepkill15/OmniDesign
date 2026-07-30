@@ -3,10 +3,11 @@ import { ArrowPathIcon, ArrowRightIcon, BoltIcon, ClockIcon, DocumentDuplicateIc
 import { NewDesignComposer, type ProviderId } from '../components/composer'
 import { ProjectThumbnail, designSubtitle } from '../components/common'
 
-export function Home({ projects, designs, providers, busy, activity, composerProject, onCreate, onOpenDesign, onOpenProviders }: {
+export function Home({ projects, designs, providers, providersLoading, busy, activity, composerProject, onCreate, onOpenDesign, onOpenProviders }: {
   readonly projects: readonly ProjectSummary[]
   readonly designs: readonly OmniDesignDocument[]
   readonly providers: readonly ProviderStatus[]
+  readonly providersLoading: boolean
   readonly busy: boolean
   readonly activity: GenerationActivity | null
   readonly composerProject: ProjectSummary | null
@@ -20,7 +21,7 @@ export function Home({ projects, designs, providers, busy, activity, composerPro
     <main className="home-main">
       <div className="home-content">
         <header className="page-heading"><h1>Start with an idea.</h1><p>Turn it into something you can see, use, and refine—without leaving your local workspace.</p></header>
-        <NewDesignComposer providers={providers} busy={busy} projects={projects} initialProject={composerProject} onCreate={onCreate} onOpenProviders={onOpenProviders} />
+        <NewDesignComposer providers={providers} providersLoading={providersLoading} busy={busy} projects={projects} initialProject={composerProject} onCreate={onCreate} onOpenProviders={onOpenProviders} />
         {busy
           ? <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>
           : activity && <div className="generation-notice" role="status"><BoltIcon aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span></div>}

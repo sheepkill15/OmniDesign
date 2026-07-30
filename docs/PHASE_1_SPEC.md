@@ -282,6 +282,7 @@ OmniDesign saves layout independently for each design and restores it when that 
 - Preview visibility.
 - Popped-out state.
 - Relevant window and panel sizing.
+- Selected preview page, preview mode, device and fit choices, and Canvas zoom/pan viewport.
 
 The screen position of a popped-out preview window does not need to be restored exactly.
 

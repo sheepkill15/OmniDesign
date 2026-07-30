@@ -296,7 +296,7 @@ Do not store secrets in project files or the ordinary SQLite database.
 
 The initial implementation uses Electron 43's embedded Node 24 runtime and its built-in `node:sqlite` module. This avoids a separately compiled native SQLite addon while preserving the accepted SQLite data model. The persistence package owns explicit, forward-only migrations and opens databases with foreign-key enforcement and WAL journaling. Tests use temporary directories and isolated databases.
 
-Immutable revision artifacts remain ordinary files beneath OmniDesign-managed application storage. SQLite stores their metadata and paths, active and selected revision pointers, conversations, drafts, layout state, and project/design relationships. The source-project directory is never used as the design working directory.
+Immutable revision artifacts remain ordinary files beneath OmniDesign-managed application storage. SQLite stores their metadata and paths, active and selected revision pointers, conversations, drafts, complete per-design workspace layout state (including preview page and canvas viewport), and project/design relationships. The source-project directory is never used as the design working directory. Non-secret installed-provider availability and model metadata is also cached in application-local SQLite so launch can render the last known provider choices immediately; the main process refreshes that cache in the background and publishes validated updates through narrow IPC.
 
 The walking skeleton makes this concrete beneath Electron's application data directory:
 

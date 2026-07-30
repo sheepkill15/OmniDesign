@@ -29,7 +29,7 @@ import {
 import { AppModal } from '../components/AppModal'
 import { DropdownButton } from '../components/DropdownButton'
 import { Markdown } from '../components/Markdown'
-import { DesignPreview, type FocusedEditThread } from './DesignPreview'
+import { DesignPreview, type CanvasViewport, type FocusedEditThread } from './DesignPreview'
 import { AttachmentPicker, EditableTitle, GenerationActivitySection, IconButton, terminalGenerationStages, type AttachmentPickerKind, type Icon } from '../components/common'
 import { GenerationSettingsMenu, ProjectSelectionMenu } from '../components/composer'
 
@@ -161,9 +161,10 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
   )
 }
 
-export function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders, onOpenDefinitions }: {
+export function DesignWorkspace({ design, providers, providersLoading, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders, onOpenDefinitions }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
+  readonly providersLoading: boolean
   readonly projects: readonly ProjectSummary[]
   readonly associationNotice: { readonly projectId: string; readonly projectName: string; readonly mode: 'associated' | 'suggested' } | null
   readonly activity: GenerationActivity | null
@@ -198,6 +199,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>(design.layout.previewDevice)
   const [previewCustomWidth, setPreviewCustomWidth] = useState(design.layout.previewCustomWidth)
   const [previewCustomHeight, setPreviewCustomHeight] = useState(design.layout.previewCustomHeight)
+  const [canvasViewport, setCanvasViewport] = useState<CanvasViewport>({ zoom: design.layout.previewZoom, panX: design.layout.previewPanX, panY: design.layout.previewPanY })
   const [selectionActive, setSelectionActive] = useState(false)
   const [focusedTarget, setFocusedTarget] = useState<FocusedTarget | null>(null)
   const [focusedComment, setFocusedComment] = useState('')
@@ -294,7 +296,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
-  useEffect(() => setSelection(design.lastSelection), [design.id])
+  useEffect(() => setSelection(design.lastSelection), [design.id, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort])
   useEffect(() => {
     let active = true
     void window.omnidesign?.workspace.listFocusedFeedback(design.id)
@@ -308,9 +310,12 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     setPreviewDevice(design.layout.previewDevice)
     setPreviewCustomWidth(design.layout.previewCustomWidth)
     setPreviewCustomHeight(design.layout.previewCustomHeight)
-  }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice, design.layout.previewCustomWidth, design.layout.previewCustomHeight])
+    setPreviewPage(design.layout.previewPage)
+    setCanvasViewport({ zoom: design.layout.previewZoom, panX: design.layout.previewPanX, panY: design.layout.previewPanY })
+  }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice, design.layout.previewCustomWidth, design.layout.previewCustomHeight, design.layout.previewPage, design.layout.previewZoom, design.layout.previewPanX, design.layout.previewPanY])
   useEffect(() => setSelectionActive(false), [design.id])
   useEffect(() => { setFocusedTarget(null); setFocusedComment('') }, [design.id, design.selectedRevisionId, previewPage])
+  useEffect(() => { setComparison(null); setComparisonLoading(false) }, [design.id, design.selectedRevisionId])
   useEffect(() => {
     if (previewViewMode === 'canvas') { setFocusedTarget(null); setFocusedComment('') }
   }, [previewViewMode])
@@ -380,10 +385,10 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   }, [api, design.id, draft, attachments])
   useEffect(() => {
     if (!api) return
-    const layout: Layout = { conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage }
+    const layout: Layout = { conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage, previewZoom: canvasViewport.zoom, previewPanX: canvasViewport.panX, previewPanY: canvasViewport.panY }
     const timer = window.setTimeout(() => { void api.saveLayout(design.id, layout).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'The workspace layout could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 250)
     return () => window.clearTimeout(timer)
-  }, [api, conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage, design.id])
+  }, [api, conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage, canvasViewport, design.id])
   // While the popped-out layout is active, open the preview in its own window (a later revision reloads
   // it); leaving the layout or unmounting closes that window.
   useEffect(() => {
@@ -624,8 +629,9 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
-        {!hasUsableSelection && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
+        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        {!hasUsableSelection && providersLoading && !readyProviders.length && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Your draft and design history remain available while provider status refreshes.</small></span></div>}
+        {!hasUsableSelection && (!providersLoading || readyProviders.length > 0) && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
     </section>
   )
@@ -687,7 +693,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         <small>{previewStatus}</small>
       </div>
       {previewToken && design.selectedRevisionId
-        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && (!selectedRevision.thumbnailDataUrl || !qualityCheckCurrent)} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => { setFocusedTarget(null); setFocusedComment('') }} onSelectionError={(message) => setFeedback({ tone: 'error', message })} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
+        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && (!selectedRevision.thumbnailDataUrl || !qualityCheckCurrent)} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} canvasViewport={canvasViewport} onCanvasViewportChange={setCanvasViewport} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => { setFocusedTarget(null); setFocusedComment('') }} onSelectionError={(message) => setFeedback({ tone: 'error', message })} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
         : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
     </section>
   )

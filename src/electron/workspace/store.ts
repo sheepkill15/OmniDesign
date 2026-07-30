@@ -3,6 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync,
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { attachmentSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import { providerStatusesSchema, type ProviderStatus } from '../provider/types.js'
 import type { Attachment, Design, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { REVISION_QUALITY_VERSION } from './revisionQuality.js'
 
@@ -1394,6 +1395,20 @@ export class WorkspaceStore {
       INSERT INTO settings (key, value) VALUES ('generation.defaults', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(JSON.stringify(generationSelectionSchema.parse(selection)))
+  }
+
+  public getCachedProviderStatuses(): ProviderStatus[] {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'providers.cache'").get() as { value: string } | undefined
+    if (!setting) return []
+    return providerStatusesSchema.catch([]).parse(safeParseJson(setting.value))
+  }
+
+  public saveCachedProviderStatuses(statuses: readonly ProviderStatus[]): void {
+    const parsed = providerStatusesSchema.parse(statuses)
+    this.database.prepare(`
+      INSERT INTO settings (key, value) VALUES ('providers.cache', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(JSON.stringify(parsed))
   }
 
   // The design open in the workspace when the app last closed, so a relaunch can reopen it (its page is

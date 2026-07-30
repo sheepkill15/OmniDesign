@@ -8,11 +8,12 @@ import { AttachmentPicker, type AttachmentPickerKind } from './common'
 
 export type ProviderId = 'mock' | 'codex' | 'claude'
 
-export function GenerationSettingsMenu({ providers, providerId, modelId, effort, onChange }: {
+export function GenerationSettingsMenu({ providers, providerId, modelId, effort, loading = false, onChange }: {
   readonly providers: readonly ProviderStatus[]
   readonly providerId: ProviderId
   readonly modelId: string
   readonly effort: string | null
+  readonly loading?: boolean
   readonly onChange: (selection: { providerId: ProviderId; modelId: string; effort: string | null }) => void
 }) {
   const available = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
@@ -36,7 +37,7 @@ export function GenerationSettingsMenu({ providers, providerId, modelId, effort,
       popoverClassName="generation-settings-popover"
       placement="top"
       isDisabled={!available.length}
-      trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider ? `${provider.name} · ${model?.name ?? 'Choose model'}` : 'No provider available'}</span></>}
+      trigger={<><CommandLineIcon aria-hidden="true" /><span>{provider ? `${provider.name} · ${model?.name ?? 'Choose model'}` : loading ? 'Checking providers…' : 'No provider available'}</span></>}
     >
         <div className="generation-settings-columns">
           <section className="generation-settings-column"><h2>Provider</h2><Menu aria-label="Provider" className="generation-settings-menu" shouldCloseOnSelect={false}>
@@ -83,8 +84,9 @@ export function ProjectSelectionMenu({ projects, includeStandalone = true, onAct
   )
 }
 
-export function NewDesignComposer({ providers, busy, fixedProject, projects = [], initialProject = null, onCreate, onOpenProviders }: {
+export function NewDesignComposer({ providers, providersLoading = false, busy, fixedProject, projects = [], initialProject = null, onCreate, onOpenProviders }: {
   readonly providers: readonly ProviderStatus[]
+  readonly providersLoading?: boolean
   readonly busy: boolean
   readonly fixedProject?: ProjectSummary
   readonly projects?: readonly ProjectSummary[]
@@ -214,12 +216,13 @@ export function NewDesignComposer({ providers, busy, fixedProject, projects = []
                 <ProjectSelectionMenu projects={projects} onAction={chooseTarget} />
               </DropdownButton>}
         </div>
-        <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} />
+        <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} />
         <Button className="submit-prompt" aria-label="Create design" isDisabled={!prompt.trim() || busy || !hasUsableSelection} onPress={() => void submit()}>
           {busy ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}
         </Button>
       </div>
-      {!readyProviders.length && <div className="no-provider-notice" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>Connect a provider to start generating.</strong><small>You can still open projects and review or export existing designs.</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
+      {!readyProviders.length && providersLoading && <div className="no-provider-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Saved provider availability will appear immediately when it is available.</small></span></div>}
+      {!readyProviders.length && !providersLoading && <div className="no-provider-notice" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>Connect a provider to start generating.</strong><small>You can still open projects and review or export existing designs.</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       {error && <p className="generation-recovery" role="alert">{error}</p>}
       <AppModal isOpen={cloneModalOpen} onOpenChange={setCloneModalOpen} className="clone-modal" title="Clone Git repository">
         {(close) => <>

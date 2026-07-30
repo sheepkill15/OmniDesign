@@ -5,8 +5,14 @@ import type { GenerationActivity, GenerationSelection, Layout } from '../workspa
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
     developmentProviderEnabled: Boolean(process.env.VITE_DEV_SERVER_URL || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1'),
-    discover: () => ipcRenderer.invoke('providers:discover'),
+    getCached: () => ipcRenderer.invoke('providers:get-cached'),
+    refresh: () => ipcRenderer.invoke('providers:refresh'),
     prompt: (request: ProviderPrompt) => ipcRenderer.invoke('providers:prompt', request),
+    onUpdated: (listener: (providers: readonly import('../provider/types.js').ProviderStatus[]) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, providers: readonly import('../provider/types.js').ProviderStatus[]) => listener(providers)
+      ipcRenderer.on('providers:updated', handler)
+      return () => ipcRenderer.removeListener('providers:updated', handler)
+    },
     onActivity: (listener: (activity: ProviderActivity) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, activity: ProviderActivity) => listener(activity)
       ipcRenderer.on('providers:activity', handler)

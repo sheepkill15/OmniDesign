@@ -35,7 +35,7 @@ const design: OmniDesignDocument = {
   tags: [],
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
-  layout: { conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewCustomWidth: 1280, previewCustomHeight: 800, previewPage: null },
+  layout: { conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewCustomWidth: 1280, previewCustomHeight: 800, previewPage: null, previewZoom: 0.75, previewPanX: 0, previewPanY: 0 },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
@@ -81,6 +81,7 @@ function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
 function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign: OmniDesignDocument = design) {
   const listeners: Array<(activity: GenerationActivity) => void> = []
   const changeListeners: Array<(event: { readonly designId: string }) => void> = []
+  const providerListeners: Array<(providers: readonly ProviderStatus[]) => void> = []
   const projectMap = new Map<string, ProjectSummary>()
   for (const candidate of initialDesigns) {
     const existing = projectMap.get(candidate.projectId)
@@ -89,11 +90,16 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
   const projects = [...projectMap.values()]
   const bridge = {
     providers: {
-      discover: vi.fn().mockResolvedValue([
+      getCached: vi.fn().mockResolvedValue([
+        { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Ready', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] },
+        { id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] },
+      ]),
+      refresh: vi.fn().mockResolvedValue([
         { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Ready', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] },
         { id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] },
       ]),
       prompt: vi.fn(),
+      onUpdated: vi.fn((listener: (providers: readonly ProviderStatus[]) => void) => { providerListeners.push(listener); return () => undefined }),
       onActivity: vi.fn().mockReturnValue(() => undefined),
     },
     workspace: {
@@ -195,6 +201,9 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     emitWorkspaceChanged(designId: string) {
       for (const listener of changeListeners) listener({ designId })
     },
+    emitProvidersUpdated(providers: readonly ProviderStatus[]) {
+      for (const listener of providerListeners) listener(providers)
+    },
   })
 }
 
@@ -237,7 +246,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('keeps project access available while generation waits for a provider', async () => {
     const bridge = installBridge([design])
-    vi.mocked(bridge.providers.discover).mockResolvedValue([])
+    vi.mocked(bridge.providers.refresh).mockResolvedValue([])
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -303,7 +312,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('preserves a follow-up draft when its previous provider is unavailable', async () => {
     const bridge = installBridge([design])
-    vi.mocked(bridge.providers.discover).mockResolvedValue([])
+    vi.mocked(bridge.providers.refresh).mockResolvedValue([])
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
@@ -327,12 +336,52 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getAllByText('Ready')).not.toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
 
-    await waitFor(() => expect(bridge.providers.discover).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(bridge.providers.getCached).toHaveBeenCalledOnce())
+    await waitFor(() => expect(bridge.providers.refresh).toHaveBeenCalledTimes(3))
+  })
+
+  it('renders cached providers while their background refresh is still running', async () => {
+    const bridge = installBridge()
+    let finishRefresh: ((providers: ProviderStatus[]) => void) | undefined
+    const refresh = new Promise<ProviderStatus[]>((resolve) => { finishRefresh = resolve })
+    vi.mocked(bridge.providers.getCached).mockResolvedValue([{
+      id: 'codex', name: 'Cached Codex', installed: true, authenticated: true, detail: 'Ready from cache',
+      models: [{ id: 'cached-model', name: 'Cached model', effortLevels: [] }],
+    }])
+    vi.mocked(bridge.providers.refresh).mockReturnValue(refresh)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+    expect(await screen.findByText('Cached Codex')).toBeInTheDocument()
+    expect(screen.queryByText('No provider availability information is available.')).not.toBeInTheDocument()
+
+    act(() => bridge.emitProvidersUpdated([{
+      id: 'claude', name: 'Claude', installed: true, authenticated: true, detail: 'Fresh status',
+      models: [{ id: 'sonnet', name: 'Sonnet', effortLevels: [] }],
+    }]))
+    expect(await screen.findByText('Claude')).toBeInTheDocument()
+    act(() => finishRefresh?.([{
+      id: 'claude', name: 'Claude', installed: true, authenticated: true, detail: 'Fresh status',
+      models: [{ id: 'sonnet', name: 'Sonnet', effortLevels: [] }],
+    }]))
+  })
+
+  it('shows provider discovery progress instead of a false unavailable state on an empty first-run cache', async () => {
+    const bridge = installBridge()
+    let finishRefresh: ((providers: ProviderStatus[]) => void) | undefined
+    vi.mocked(bridge.providers.getCached).mockResolvedValue([])
+    vi.mocked(bridge.providers.refresh).mockReturnValue(new Promise((resolve) => { finishRefresh = resolve }))
+    render(<App />)
+
+    expect(await screen.findByText('Checking local providers…')).toBeInTheDocument()
+    expect(screen.queryByText('Connect a provider to start generating.')).not.toBeInTheDocument()
+    act(() => finishRefresh?.([]))
+    expect(await screen.findByText('Connect a provider to start generating.')).toBeInTheDocument()
   })
 
   it('explains provider discovery failures without hiding the development provider', async () => {
     const bridge = installBridge()
-    vi.mocked(bridge.providers.discover).mockRejectedValue(new Error('Provider tools could not be queried.'))
+    vi.mocked(bridge.providers.refresh).mockRejectedValue(new Error('Provider tools could not be queried.'))
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
@@ -676,7 +725,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('selects the provider, model, and effort from the composer settings menu', async () => {
     const bridge = installBridge()
-    vi.mocked(bridge.providers.discover).mockResolvedValue([{
+    vi.mocked(bridge.providers.refresh).mockResolvedValue([{
       id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [{
         id: 'gpt-5.6', name: 'GPT-5.6', effortLevels: [
           { id: 'low', name: 'Low', isDefault: false },
@@ -1288,6 +1337,34 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
     expect(await screen.findByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
+  })
+
+  it('restores the selected page and canvas viewport, then persists further viewport changes', async () => {
+    const restored: OmniDesignDocument = {
+      ...design,
+      layout: { ...design.layout, previewViewMode: 'canvas', previewPage: 'about.html', previewZoom: 1.25, previewPanX: 84, previewPanY: -36 },
+    }
+    const bridge = installBridge([restored], restored)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(restored.id)
+    vi.mocked(bridge.workspace.get).mockResolvedValue(restored)
+    vi.mocked(bridge.preview.register).mockResolvedValue({
+      token: 'token-1',
+      pages: [
+        { path: 'index.html', title: 'Home', order: 0, isHome: true },
+        { path: 'about.html', title: 'About', order: 1, isHome: false },
+      ],
+      entryPagePath: 'index.html',
+    })
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByText('125%')).toBeInTheDocument()
+    expect(document.querySelector('.preview-board')).toHaveStyle({ transform: 'translate(84px, -36px) scale(1.25)' })
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({
+      previewPage: 'about.html', previewZoom: 1.35, previewPanX: 84, previewPanY: -36,
+    })))
   })
 
   it('attaches an exact focused target from the active frame, submits it, and clears the live selection', async () => {

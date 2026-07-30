@@ -134,6 +134,9 @@ interface Layout {
   readonly previewCustomWidth: number
   readonly previewCustomHeight: number
   readonly previewPage: string | null
+  readonly previewZoom: number
+  readonly previewPanX: number
+  readonly previewPanY: number
 }
 
 interface GenerationSelection {
@@ -330,8 +333,10 @@ interface Window {
   readonly omnidesign: {
     readonly providers: {
       readonly developmentProviderEnabled: boolean
-      discover(): Promise<ProviderStatus[]>
+      getCached(): Promise<ProviderStatus[]>
+      refresh(): Promise<ProviderStatus[]>
       prompt(request: { requestId: string; providerId: 'codex' | 'claude'; modelId: string; effort?: string; prompt: string }): Promise<ProviderReply>
+      onUpdated(listener: (providers: readonly ProviderStatus[]) => void): () => void
       onActivity(listener: (activity: ProviderActivity) => void): () => void
     }
     readonly workspace: {

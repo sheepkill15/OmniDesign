@@ -5,11 +5,12 @@ import { DropdownButton } from '../components/DropdownButton'
 import { EditableTitle, ProjectThumbnail } from '../components/common'
 import { NewDesignComposer, type ProviderId } from '../components/composer'
 
-export function ProjectPage({ project, projects, designs, providers, busy, activity, onCreate, onOpenDesign, onRenameProject, onDesignRenamed, onReconnect, onConvertToStandalone, onTrashProject, onRefresh, onOpenProviders, onOpenDefinitions }: {
+export function ProjectPage({ project, projects, designs, providers, providersLoading, busy, activity, onCreate, onOpenDesign, onRenameProject, onDesignRenamed, onReconnect, onConvertToStandalone, onTrashProject, onRefresh, onOpenProviders, onOpenDefinitions }: {
   readonly project: ProjectSummary
   readonly projects: readonly ProjectSummary[]
   readonly designs: readonly OmniDesignDocument[]
   readonly providers: readonly ProviderStatus[]
+  readonly providersLoading: boolean
   readonly busy: boolean
   readonly activity: GenerationActivity | null
   readonly onCreate: (prompt: string, providerId: ProviderId, modelId: string, effort: string | null, target: CreateDesignTarget | null, attachments: readonly DesignAttachment[]) => Promise<void>
@@ -77,7 +78,7 @@ export function ProjectPage({ project, projects, designs, providers, busy, activ
           <div className="page-heading-actions"><Button className="secondary-action" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Design definitions</Button><Button className="secondary-action" isDisabled={pendingAction !== null} onPress={() => void runProjectAction('remove', () => onTrashProject(project), 'The project could not be moved to Trash.')}><TrashIcon aria-hidden="true" />{pendingAction === 'remove' ? 'Removing…' : 'Remove project'}</Button></div>
         </header>
         {actionError && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Project action failed.</strong><small>{actionError}</small></span><Button className="text-button" onPress={() => setActionError(null)}>Dismiss</Button></div>}
-        <NewDesignComposer providers={providers} busy={busy} fixedProject={project} onCreate={onCreate} onOpenProviders={onOpenProviders} />
+        <NewDesignComposer providers={providers} providersLoading={providersLoading} busy={busy} fixedProject={project} onCreate={onCreate} onOpenProviders={onOpenProviders} />
         {busy && <div className="generation-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity?.detail ?? 'Setting up design repository…'}</strong></span></div>}
         <section className="recent-section" aria-labelledby="project-designs">
           <div className="section-heading"><h2 id="project-designs">Designs</h2><span>{projectDesigns.length ? `${projectDesigns.length} design${projectDesigns.length === 1 ? '' : 's'}` : 'No designs yet'}</span></div>
