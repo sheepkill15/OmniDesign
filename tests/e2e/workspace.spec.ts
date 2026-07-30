@@ -31,6 +31,11 @@ async function continueWithoutDefinitions(window: Page, required = true): Promis
   await expect(prompt).toHaveCount(0)
 }
 
+async function expectFirstResultUnobstructed(window: Page): Promise<void> {
+  await expect(window.getByRole('dialog', { name: /Set up design definitions for/ })).toHaveCount(0)
+  await expect(window.getByRole('button', { name: 'Definitions' })).toBeVisible()
+}
+
 test('creates and recovers a standalone design in the built Electron app', async () => {
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-e2e-'))
   let activeApp: ElectronApplication | null = null
@@ -176,7 +181,7 @@ test('keeps a removed standalone design recoverable across an Electron restart',
     await prompt.fill('A disposable landing page')
     await prompt.press('Enter')
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
-    await continueWithoutDefinitions(firstRun.window)
+    await expectFirstResultUnobstructed(firstRun.window)
     await firstRun.window.getByRole('button', { name: 'Remove' }).click()
     await firstRun.window.getByRole('button', { name: 'Trash' }).click()
     await expect(firstRun.window.getByText('A disposable landing page', { exact: true })).toBeVisible()
@@ -229,7 +234,7 @@ test('applies and persists the trusted application theme across primary screens'
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'dark')
     await expect(firstRun.window.getByRole('button', { name: /Layout/ })).toBeVisible()
-    await continueWithoutDefinitions(firstRun.window)
+    await expectFirstResultUnobstructed(firstRun.window)
 
     await firstRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
     const notifications = firstRun.window.getByRole('switch', { name: 'System notifications' })
@@ -379,7 +384,7 @@ test('opens the layout menu and dismisses it', async () => {
     await prompt.fill('A calm analytics dashboard')
     await prompt.press('Enter')
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
-    await continueWithoutDefinitions(run.window)
+    await expectFirstResultUnobstructed(run.window)
 
     await run.window.getByRole('button', { name: /Layout/ }).click()
     const conversationOnly = run.window.getByRole('menuitem', { name: 'Conversation only' })
@@ -408,7 +413,7 @@ test('pops the preview into its own window and docks it back', async () => {
     await prompt.fill('A calm analytics dashboard')
     await prompt.press('Enter')
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
-    await continueWithoutDefinitions(run.window)
+    await expectFirstResultUnobstructed(run.window)
     const dockedWindowCount = run.app.windows().length
 
     await run.window.getByRole('button', { name: /Layout/ }).click()
@@ -439,7 +444,7 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
     await prompt.fill('A multi-page product site')
     await prompt.press('Enter')
     await expect(firstRun.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
-    await continueWithoutDefinitions(firstRun.window)
+    await expectFirstResultUnobstructed(firstRun.window)
 
     await firstRun.window.getByRole('button', { name: 'Preview page' }).click()
     await firstRun.window.getByRole('menuitem', { name: /About A multi-page product site/ }).click()
