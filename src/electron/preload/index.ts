@@ -5,7 +5,6 @@ import type { GenerationActivity, GenerationSelection, Layout } from '../workspa
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
     developmentProviderEnabled: Boolean(process.env.VITE_DEV_SERVER_URL || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1'),
-    platform: process.platform,
     getCached: () => ipcRenderer.invoke('providers:get-cached'),
     refresh: () => ipcRenderer.invoke('providers:refresh'),
     openSetup: (providerId: 'codex' | 'claude') => ipcRenderer.invoke('providers:open-setup', providerId),
@@ -20,6 +19,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
       ipcRenderer.on('providers:activity', handler)
       return () => ipcRenderer.removeListener('providers:activity', handler)
     },
+  },
+  environment: {
+    platform: process.platform,
+    discover: () => ipcRenderer.invoke('environment:discover'),
+    openSetup: (dependencyId: 'git') => ipcRenderer.invoke('environment:open-setup', dependencyId),
   },
   workspace: {
     list: () => ipcRenderer.invoke('workspace:list'),

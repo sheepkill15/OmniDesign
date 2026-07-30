@@ -185,6 +185,13 @@ export function NewDesignComposer({ providers, providersLoading = false, busy, f
       setError(`The design could not be created. ${reason instanceof Error && reason.message ? reason.message : 'Please review the selected project and provider, then try again.'}`)
     }
   }
+  const openGitSetup = async () => {
+    try {
+      await window.omnidesign?.environment.openSetup('git')
+    } catch (reason) {
+      setError(`The Git setup guide could not be opened. ${reason instanceof Error && reason.message ? reason.message : 'Please open the Providers screen and try again.'}`)
+    }
+  }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && prompt.trim()) {
       event.preventDefault()
@@ -223,7 +230,7 @@ export function NewDesignComposer({ providers, providersLoading = false, busy, f
       </div>
       {!readyProviders.length && providersLoading && <div className="no-provider-notice" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Saved provider availability will appear immediately when it is available.</small></span></div>}
       {!readyProviders.length && !providersLoading && <div className="no-provider-notice" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>Connect a provider to start generating.</strong><small>You can still open projects and review or export existing designs.</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
-      {error && <p className="generation-recovery" role="alert">{error}</p>}
+      {error && <div className="generation-recovery" role="alert"><span>{error}</span>{/\bgit\b/i.test(error) && <Button className="secondary-action" onPress={() => void openGitSetup()}>Git setup guide</Button>}</div>}
       <AppModal isOpen={cloneModalOpen} onOpenChange={setCloneModalOpen} className="clone-modal" title="Clone Git repository">
         {(close) => <>
               <p>OmniDesign will create a new repository folder inside the destination you choose. Nothing is cloned until you submit this design prompt.</p>

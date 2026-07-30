@@ -90,7 +90,6 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
   const projects = [...projectMap.values()]
   const bridge = {
     providers: {
-      platform: 'win32',
       getCached: vi.fn().mockResolvedValue([
         { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Ready', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] },
         { id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] },
@@ -103,6 +102,13 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       prompt: vi.fn(),
       onUpdated: vi.fn((listener: (providers: readonly ProviderStatus[]) => void) => { providerListeners.push(listener); return () => undefined }),
       onActivity: vi.fn().mockReturnValue(() => undefined),
+    },
+    environment: {
+      platform: 'win32',
+      discover: vi.fn().mockResolvedValue([{
+        id: 'git', name: 'Git', installed: true, required: true, detail: 'git version 2.55.0 is available for design history and project cloning.',
+      }]),
+      openSetup: vi.fn().mockResolvedValue(undefined),
     },
     workspace: {
       list: vi.fn().mockResolvedValue(initialDesigns),
@@ -361,12 +367,31 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open official guide' }))
     await waitFor(() => expect(bridge.providers.openSetup).toHaveBeenCalledWith('codex'))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Set up Codex' })).not.toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to Claude Code' }))
     const claudeDialog = screen.getByRole('dialog', { name: 'Sign in to Claude' })
     expect(claudeDialog).not.toHaveTextContent('winget install Anthropic.ClaudeCode')
     expect(claudeDialog).toHaveTextContent('claude')
+  })
+
+  it('checks Git quietly and offers setup only when the local tool is missing', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.environment.discover).mockResolvedValue([{
+      id: 'git', name: 'Git', installed: false, required: true, detail: 'Git is required but unavailable.',
+    }])
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+    expect(await screen.findByRole('heading', { name: 'Local tools' })).toBeInTheDocument()
+    expect(screen.getByText('Missing')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Set up Git' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Set up Git' })
+    expect(dialog).toHaveTextContent('winget install --id Git.Git -e --source winget')
+    expect(dialog).toHaveTextContent('does not install Git or change your Git configuration')
+    fireEvent.click(screen.getByRole('button', { name: 'Open official guide' }))
+    await waitFor(() => expect(bridge.environment.openSetup).toHaveBeenCalledWith('git'))
   })
 
   it('renders cached providers while their background refresh is still running', async () => {
@@ -674,6 +699,9 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The design could not be created. Git executable is unavailable.')
     expect(prompt).toHaveValue('A calm dashboard')
     expect(screen.getByRole('region', { name: 'Create a design' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Git setup guide' }))
+    expect(bridge.environment.openSetup).toHaveBeenCalledWith('git')
+    expect(prompt).toHaveValue('A calm dashboard')
   })
 
   it('stays in the workspace when active-work removal is cancelled', async () => {

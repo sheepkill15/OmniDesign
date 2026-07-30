@@ -177,6 +177,7 @@ The trusted renderer must not receive Node.js or Electron APIs directly. A prelo
 - Validate every payload at runtime as well as at compile time.
 - Validate the sender of privileged messages.
 - Do not expose generic `send`, filesystem, shell, or subprocess functions.
+- Discover required local executables in the main process and expose only normalized status through typed IPC. Setup actions must map validated tool identifiers to fixed official URLs; the renderer must never supply an arbitrary URL or installer command.
 - Keep IPC contracts in a dedicated shared package.
 - Test authorization, validation, error handling, and cancellation behavior.
 

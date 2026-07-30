@@ -4,6 +4,7 @@ import { statSync } from 'node:fs'
 import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
 import { providerSetupUrl } from '../provider/providerSetup.js'
+import { discoverLocalDependencies, isLocalDependencyId, localDependencySetupUrl } from '../environment/localDependencies.js'
 import { buildConversationRecap, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
 import type { ProviderPrompt, ProviderStatus } from '../provider/types.js'
 import {
@@ -306,6 +307,15 @@ function registerIpc(): void {
     authorize(event)
     if (!isProviderId(providerId)) throw new Error('Invalid provider setup request.')
     return shell.openExternal(providerSetupUrl(providerId))
+  })
+  ipcMain.handle('environment:discover', (event) => {
+    authorize(event)
+    return discoverLocalDependencies()
+  })
+  ipcMain.handle('environment:open-setup', (event, dependencyId: unknown) => {
+    authorize(event)
+    if (!isLocalDependencyId(dependencyId)) throw new Error('Invalid local dependency setup request.')
+    return shell.openExternal(localDependencySetupUrl(dependencyId, process.platform))
   })
   ipcMain.handle('providers:prompt', (event, request: unknown) => {
     authorize(event)

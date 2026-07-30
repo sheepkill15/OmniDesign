@@ -1589,6 +1589,16 @@ button:not(:disabled):active {
 
 .provider-setup-privacy { font-size: 12px; }
 
+.local-tools-intro {
+  max-width: 620px;
+  margin: -3px 0 0;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.local-tool-list { margin-top: 12px; }
+
 @media (max-width: 640px) {
   .provider-row { grid-template-columns: auto minmax(0, 1fr); }
   .provider-row-actions { grid-column: 2; justify-items: start; }

@@ -56,6 +56,23 @@ function useProviders(): { readonly providers: readonly ProviderStatus[]; readon
   return { providers, loading, error, refresh }
 }
 
+function useLocalDependencies(): { readonly dependencies: readonly LocalDependencyStatus[]; readonly loading: boolean; readonly error: string | null; readonly refresh: () => void } {
+  const [dependencies, setDependencies] = useState<LocalDependencyStatus[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const refresh = useCallback(() => {
+    const api = window.omnidesign?.environment
+    if (!api) { setLoading(false); return }
+    setLoading(true)
+    setError(null)
+    void api.discover().then(setDependencies).catch((reason: unknown) => {
+      setError(reason instanceof Error && reason.message ? reason.message : 'Local tools could not be checked.')
+    }).finally(() => setLoading(false))
+  }, [])
+  useEffect(refresh, [refresh])
+  return { dependencies, loading, error, refresh }
+}
+
 export function App() {
   const [designs, setDesigns] = useState<OmniDesignDocument[]>([])
   const [projects, setProjects] = useState<ProjectSummary[]>([])
@@ -83,6 +100,7 @@ export function App() {
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const providerState = useProviders()
+  const localDependencyState = useLocalDependencies()
   const workspaceApi = window.omnidesign?.workspace
   // Reopen the design that was open when the app last closed (its page is restored from the design's own
   // persisted layout). `restoreDone` gates the persistence effect so it never writes over the stored id
@@ -232,7 +250,7 @@ export function App() {
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
   const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
-  const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh() }
+  const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh(); localDependencyState.refresh() }
   const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
   const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
   const openDefinitions = (project: ProjectSummary, setupPath: 'proposal' | 'manual' | null = null) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDefinitionSetupPath(setupPath); setDefinitionsProject(project) }
@@ -406,7 +424,7 @@ export function App() {
         : trashOpen
         ? <Trash items={trashItems} onRestore={restoreTrash} onPurge={purgeTrash} onEmpty={emptyTrash} />
         : providersOpen
-        ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} platform={window.omnidesign.providers.platform} onRefresh={providerState.refresh} onOpenSetup={window.omnidesign.providers.openSetup} />
+        ? <Providers providers={providerState.providers} loading={providerState.loading} error={providerState.error} dependencies={localDependencyState.dependencies} dependenciesLoading={localDependencyState.loading} dependenciesError={localDependencyState.error} platform={window.omnidesign.environment.platform} onRefresh={() => { providerState.refresh(); localDependencyState.refresh() }} onOpenSetup={window.omnidesign.providers.openSetup} onOpenDependencySetup={window.omnidesign.environment.openSetup} />
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} initialError={settingsError} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : definitionsProject
