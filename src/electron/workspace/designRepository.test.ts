@@ -89,6 +89,28 @@ describe('DesignRepositoryManager', () => {
     expect(files['.build/tailwind.css']).toBe('.p-4{padding:1rem}')
   })
 
+  it('compares authored files between revisions without managed build noise', () => {
+    const manager = newManager()
+    const first = manager.commitGeneratedRevision('design-compare', {
+      'index.html': '<html>Home</html>',
+      'about.html': '<html>About</html>',
+      'old.js': 'old()\n',
+    }, '.old{color:red}', 'First')!
+    const second = manager.commitGeneratedRevision('design-compare', {
+      'index.html': '<html>Updated home</html>',
+      'about.html': '<html>About</html>',
+      'new.js': 'new()\n',
+    }, '.new{color:blue}', 'Second')!
+
+    const comparison = manager.compareRevisions('design-compare', first, second, 'revision-1', 'revision-2')
+    expect(comparison).toMatchObject({ baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', additions: 2, deletions: 2 })
+    expect(comparison.files).toEqual([
+      { path: 'index.html', status: 'modified', additions: 1, deletions: 1 },
+      { path: 'new.js', status: 'added', additions: 1, deletions: 0 },
+      { path: 'old.js', status: 'removed', additions: 0, deletions: 1 },
+    ])
+  })
+
   it('reads the current working tree (all agent-authored files) before a commit', () => {
     const manager = newManager()
     const repositoryPath = manager.initialize('design-6')

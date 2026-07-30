@@ -33,7 +33,7 @@ The following generation decision is provisional and must be benchmarked before 
 - Generated designs use HTML and Tailwind CSS, with Alpine.js as the default minimal interaction layer.
 - A bundled compiler produces offline, self-contained or small-folder exports.
 
-The installed-subscription pilot uses locally installed, already authenticated Codex and Claude Code CLIs behind a provider-neutral adapter gateway. It does not store credentials. This remains a narrow implementation pilot rather than the complete Phase 1 provider system; see `docs/PROVIDER_SUBSCRIPTION_PILOT.md` for its current scope and deferrals.
+The installed-subscription pilot uses locally installed, already authenticated Codex and Claude Code CLIs behind a provider-neutral adapter gateway. It does not store credentials. Phase 3 continues using these provider-owned harnesses. API-key providers, direct provider API integrations, an OmniDesign-owned harness, multiple provider configurations, and setup/testing are deferred to an unassigned provider-infrastructure milestone (product-owner decision, 2026-07-27); see `docs/PROVIDER_SUBSCRIPTION_PILOT.md` for the installed pilot's current scope.
 
 ## Architectural Goals
 
@@ -177,6 +177,7 @@ The trusted renderer must not receive Node.js or Electron APIs directly. A prelo
 - Validate every payload at runtime as well as at compile time.
 - Validate the sender of privileged messages.
 - Do not expose generic `send`, filesystem, shell, or subprocess functions.
+- Discover required local executables in the main process and expose only normalized status through typed IPC. Setup actions must map validated tool identifiers to fixed official URLs; the renderer must never supply an arbitrary URL or installer command.
 - Keep IPC contracts in a dedicated shared package.
 - Test authorization, validation, error handling, and cancellation behavior.
 
@@ -296,7 +297,7 @@ Do not store secrets in project files or the ordinary SQLite database.
 
 The initial implementation uses Electron 43's embedded Node 24 runtime and its built-in `node:sqlite` module. This avoids a separately compiled native SQLite addon while preserving the accepted SQLite data model. The persistence package owns explicit, forward-only migrations and opens databases with foreign-key enforcement and WAL journaling. Tests use temporary directories and isolated databases.
 
-Immutable revision artifacts remain ordinary files beneath OmniDesign-managed application storage. SQLite stores their metadata and paths, active and selected revision pointers, conversations, drafts, layout state, and project/design relationships. The source-project directory is never used as the design working directory.
+Immutable revision artifacts remain ordinary files beneath OmniDesign-managed application storage. SQLite stores their metadata and paths, active and selected revision pointers, conversations, drafts, complete per-design workspace layout state (including preview page and canvas viewport), and project/design relationships. The source-project directory is never used as the design working directory. Non-secret installed-provider availability and model metadata is also cached in application-local SQLite so launch can render the last known provider choices immediately; the main process refreshes that cache in the background and publishes validated updates through narrow IPC.
 
 The walking skeleton makes this concrete beneath Electron's application data directory:
 
@@ -316,7 +317,7 @@ Revision directories are append-only. Restoration copies the selected snapshot i
 
 Each agent-backed design has a self-contained Git repository in OmniDesign-managed storage. It is a normal working repository for the provider harness, not a repository the user is required to manage. Before an agent starts, OmniDesign creates the repository and prepares its `index.html` entry page.
 
-The provider harness starts the agent in that design repository. The agent may inspect and edit the design as it would any other project. When the design is associated with an existing project, the original project is supplied separately as an explicit read-only reference; it is never the agent's working directory and the harness grants it no write authority.
+The provider harness starts design generation in that design repository. The agent may inspect and edit the design as it would any other project. When the design is associated with an existing project, the original project is supplied directly rather than copied. OmniDesign tells design agents to treat it as reference material, but the current provider-owned harness may grant it read-write access. This is an accepted temporary limitation until provider-infrastructure work supplies stronger access control.
 
 Git, not an agent-authored file inventory, determines whether the working tree changed and records the resulting design revision. The prepared `index.html` is the fixed preview/export entry page, so the agent does not choose or report an entry point. Completed revisions continue to be represented by immutable application metadata and non-destructive restoration; implementation may create a new commit from a restored state rather than rewriting history.
 
@@ -576,6 +577,43 @@ Verify current documentation again before implementation because APIs and platfo
 - [Tauri](https://v2.tauri.app/start/)
 - [Capacitor](https://capacitorjs.com/docs)
 
+## Delivery Architecture
+
+### ADR 2026-07-30: GitHub Actions validates pull requests and packages main (accepted, implemented)
+
+GitHub Actions is the accepted automation boundary for the open-source
+repository. Every pull request runs TypeScript checks, the unit and component
+suite, a production build, and the Electron end-to-end suite on Windows. Every
+push to `main` repeats the release-candidate checks before packaging native
+desktop installers.
+
+Desktop packaging uses `electron-builder`. Windows produces an x64 NSIS
+installer on a Windows runner. macOS produces separate x64 and arm64 DMGs on
+native Intel and Apple Silicon runners rather than constructing a universal
+bundle around platform-native Tailwind dependencies. Successful packages are
+retained as GitHub Actions artifacts and assembled into one GitHub Release. Each
+main build receives the monotonic pre-1.0 version `0.0.<workflow run number>`.
+Windows emits `latest.yml`; the two native macOS jobs emit ZIP update payloads
+whose metadata is validated and merged into one `latest-mac.yml` containing both
+architectures.
+
+Packaged Windows and macOS applications use `electron-updater` against the
+public `sheepkill15/OmniDesign` GitHub Releases provider. They check once after
+startup, download newer releases automatically, and present one native restart
+decision after download. Deferring installs the retained update on the next
+ordinary quit. Development and E2E processes never contact the update provider.
+Choosing immediate restart first records active generations as interrupted so
+the existing recovery behavior remains truthful.
+
+The workflows use read-only repository permissions and frozen pnpm installs.
+Only the final release job receives `contents: write`. Signing credentials enter
+only through GitHub Actions secrets. GitHub Release publication fails closed
+without the Developer ID and Apple notarization credentials required for a
+working macOS updater. Windows signing remains optional but strongly recommended;
+unsigned Windows artifacts are internal-testing outputs because SmartScreen does
+not treat them as trusted public releases. Long-term release numbering and
+stable/beta channel policy remain open after the current rolling pre-1.0 channel.
+
 ## Phase 2 Architecture Decisions
 
 ### ADR 2026-07-24: Pages are discovered from Git (accepted, implemented)
@@ -655,6 +693,90 @@ and custom dimensions plus Artboard/Fixed fit. Focused mode is for inspecting an
 one page in all available workspace space; it intentionally fills the preview pane and
 does not apply simulated device dimensions. The selected page and view mode still
 persist per design.
+
+### ADR 2026-07-30: Deterministic revision quality reports and Git-backed comparison (accepted, implemented)
+
+The off-screen isolated renderer used for revision thumbnails also renders every HTML page at phone and desktop widths. It records a bounded deterministic baseline: overflow, broken images, required document metadata and landmarks, and accessible names on interactive controls. SQLite stores an explicit `quality_checked_at` value, a quality-check contract version, and `quality` diagnostics on the immutable revision. A current version with a timestamp and no findings is the pass signal; an empty diagnostic list alone is not. Older contract versions are rechecked when their active revision opens. Thumbnail capture remains optional evidence and cannot turn a completed page audit into a render failure. The trusted renderer may turn persisted findings into an explicit ordinary generation request, but it never repairs a revision silently.
+
+Revision comparison uses Git directly between the two stored revision commits. It returns authored-file status and numstat evidence while excluding OmniDesign-managed `.build` output. This preserves the existing rule that agent replies and agent-authored inventories are not evidence of repository changes. Comparison is read-only and restoration remains the only path that brings an earlier snapshot forward as a new head.
+
+## Phase 3 Architecture Decisions
+
+### ADR 2026-07-27: Version project definitions and materialize portable tokens (accepted)
+
+Project-level design definitions are immutable versioned records in OmniDesign's
+local persistence. A project points to its current version, while each design records
+the version it applied or explicitly kept. Saving definitions never mutates completed
+design revisions. Applying definitions creates an ordinary Git-backed, validated
+revision so historical preview, restoration, and offline export remain deterministic.
+
+Prefer semantic CSS custom properties in ordinary design working files for colors,
+typography, spacing, and shape. Exact changes to an unambiguously managed token may be
+applied programmatically. Broad source rewriting is forbidden; designs without a safe
+managed representation use the existing installed-provider generation pipeline for
+migration or interpretation. OmniDesign stores definition records outside linked source
+projects and does not deliberately write definition files into them.
+
+Each propagation attempt is also durable. The persistence layer records its target
+version, deterministic or AI mechanism, lifecycle state, diagnostic, provider/model/effort
+when applicable, generation-job link, and resulting revision pointer. An in-flight
+attempt becomes interrupted after restart; retry or continuation creates a new attempt
+instead of rewriting the earlier outcome. This keeps partial apply-all results and
+no-change completions explainable without manufacturing design revisions.
+
+### ADR 2026-07-27: Analyze original project repositories without copies (accepted)
+
+AI-assisted definition proposals pass the original linked project and existing
+OmniDesign design repositories directly to the installed provider harness. OmniDesign
+does not assemble disposable snapshots or other project copies for this analysis. The
+proposal prompt tells the agent not to modify files, but the repositories remain
+read-write because the current provider-owned harness does not provide the desired
+fine-grained access boundary. The product owner explicitly accepts this limitation for
+now; enforceable read-only roots remain deferred with the OmniDesign-owned harness.
+
+### ADR 2026-07-27: Resolve focused selections through immutable source maps (accepted)
+
+Single-element selection extends the Phase 2 sandboxed-iframe preview shim and its
+validated `postMessage` channel. When a revision is registered for preview, the
+privileged workspace derives an HTML source-location map from the immutable revision.
+The untrusted frame reports an opaque location identifier plus bounded display
+metadata; it never supplies an authoritative path, line range, revision identifier, or
+source excerpt. The privileged side resolves the identifier only against the active
+registered revision and returns a validated repository-relative HTML path and inclusive
+line range.
+
+Selection is limited to Focused preview mode and the current head. Runtime-created
+nodes resolve to the nearest source-authored ancestor when possible. The feature adds
+no preload, Node.js access, same-origin permission, filesystem access, or generic IPC
+to generated code. Exact target metadata is retained on the submitted message and
+generation attempt, while the live selection remains ephemeral.
+
+Focused feedback may also be staged as trusted queue records. Each record binds the
+original comment to its privileged resolved target and source revision; it is not stored
+as renderer draft text. Batch submission validates every target again, copies the ordered
+records onto one message and one generation job, and removes them from the pending queue
+in the same database transaction. The provider receives the batch in one resumed turn,
+so normal validation and Git-backed revision creation apply once to the coordinated
+result. A new head revision clears any unsubmitted records whose immutable source ranges
+have become stale.
+
+The focused-feedback editor and element-thread markers render in the trusted React layer above
+the sandboxed iframe. The injected shim reports bounded element rectangles only for
+placement and reflow; those rectangles are never source authority. The trusted renderer
+accepts marker positions only from the active frame and only for opaque location keys it
+already expects. Source keys are deterministic for an immutable page location so durable
+queued markers can return after restart, while privileged source maps continue to resolve
+and validate the authoritative path, line range, label, stable identifier, and excerpt.
+The trusted layer converts visible rectangles into continuously aimed teardrop pins, resolves
+pin collisions in deterministic neighboring slots, and omits pins whose source elements
+do not intersect the iframe viewport.
+
+The renderer derives each element thread from persisted focused-target metadata on user
+messages plus pending queue records; it does not introduce a parallel conversation store.
+When displaying a later revision, the privileged preview service re-anchors a historical
+target only to one unique source-map entry on the same page: first by stable `data-od-*`
+identity, then by an unchanged label and exact source excerpt. Deleted, changed, foreign,
+or ambiguous targets remain in ordinary history and are not assigned a visual marker.
 
 ## Rules for Changing This Architecture
 

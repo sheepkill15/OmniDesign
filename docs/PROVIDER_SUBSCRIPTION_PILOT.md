@@ -15,14 +15,17 @@ This is a narrow implementation pilot. It is not the completed Phase 1 provider 
 - Derive selectable effort levels from Codex model capabilities and Claude Code's installed CLI help. Leaving effort on Provider default omits an override.
 - Normalize the activity common to both providers as status, text, tool, result, and diagnostic events. Provider-specific and unrecognized protocol messages remain inside their adapters and are not exposed to the application.
 - Send a plain text prompt to one selected provider/model and present its response in the trusted renderer.
+- Cache validated non-secret provider availability, model, and effort metadata in application-local SQLite. Launch reads the cache immediately, starts one de-duplicated discovery refresh in the main process, and publishes the refreshed result to the renderer without exposing provider processes or credentials.
+- Guide unavailable or signed-out providers through the required vendor CLI: Codex uses the Codex CLI and Claude uses the Claude Code CLI. The trusted UI shows platform-appropriate commands, opens only an allow-listed official setup page through main-process IPC, and refreshes discovery after the user finishes the provider-owned installation and sign-in flow.
+- Quietly discover required local executables through a separate environment boundary, beginning with Git. Installed tools appear as ready without prompting; missing tools receive an optional setup action in Providers, and a Git failure offers a contextual official-guide action without discarding the user's draft.
 
 ## Safety boundary
 
-The renderer receives only `discover` and `prompt` IPC operations. It cannot access a shell, the filesystem, a provider process, or credentials. The initial Codex turn uses read-only sandboxing and no approvals; the initial Claude prompt uses plan permission mode.
+The renderer receives only cached-status reads, explicit status refresh, refresh notifications, normalized local-tool status, allow-listed setup actions, and prompt IPC operations. It cannot access a shell, the filesystem, a provider process, credentials, arbitrary external URLs, or installer execution. Cached status contains capability metadata only, never sign-in tokens or other secrets. The initial Codex turn uses read-only sandboxing and no approvals; the initial Claude prompt uses plan permission mode.
 
 ## Deliberately deferred
 
-- API-key configuration, multiple accounts, provider settings, refresh/update actions, attachments, project-context access, conversation persistence, cancellation, retries, and design generation orchestration.
+- API-key configuration, multiple accounts, automated provider installation/update management, attachments, project-context access, conversation persistence, cancellation, retries, and design generation orchestration. Guided CLI setup is in scope, but OmniDesign does not run installers or handle provider credentials.
 - Claude's exact subscription-entitled model discovery, if and when Claude Code exposes a stable supported mechanism.
 - Moving these prototype contracts into the planned provider-contract package after the walking skeleton establishes the package boundaries.
 

@@ -18,6 +18,97 @@ afterEach(() => {
 })
 
 describe('WorkspaceStore', () => {
+  it('versions project design definitions and persists prompt suppression across reopen', () => {
+    const { directory, store } = createStore()
+    const design = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
+    const projectId = design.projectId
+    const firstDefinitions = {
+      schemaVersion: 1 as const,
+      colors: [{ name: 'primary', value: '#5f4b66', description: 'Primary actions and emphasis' }],
+      typography: [{ name: 'body', fontFamily: 'Oak Sans', fontSize: '1rem', fontWeight: '400', lineHeight: '1.5', letterSpacing: null, description: null }],
+      spacing: [{ name: 'panel-gap', value: '1.5rem', description: null }],
+      shape: [{ name: 'control-radius', value: '0.625rem', description: null }],
+      visualGuidance: 'Quiet, low-chrome, and spacious.',
+      aiAgentInstructions: 'Use semantic HTML and keep controls keyboard accessible.',
+    }
+
+    expect(store.getProjectDesignDefinitionState(projectId)).toEqual({ current: null, promptSuppressed: false })
+    expect(store.getProjectSummary(projectId)?.currentDefinitionVersion).toBeNull()
+
+    const first = store.saveProjectDesignDefinitions(projectId, firstDefinitions)
+    const second = store.saveProjectDesignDefinitions(projectId, {
+      ...firstDefinitions,
+      colors: [{ name: 'primary', value: '#725d78', description: 'Primary actions and emphasis' }],
+    })
+    expect(first.version).toBe(1)
+    expect(second.version).toBe(2)
+    expect(store.getDesign(design.id)).toMatchObject({ pendingDefinitionVersion: 2, definitionApplicationState: 'pending' })
+    expect(store.listProjectDesignDefinitionVersions(projectId).map((version) => version.version)).toEqual([1, 2])
+    expect(store.getProjectDesignDefinitionState(projectId)?.current).toEqual(second)
+    expect(store.setProjectDefinitionPromptSuppressed(projectId, true).promptSuppressed).toBe(true)
+    expect(store.getProjectSummary(projectId)).toMatchObject({ currentDefinitionVersion: 2, definitionPromptSuppressed: true })
+    const themedDesign = store.createDesignInProject(projectId, 'Create another screen', 'Settings')
+    expect(themedDesign.definitionVersion).toBe(2)
+    const themedRevision = store.addRevision(themedDesign.id, 'Create another screen')
+    expect(themedRevision.revisions[0].definitionVersion).toBe(2)
+    expect(themedRevision).toMatchObject({ definitionVersion: 2, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
+    store.beginProjectDefinitionApplication(design.id, 2)
+    store.startProjectDefinitionApplicationAttempt(design.id, 2, { mechanism: 'ai', providerId: 'codex', modelId: 'gpt-5.6', effort: 'high' })
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getProjectDesignDefinitionState(projectId)).toMatchObject({
+      current: { version: 2, definitions: { colors: [{ name: 'primary', value: '#725d78' }] } },
+      promptSuppressed: true,
+    })
+    expect(reopened.listProjectDesignDefinitionVersions(projectId)).toHaveLength(2)
+    expect(reopened.getDesign(themedDesign.id)).toMatchObject({ definitionVersion: 2, revisions: [{ definitionVersion: 2 }] })
+    expect(reopened.getDesign(design.id)).toMatchObject({ pendingDefinitionVersion: 2, definitionApplicationState: 'failed', definitionApplicationError: expect.stringContaining('interrupted') })
+    expect(reopened.listProjectDefinitionApplicationAttempts(design.id)).toMatchObject([{
+      targetVersion: 2, mechanism: 'ai', state: 'interrupted', providerId: 'codex', modelId: 'gpt-5.6', effort: 'high',
+      diagnostic: expect.stringContaining('closed'),
+    }])
+    reopened.close()
+  })
+
+  it('rejects invalid or duplicate project definition names without creating a version', () => {
+    const { store } = createStore()
+    const projectId = store.createStandaloneDesign('First', 'Design').projectId
+    const invalidDefinitions = {
+      schemaVersion: 1 as const,
+      colors: [
+        { name: 'Primary Color', value: '#fff', description: null },
+        { name: 'Primary Color', value: '#000', description: null },
+      ],
+      typography: [],
+      spacing: [],
+      shape: [],
+      visualGuidance: '',
+      aiAgentInstructions: '',
+    }
+
+    expect(() => store.saveProjectDesignDefinitions(projectId, invalidDefinitions)).toThrow()
+    expect(store.listProjectDesignDefinitionVersions(projectId)).toHaveLength(0)
+    expect(store.getProjectSummary(projectId)?.currentDefinitionVersion).toBeNull()
+    store.close()
+  })
+
+  it('rejects definition values that could break out of managed CSS declarations', () => {
+    const { store } = createStore()
+    const projectId = store.createStandaloneDesign('First', 'Design').projectId
+    const base = {
+      schemaVersion: 1 as const,
+      colors: [{ name: 'primary', value: '#725d78', description: null }],
+      typography: [], spacing: [], shape: [], visualGuidance: '', aiAgentInstructions: '',
+    }
+
+    expect(() => store.saveProjectDesignDefinitions(projectId, { ...base, colors: [{ ...base.colors[0], value: 'red; } body { display: none' }] })).toThrow(/CSS-compatible/)
+    expect(() => store.saveProjectDesignDefinitions(projectId, { ...base, colors: [{ ...base.colors[0], value: 'var(--missing' }] })).toThrow(/CSS-compatible/)
+    expect(() => store.saveProjectDesignDefinitions(projectId, { ...base, spacing: [{ name: 'gap', value: '1rem !important', description: null }] })).toThrow(/CSS-compatible/)
+    expect(store.listProjectDesignDefinitionVersions(projectId)).toHaveLength(0)
+    store.close()
+  })
+
   it('persists conversations, drafts, and immutable revision files across reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
@@ -216,11 +307,35 @@ describe('WorkspaceStore', () => {
   it('persists the workspace layout mode and divider across reopen', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
-    store.saveLayout(created.id, { conversationWidth: 57, mode: 'preview' })
+    store.saveLayout(created.id, {
+      conversationWidth: 57,
+      mode: 'preview',
+      previewViewMode: 'canvas',
+      previewFit: 'fixed',
+      previewDevice: 'custom',
+      previewCustomWidth: 1440,
+      previewCustomHeight: 960,
+      previewPage: 'about.html',
+      previewZoom: 1.25,
+      previewPanX: 84,
+      previewPanY: -36,
+    })
     store.close()
 
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 57, mode: 'preview' })
+    expect(reopened.getDesign(created.id)?.layout).toEqual({
+      conversationWidth: 57,
+      mode: 'preview',
+      previewViewMode: 'canvas',
+      previewFit: 'fixed',
+      previewDevice: 'custom',
+      previewCustomWidth: 1440,
+      previewCustomHeight: 960,
+      previewPage: 'about.html',
+      previewZoom: 1.25,
+      previewPanX: 84,
+      previewPanY: -36,
+    })
     reopened.close()
   })
 
@@ -228,8 +343,33 @@ describe('WorkspaceStore', () => {
     const { store } = createStore()
     const created = store.createStandaloneDesign('First', 'Design')
     // Preview settings gain sensible defaults for rows saved before Phase 2 added them.
-    expect(store.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop' })
+    expect(store.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewZoom: 0.75, previewPanX: 0, previewPanY: 0 })
     store.close()
+  })
+
+  it('persists validated provider availability for immediate startup reads', () => {
+    const { directory, store } = createStore()
+    store.saveCachedProviderStatuses([{
+      id: 'codex',
+      name: 'Codex',
+      installed: true,
+      authenticated: true,
+      detail: 'Ready',
+      models: [{ id: 'gpt-5.6', name: 'GPT-5.6', effortLevels: [{ id: 'high', name: 'High', isDefault: true }] }],
+    }])
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getCachedProviderStatuses()).toEqual([{
+      id: 'codex',
+      name: 'Codex',
+      installed: true,
+      authenticated: true,
+      detail: 'Ready',
+      models: [{ id: 'gpt-5.6', name: 'GPT-5.6', effortLevels: [{ id: 'high', name: 'High', isDefault: true }] }],
+    }])
+    expect(() => reopened.saveCachedProviderStatuses([{ id: 'mock' } as never])).toThrow()
+    reopened.close()
   })
 
   it('persists the last-open design across reopen and clears it on request', () => {
@@ -496,6 +636,124 @@ describe('WorkspaceStore', () => {
     expect(store.getGenerationJob(queued.id)?.attachments).toMatchObject([{ path: attachmentPath, name: 'reference.txt' }])
     expect(store.getDesign(created.id)?.messages.at(-1)).toMatchObject({ text: 'Use the attached reference', attachments: [{ path: attachmentPath, name: 'reference.txt' }] })
     expect(existsSync(attachmentPath)).toBe(true)
+    store.close()
+  })
+
+  it('persists focused targets on messages and attempts across restart, retry, and continue', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const target = {
+      designId: created.id,
+      revisionId: 'revision-1',
+      path: 'pages/pricing.html',
+      startLine: 24,
+      endLine: 31,
+      label: '<button#buy.primary>',
+      stableId: 'pricing-cta',
+      excerpt: '<button data-od-id="pricing-cta">Buy now</button>',
+      dynamicDescription: null,
+    }
+    const queued = store.enqueueGenerationJob(created.id, 'Make this calmer', 'mock', 'mock-v1', null, [], 'fresh', null, target)
+    store.setGenerationJobState(queued.id, 'running')
+    store.setGenerationJobState(queued.id, 'failed', 'Stopped for test.')
+    const retried = store.retryGenerationJob(queued.id)
+    const continued = store.continueGenerationJob(queued.id)
+
+    expect(store.getDesign(created.id)?.messages.at(-1)).toMatchObject({ text: 'Make this calmer', focusedTarget: target })
+    expect(store.getGenerationJob(retried.id)?.focusedTarget).toEqual(target)
+    expect(store.getGenerationJob(continued.id)?.focusedTarget).toEqual(target)
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.messages.at(-1)?.focusedTarget).toEqual(target)
+    expect(reopened.getGenerationJob(queued.id)?.focusedTarget).toEqual(target)
+    expect(reopened.getGenerationJob(retried.id)?.focusedTarget).toEqual(target)
+    expect(reopened.getGenerationJob(continued.id)?.focusedTarget).toEqual(target)
+    reopened.close()
+  })
+
+  it('persists and replaces a completed visual quality report for one revision', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const revisionId = store.addRevision(created.id, 'First').activeRevisionId!
+    store.saveRevisionQualityReport(created.id, revisionId, [
+      { level: 'error', message: 'Horizontal overflow at 390 px.', source: 'index.html', line: null },
+      { level: 'error', message: 'Horizontal overflow at 390 px.', source: 'index.html', line: null },
+    ])
+    expect(store.getDesign(created.id)?.revisions[0]).toMatchObject({
+      qualityCheckedAt: expect.any(String), qualityCheckVersion: 1,
+      diagnostics: [{ kind: 'quality', level: 'error', message: 'Horizontal overflow at 390 px.' }],
+    })
+
+    store.saveRevisionQualityReport(created.id, revisionId, [])
+    store.close()
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.revisions[0]).toMatchObject({ qualityCheckedAt: expect.any(String), qualityCheckVersion: 1, diagnostics: [] })
+    reopened.close()
+  })
+
+  it('persists queued focused feedback and submits it atomically as one generation batch', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const withRevision = store.addRevision(created.id, 'First')
+    const revisionId = withRevision.activeRevisionId!
+    const firstTarget = {
+      designId: created.id, revisionId, path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const secondTarget = {
+      designId: created.id, revisionId, path: 'index.html', startLine: 28, endLine: 31,
+      label: '<button.primary>', stableId: 'hero-action', excerpt: '<button>Get started</button>', dynamicDescription: null,
+    }
+
+    store.queueFocusedFeedback(created.id, 'Make the heading feel more grounded.', firstTarget)
+    const queued = store.queueFocusedFeedback(created.id, 'Give this action more breathing room.', secondTarget)
+    expect(queued.map((item) => item.comment)).toEqual([
+      'Make the heading feel more grounded.',
+      'Give this action more breathing room.',
+    ])
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    const persistedQueue = reopened.listFocusedFeedback(created.id)
+    expect(persistedQueue).toEqual(queued)
+    const job = reopened.enqueueGenerationJob(
+      created.id,
+      'Apply 2 queued focused feedback items as one coordinated update.',
+      'mock',
+      'mock-v1',
+      null,
+      [],
+      'fresh',
+      null,
+      null,
+      persistedQueue,
+    )
+
+    expect(reopened.listFocusedFeedback(created.id)).toEqual([])
+    expect(reopened.getGenerationJob(job.id)?.focusedFeedback).toEqual(persistedQueue)
+    expect(reopened.getDesign(created.id)?.messages.at(-1)).toMatchObject({ focusedFeedback: persistedQueue })
+    reopened.setGenerationJobState(job.id, 'running')
+    reopened.setGenerationJobState(job.id, 'failed', 'Stopped for test.')
+    expect(reopened.retryGenerationJob(job.id).focusedFeedback).toEqual(persistedQueue)
+    expect(reopened.continueGenerationJob(job.id).focusedFeedback).toEqual(persistedQueue)
+    reopened.close()
+  })
+
+  it('rejects stale focused feedback and clears pending feedback when a new revision lands', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const firstRevision = store.addRevision(created.id, 'First')
+    const target = {
+      designId: created.id, revisionId: firstRevision.activeRevisionId!, path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1>', stableId: null, excerpt: '<h1>First</h1>', dynamicDescription: null,
+    }
+
+    store.queueFocusedFeedback(created.id, 'Make this calmer.', target)
+    store.addRevision(created.id, 'Unrelated change')
+
+    expect(store.listFocusedFeedback(created.id)).toEqual([])
+    expect(() => store.queueFocusedFeedback(created.id, 'This target is stale.', target)).toThrow('stale')
     store.close()
   })
 

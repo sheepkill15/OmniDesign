@@ -35,11 +35,26 @@ const design: OmniDesignDocument = {
   tags: [],
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
-  layout: { conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewCustomWidth: 1280, previewCustomHeight: 800, previewPage: null },
+  layout: { conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewCustomWidth: 1280, previewCustomHeight: 800, previewPage: null, previewZoom: 0.75, previewPanX: 0, previewPanY: 0 },
   messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
-  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
+  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:00:02.000Z', qualityCheckVersion: 1, createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
+}
+
+const engagedDesign: OmniDesignDocument = {
+  ...design,
+  updatedAt: '2026-07-20T10:05:00.000Z',
+  activeRevisionId: 'revision-2',
+  selectedRevisionId: 'revision-2',
+  messages: [
+    ...design.messages,
+    { id: 'message-2', role: 'user', text: 'Make the overview more compact', createdAt: '2026-07-20T10:04:00.000Z' },
+  ],
+  revisions: [
+    ...design.revisions,
+    { id: 'revision-2', parentRevisionId: 'revision-1', prompt: 'Make the overview more compact', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:05:02.000Z', qualityCheckVersion: 1, createdAt: '2026-07-20T10:05:00.000Z', thumbnailDataUrl: null, diagnostics: [] },
+  ],
 }
 
 function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
@@ -58,12 +73,15 @@ function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
     lastProviderId: candidate.lastSelection.providerId,
     folderId: null,
     tags: [],
+    currentDefinitionVersion: 1,
+    definitionPromptSuppressed: false,
   }
 }
 
 function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign: OmniDesignDocument = design) {
   const listeners: Array<(activity: GenerationActivity) => void> = []
   const changeListeners: Array<(event: { readonly designId: string }) => void> = []
+  const providerListeners: Array<(providers: readonly ProviderStatus[]) => void> = []
   const projectMap = new Map<string, ProjectSummary>()
   for (const candidate of initialDesigns) {
     const existing = projectMap.get(candidate.projectId)
@@ -72,12 +90,25 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
   const projects = [...projectMap.values()]
   const bridge = {
     providers: {
-      discover: vi.fn().mockResolvedValue([
+      getCached: vi.fn().mockResolvedValue([
         { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Ready', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] },
         { id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] },
       ]),
+      refresh: vi.fn().mockResolvedValue([
+        { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Ready', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] },
+        { id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [] },
+      ]),
+      openSetup: vi.fn().mockResolvedValue(undefined),
       prompt: vi.fn(),
+      onUpdated: vi.fn((listener: (providers: readonly ProviderStatus[]) => void) => { providerListeners.push(listener); return () => undefined }),
       onActivity: vi.fn().mockReturnValue(() => undefined),
+    },
+    environment: {
+      platform: 'win32',
+      discover: vi.fn().mockResolvedValue([{
+        id: 'git', name: 'Git', installed: true, required: true, detail: 'git version 2.55.0 is available for design history and project cloning.',
+      }]),
+      openSetup: vi.fn().mockResolvedValue(undefined),
     },
     workspace: {
       list: vi.fn().mockResolvedValue(initialDesigns),
@@ -86,6 +117,13 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
         const project = projects.find((candidate) => candidate.id === projectId)
         return project ? { project, designs: initialDesigns.filter((candidate) => candidate.projectId === projectId) } : null
       }),
+      getProjectDesignDefinitions: vi.fn().mockResolvedValue({ current: null, promptSuppressed: false }),
+      saveProjectDesignDefinitions: vi.fn(async (projectId: string, definitions: ProjectDesignDefinitions) => ({ id: '4ecde3a1-3d43-4db9-a8f4-6da2c8d8d5ab', projectId, version: 1, definitions, createdAt: '2026-07-20T10:00:00.000Z' })),
+      proposeProjectDesignDefinitions: vi.fn().mockResolvedValue({ schemaVersion: 1, colors: [{ name: 'primary', value: '#4b3b47', description: 'Primary actions' }], typography: [], spacing: [], shape: [], visualGuidance: 'Calm and cohesive.', aiAgentInstructions: 'Reuse semantic tokens.' }),
+      setProjectDefinitionPromptSuppressed: vi.fn().mockResolvedValue({ current: null, promptSuppressed: true }),
+      keepProjectDesignDefinitions: vi.fn(async (designId: string, targetVersion: number) => ({ ...(initialDesigns.find((candidate) => candidate.id === designId) ?? createdDesign), pendingDefinitionVersion: null, keptDefinitionVersion: targetVersion, definitionApplicationState: 'kept' as const })),
+      applyProjectDesignDefinitions: vi.fn(async (designId: string, targetVersion: number) => ({ ...(initialDesigns.find((candidate) => candidate.id === designId) ?? createdDesign), definitionVersion: targetVersion, pendingDefinitionVersion: null, definitionApplicationState: 'current' as const })),
+      applyProjectDesignDefinitionsToAll: vi.fn(async (_projectId: string, targetVersion: number) => initialDesigns.map((candidate) => ({ ...candidate, definitionVersion: targetVersion, pendingDefinitionVersion: null, definitionApplicationState: 'current' as const }))),
       listTrash: vi.fn().mockResolvedValue([]),
       listFolders: vi.fn().mockResolvedValue([]),
       listTags: vi.fn().mockResolvedValue([]),
@@ -115,6 +153,10 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       renameProject: vi.fn(async (projectId: string, name: string) => ({ ...(projects.find((project) => project.id === projectId) ?? projectFromDesign(createdDesign)), name })),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
+      listFocusedFeedback: vi.fn().mockResolvedValue([]),
+      queueFocusedFeedback: vi.fn().mockResolvedValue([]),
+      removeFocusedFeedback: vi.fn().mockResolvedValue([]),
+      submitFocusedFeedbackBatch: vi.fn().mockResolvedValue(design),
       chooseProjectFolder: vi.fn().mockResolvedValue(null),
       chooseAttachments: vi.fn().mockResolvedValue([]),
       openAttachment: vi.fn().mockResolvedValue(undefined),
@@ -124,6 +166,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       continueGeneration: vi.fn().mockResolvedValue(undefined),
       resumeGenerationQueue: vi.fn().mockResolvedValue(design),
       selectRevision: vi.fn().mockResolvedValue(design),
+      compareRevisions: vi.fn().mockResolvedValue({ baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [], additions: 0, deletions: 0 }),
       restoreRevision: vi.fn().mockResolvedValue(design),
       saveDraft: vi.fn().mockResolvedValue(undefined),
       saveLayout: vi.fn().mockResolvedValue(undefined),
@@ -137,6 +180,8 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     },
     preview: {
       register: vi.fn().mockResolvedValue({ token: 'token-1', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' }),
+      resolveFocusedTarget: vi.fn().mockResolvedValue(null),
+      locateFocusedTargets: vi.fn(async (request: { targets: readonly { id: string; target: FocusedTarget }[] }) => request.targets.flatMap(({ id, target }) => target.locationId ? [{ id, locationId: target.locationId }] : [])),
       reportDiagnostic: vi.fn().mockResolvedValue(undefined),
       capture: vi.fn().mockResolvedValue(true),
       popOut: vi.fn().mockResolvedValue(undefined),
@@ -163,6 +208,9 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     },
     emitWorkspaceChanged(designId: string) {
       for (const listener of changeListeners) listener({ designId })
+    },
+    emitProvidersUpdated(providers: readonly ProviderStatus[]) {
+      for (const listener of providerListeners) listener(providers)
     },
   })
 }
@@ -206,7 +254,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('keeps project access available while generation waits for a provider', async () => {
     const bridge = installBridge([design])
-    vi.mocked(bridge.providers.discover).mockResolvedValue([])
+    vi.mocked(bridge.providers.refresh).mockResolvedValue([])
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -272,7 +320,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('preserves a follow-up draft when its previous provider is unavailable', async () => {
     const bridge = installBridge([design])
-    vi.mocked(bridge.providers.discover).mockResolvedValue([])
+    vi.mocked(bridge.providers.refresh).mockResolvedValue([])
     render(<App />)
 
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
@@ -296,12 +344,98 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getAllByText('Ready')).not.toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
 
-    await waitFor(() => expect(bridge.providers.discover).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(bridge.providers.getCached).toHaveBeenCalledOnce())
+    await waitFor(() => expect(bridge.providers.refresh).toHaveBeenCalledTimes(3))
+  })
+
+  it('guides missing and signed-out providers through their official CLI setup', async () => {
+    const bridge = installBridge()
+    const unavailableProviders: ProviderStatus[] = [
+      { id: 'codex', name: 'Codex', installed: false, authenticated: false, detail: 'Codex CLI is unavailable.', models: [] },
+      { id: 'claude', name: 'Claude', installed: true, authenticated: false, detail: 'Installed, but not signed in.', models: [] },
+    ]
+    vi.mocked(bridge.providers.getCached).mockResolvedValue(unavailableProviders)
+    vi.mocked(bridge.providers.refresh).mockResolvedValue(unavailableProviders)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up Codex CLI' }))
+
+    const codexDialog = screen.getByRole('dialog', { name: 'Set up Codex' })
+    expect(codexDialog).toHaveTextContent('npm install --global @openai/codex')
+    expect(codexDialog).toHaveTextContent('codex login')
+    fireEvent.click(screen.getByRole('button', { name: 'Open official guide' }))
+    await waitFor(() => expect(bridge.providers.openSetup).toHaveBeenCalledWith('codex'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Set up Codex' })).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to Claude Code' }))
+    const claudeDialog = screen.getByRole('dialog', { name: 'Sign in to Claude' })
+    expect(claudeDialog).not.toHaveTextContent('winget install Anthropic.ClaudeCode')
+    expect(claudeDialog).toHaveTextContent('claude')
+  })
+
+  it('checks Git quietly and offers setup only when the local tool is missing', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.environment.discover).mockResolvedValue([{
+      id: 'git', name: 'Git', installed: false, required: true, detail: 'Git is required but unavailable.',
+    }])
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+    expect(await screen.findByRole('heading', { name: 'Local tools' })).toBeInTheDocument()
+    expect(screen.getByText('Missing')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Set up Git' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Set up Git' })
+    expect(dialog).toHaveTextContent('winget install --id Git.Git -e --source winget')
+    expect(dialog).toHaveTextContent('does not install Git or change your Git configuration')
+    fireEvent.click(screen.getByRole('button', { name: 'Open official guide' }))
+    await waitFor(() => expect(bridge.environment.openSetup).toHaveBeenCalledWith('git'))
+  })
+
+  it('renders cached providers while their background refresh is still running', async () => {
+    const bridge = installBridge()
+    let finishRefresh: ((providers: ProviderStatus[]) => void) | undefined
+    const refresh = new Promise<ProviderStatus[]>((resolve) => { finishRefresh = resolve })
+    vi.mocked(bridge.providers.getCached).mockResolvedValue([{
+      id: 'codex', name: 'Cached Codex', installed: true, authenticated: true, detail: 'Ready from cache',
+      models: [{ id: 'cached-model', name: 'Cached model', effortLevels: [] }],
+    }])
+    vi.mocked(bridge.providers.refresh).mockReturnValue(refresh)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+    expect(await screen.findByText('Cached Codex')).toBeInTheDocument()
+    expect(screen.queryByText('No provider availability information is available.')).not.toBeInTheDocument()
+
+    act(() => bridge.emitProvidersUpdated([{
+      id: 'claude', name: 'Claude', installed: true, authenticated: true, detail: 'Fresh status',
+      models: [{ id: 'sonnet', name: 'Sonnet', effortLevels: [] }],
+    }]))
+    expect(await screen.findByText('Claude')).toBeInTheDocument()
+    act(() => finishRefresh?.([{
+      id: 'claude', name: 'Claude', installed: true, authenticated: true, detail: 'Fresh status',
+      models: [{ id: 'sonnet', name: 'Sonnet', effortLevels: [] }],
+    }]))
+  })
+
+  it('shows provider discovery progress instead of a false unavailable state on an empty first-run cache', async () => {
+    const bridge = installBridge()
+    let finishRefresh: ((providers: ProviderStatus[]) => void) | undefined
+    vi.mocked(bridge.providers.getCached).mockResolvedValue([])
+    vi.mocked(bridge.providers.refresh).mockReturnValue(new Promise((resolve) => { finishRefresh = resolve }))
+    render(<App />)
+
+    expect(await screen.findByText('Checking local providers…')).toBeInTheDocument()
+    expect(screen.queryByText('Connect a provider to start generating.')).not.toBeInTheDocument()
+    act(() => finishRefresh?.([]))
+    expect(await screen.findByText('Connect a provider to start generating.')).toBeInTheDocument()
   })
 
   it('explains provider discovery failures without hiding the development provider', async () => {
     const bridge = installBridge()
-    vi.mocked(bridge.providers.discover).mockRejectedValue(new Error('Provider tools could not be queried.'))
+    vi.mocked(bridge.providers.refresh).mockRejectedValue(new Error('Provider tools could not be queried.'))
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
@@ -565,6 +699,9 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The design could not be created. Git executable is unavailable.')
     expect(prompt).toHaveValue('A calm dashboard')
     expect(screen.getByRole('region', { name: 'Create a design' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Git setup guide' }))
+    expect(bridge.environment.openSetup).toHaveBeenCalledWith('git')
+    expect(prompt).toHaveValue('A calm dashboard')
   })
 
   it('stays in the workspace when active-work removal is cancelled', async () => {
@@ -645,7 +782,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
   it('selects the provider, model, and effort from the composer settings menu', async () => {
     const bridge = installBridge()
-    vi.mocked(bridge.providers.discover).mockResolvedValue([{
+    vi.mocked(bridge.providers.refresh).mockResolvedValue([{
       id: 'codex', name: 'Codex', installed: true, authenticated: true, detail: 'Ready', models: [{
         id: 'gpt-5.6', name: 'GPT-5.6', effortLevels: [
           { id: 'low', name: 'Low', isDefault: false },
@@ -693,11 +830,160 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A linked dashboard', 'mock', 'mock-v1', undefined, { sourceProjectPath: 'C:\\Projects\\Aurora' }))
   })
 
+  it('keeps the first completed result visible instead of interrupting it with definition setup', async () => {
+    const bridge = installBridge([design], design)
+    const project = { ...projectFromDesign(design), currentDefinitionVersion: null }
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    render(<App />)
+
+    expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /Set up design definitions/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Definitions' })).toBeInTheDocument()
+  })
+
+  it('offers design-definition setup after the user has iterated and can hide the prompt permanently', async () => {
+    const bridge = installBridge([engagedDesign], engagedDesign)
+    const project = { ...projectFromDesign(engagedDesign), currentDefinitionVersion: null }
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(engagedDesign.id)
+    render(<App />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Set up design definitions for Calm dashboard?' })
+    expect(within(dialog).getByText(/shared colors, typography, spacing, shape/i)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Set up now' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Not now' })).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: "Don't show again for this project" }))
+
+    await waitFor(() => expect(bridge.workspace.setProjectDefinitionPromptSuppressed).toHaveBeenCalledWith('project-1', true))
+    expect(screen.queryByRole('dialog', { name: /Set up design definitions/ })).not.toBeInTheDocument()
+  })
+
+  it('offers proposal, manual, and continue setup paths and starts the chosen proposal for review', async () => {
+    const bridge = installBridge([engagedDesign], engagedDesign)
+    const project = { ...projectFromDesign(engagedDesign), currentDefinitionVersion: null }
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(engagedDesign.id)
+    vi.mocked(bridge.settings.getTheme).mockResolvedValue('light')
+    render(<App />)
+
+    const prompt = await screen.findByRole('dialog', { name: 'Set up design definitions for Calm dashboard?' })
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+    const setupButton = within(prompt).getByRole('button', { name: 'Set up now' })
+    fireEvent.keyDown(setupButton, { key: 'Enter' })
+    fireEvent.keyUp(setupButton, { key: 'Enter' })
+    const chooser = await screen.findByRole('dialog', { name: 'Choose how to set up Calm dashboard' })
+    expect(within(chooser).getByRole('button', { name: 'Fill in manually' })).toBeInTheDocument()
+    expect(within(chooser).getByRole('button', { name: 'Continue without definitions' })).toBeInTheDocument()
+    const proposalButton = within(chooser).getByRole('button', { name: 'Generate a proposal' })
+    fireEvent.keyDown(proposalButton, { key: 'Enter' })
+    fireEvent.keyUp(proposalButton, { key: 'Enter' })
+
+    expect(await screen.findByRole('heading', { name: 'Design definitions' })).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.proposeProjectDesignDefinitions).toHaveBeenCalledWith('project-1', 'mock', 'mock-v1', null))
+    expect(await screen.findByText('Proposal ready for review.')).toBeInTheDocument()
+    expect(bridge.workspace.saveProjectDesignDefinitions).not.toHaveBeenCalled()
+  })
+
+  it('edits and saves structured project definitions from a design workspace', async () => {
+    const bridge = installBridge([design], design)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    vi.mocked(bridge.workspace.getProjectDesignDefinitions).mockResolvedValue({ current: null, promptSuppressed: false })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
+    expect(await screen.findByRole('heading', { name: 'Design definitions' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Add color' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'primary' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: '#725d78' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'Primary actions' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Visual guidance' }), { target: { value: 'Quiet and spacious.' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'AI Agent instructions' }), { target: { value: 'Use semantic HTML.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save definitions' }))
+
+    await waitFor(() => expect(bridge.workspace.saveProjectDesignDefinitions).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      colors: [{ name: 'primary', value: '#725d78', description: 'Primary actions' }],
+      visualGuidance: 'Quiet and spacious.',
+      aiAgentInstructions: 'Use semantic HTML.',
+    })))
+    expect(await screen.findByText('Definitions saved.')).toBeInTheDocument()
+  })
+
+  it('shows field-level recovery for duplicate names and unsafe CSS values before saving definitions', async () => {
+    const bridge = installBridge([design], design)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
+    await screen.findByRole('heading', { name: 'Design definitions' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add color' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add color' }))
+    const names = screen.getAllByRole('textbox', { name: 'Name' })
+    const values = screen.getAllByRole('textbox', { name: 'Value' })
+    fireEvent.change(names[0], { target: { value: 'primary' } })
+    fireEvent.change(names[1], { target: { value: 'primary' } })
+    fireEvent.change(values[0], { target: { value: '#725d78' } })
+    fireEvent.change(values[1], { target: { value: 'red; } body { display: none' } })
+
+    expect(screen.getAllByText(/already used in this section/)).toHaveLength(2)
+    expect(screen.getByText(/without semicolons, braces, comments/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save definitions' })).toBeDisabled()
+    expect(bridge.workspace.saveProjectDesignDefinitions).not.toHaveBeenCalled()
+
+    fireEvent.change(names[1], { target: { value: 'secondary' } })
+    fireEvent.change(values[1], { target: { value: 'oklch(65% 0.12 320)' } })
+    expect(screen.getByRole('button', { name: 'Save definitions' })).toBeEnabled()
+  })
+
+  it('loads an AI-generated definition proposal for review without saving it', async () => {
+    const bridge = installBridge([design], design)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate proposal' }))
+
+    await waitFor(() => expect(bridge.workspace.proposeProjectDesignDefinitions).toHaveBeenCalledWith('project-1', 'mock', 'mock-v1', null))
+    expect(await screen.findByText('Proposal ready for review.')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'AI Agent instructions' })).toHaveValue('Reuse semantic tokens.')
+    expect(bridge.workspace.saveProjectDesignDefinitions).not.toHaveBeenCalled()
+  })
+
+  it('persists a per-design definition decision and offers applying the version to all designs', async () => {
+    const pending = { ...design, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
+    const bridge = installBridge([pending], pending)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(pending.id)
+    render(<App />)
+
+    expect(await screen.findByText('Project definitions version 2 is ready.')).toBeInTheDocument()
+    expect(screen.queryByText('Definitions: Pending version 2')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to all' }))
+
+    await waitFor(() => expect(bridge.workspace.applyProjectDesignDefinitionsToAll).toHaveBeenCalledWith('project-1', 2))
+  })
+
+  it('reports recoverable partial apply-to-all results without hiding successful designs', async () => {
+    const pending = { ...design, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
+    const sibling = { ...pending, id: 'design-2', title: 'Settings' }
+    const bridge = installBridge([pending, sibling], pending)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(pending.id)
+    vi.mocked(bridge.workspace.applyProjectDesignDefinitionsToAll).mockResolvedValueOnce([
+      { ...pending, definitionVersion: 2, pendingDefinitionVersion: null, definitionApplicationState: 'current' },
+      { ...sibling, definitionApplicationState: 'failed', definitionApplicationError: 'Validation failed.' },
+    ])
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply to all' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 design still needs attention.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Successful updates were kept.')
+  })
+
   it('offers only linked projects as reuse targets in the composer selector', async () => {
     const bridge = installBridge()
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([
-      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] },
-      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea', lastProviderId: 'mock', folderId: null, tags: [] },
+      { id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false },
+      { id: 'solo', name: 'Solo idea', kind: 'standalone', sourceProjectPath: null, sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Solo idea', latestPrompt: 'A solo idea', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false },
     ])
     render(<App />)
 
@@ -719,7 +1005,7 @@ describe('Phase 1 walking skeleton UI', () => {
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{
       id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1,
       createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page',
-      lastProviderId: 'mock', folderId: null, tags: [],
+      lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false,
     }])
     vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(associatedDesign)
     render(<App />)
@@ -742,7 +1028,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', updatedAt: '2026-07-20T10:00:00.000Z', adaptationPending: false, generationJobs: [runningJob] }
     const movedDesign: OmniDesignDocument = { ...createdDesign, projectId: 'aurora', projectName: 'Aurora', updatedAt: '2026-07-20T10:05:00.000Z', adaptationPending: true }
     const bridge = installBridge([], createdDesign)
-    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] }])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false }])
     vi.mocked(bridge.workspace.associateDesign).mockResolvedValue(movedDesign)
     // A generation refresh that resolves after the move still carries the pre-move snapshot.
     vi.mocked(bridge.workspace.get).mockResolvedValue(createdDesign)
@@ -765,7 +1051,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const queuedJob: GenerationJob = { id: '7e3670bd-2f6c-444d-afd0-a26e178399664', designId: 'new-design', prompt: 'Create a dashboard for Aurora', providerId: 'mock', modelId: 'mock-v1', state: 'queued', createdAt: '2026-07-20T10:00:00.000Z', startedAt: null, completedAt: null, error: null, attachments: [] }
     const createdDesign: OmniDesignDocument = { ...design, id: 'new-design', projectId: 'new-project', projectName: 'New design', title: 'New design', generationJobs: [queuedJob] }
     const bridge = installBridge([], createdDesign)
-    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [] }])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ id: 'aurora', name: 'Aurora', kind: 'linked', sourceProjectPath: 'C:\\Projects\\Aurora', sourceAvailable: true, designCount: 1, createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, latestDesignTitle: 'Landing', latestPrompt: 'A landing page', lastProviderId: 'mock', folderId: null, tags: [], currentDefinitionVersion: 1, definitionPromptSuppressed: false }])
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -883,6 +1169,84 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('img', { name: 'Preview of revision current head' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
     expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent(new Date(thumbnailDesign.revisions[0].createdAt).toLocaleString())
     expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent('A calm dashboard')
+  })
+
+  it('compares an earlier revision with the current head using authored file changes', async () => {
+    const historicalDesign: OmniDesignDocument = { ...engagedDesign, selectedRevisionId: 'revision-1' }
+    const bridge = installBridge([engagedDesign], engagedDesign)
+    vi.mocked(bridge.workspace.selectRevision).mockResolvedValue(historicalDesign)
+    vi.mocked(bridge.workspace.compareRevisions).mockResolvedValue({
+      baseRevisionId: 'revision-1',
+      targetRevisionId: 'revision-2',
+      files: [
+        { path: 'index.html', status: 'modified', additions: 8, deletions: 3 },
+        { path: 'assets/chart.js', status: 'added', additions: 14, deletions: 0 },
+      ],
+      additions: 22,
+      deletions: 3,
+    })
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    await screen.findByRole('region', { name: 'Design conversation' })
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Request · A calm dashboard/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare to current' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Compare revisions' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Authored file changes' })).toHaveTextContent('2 authored files changed')
+    expect(screen.getByRole('region', { name: 'Authored file changes' })).toHaveTextContent('assets/chart.js')
+    expect(bridge.workspace.compareRevisions).toHaveBeenCalledWith('design-1', 'revision-1', 'revision-2')
+  })
+
+  it('shows persisted visual quality findings and submits an explicit repair prompt', async () => {
+    const qualityDesign: OmniDesignDocument = {
+      ...design,
+      revisions: [{
+        ...design.revisions[0],
+        diagnostics: [
+          { id: 'quality-1', kind: 'quality', level: 'error', message: 'Horizontal overflow at 390 px (48 px beyond the viewport).', source: 'index.html', line: null, createdAt: '2026-07-20T10:00:02.000Z' },
+          { id: 'quality-2', kind: 'quality', level: 'warning', message: 'No main content landmark was found.', source: 'index.html', line: null, createdAt: '2026-07-20T10:00:02.000Z' },
+        ],
+      }],
+    }
+    const bridge = installBridge([], qualityDesign)
+    render(<App />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'What would you like to design?' }), { target: { value: 'A calm dashboard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create design' }))
+    expect(await screen.findByText('Visual quality check found 2 issues.')).toBeInTheDocument()
+    expect(screen.getByText('Local · 2 quality issues')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Fix issues' }))
+
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith(
+      'design-1',
+      expect.stringContaining('[error] index.html: Horizontal overflow at 390 px'),
+      'mock',
+      'mock-v1',
+      undefined,
+      [],
+    ))
+  })
+
+  it('rechecks and hides findings from an older quality-report version', async () => {
+    const staleQualityDesign: OmniDesignDocument = {
+      ...design,
+      revisions: [{
+        ...design.revisions[0],
+        qualityCheckVersion: null,
+        diagnostics: [{ id: 'stale-quality', kind: 'quality', level: 'error', message: 'The page could not be rendered for visual quality checks.', source: 'index.html', line: null, createdAt: '2026-07-20T10:00:02.000Z' }],
+      }],
+    }
+    const bridge = installBridge([], staleQualityDesign)
+    render(<App />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'What would you like to design?' }), { target: { value: 'A calm dashboard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create design' }))
+    expect(await screen.findByText('Local · checking quality')).toBeInTheDocument()
+    expect(screen.queryByText('The page could not be rendered for visual quality checks.')).not.toBeInTheDocument()
+    await waitFor(() => expect(bridge.preview.capture).toHaveBeenCalledWith('design-1', 'revision-1'))
   })
 
   it('shows the selected provider and saved state in the design header', async () => {
@@ -1032,6 +1396,316 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
   })
 
+  it('restores the selected page and canvas viewport, then persists further viewport changes', async () => {
+    const restored: OmniDesignDocument = {
+      ...design,
+      layout: { ...design.layout, previewViewMode: 'canvas', previewPage: 'about.html', previewZoom: 1.25, previewPanX: 84, previewPanY: -36 },
+    }
+    const bridge = installBridge([restored], restored)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(restored.id)
+    vi.mocked(bridge.workspace.get).mockResolvedValue(restored)
+    vi.mocked(bridge.preview.register).mockResolvedValue({
+      token: 'token-1',
+      pages: [
+        { path: 'index.html', title: 'Home', order: 0, isHome: true },
+        { path: 'about.html', title: 'About', order: 1, isHome: false },
+      ],
+      entryPagePath: 'index.html',
+    })
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByText('125%')).toBeInTheDocument()
+    expect(document.querySelector('.preview-board')).toHaveStyle({ transform: 'translate(84px, -36px) scale(1.25)' })
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({
+      previewPage: 'about.html', previewZoom: 1.35, previewPanX: 84, previewPanY: -36,
+    })))
+  })
+
+  it('attaches an exact focused target from the active frame, submits it, and clears the live selection', async () => {
+    const bridge = installBridge()
+    const target: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'pages/pricing.html', startLine: 24, endLine: 31,
+      label: '<button#buy.primary>', stableId: 'pricing-cta', excerpt: '<button>Buy now</button>', dynamicDescription: null,
+    }
+    vi.mocked(bridge.preview.resolveFocusedTarget).mockResolvedValue(target)
+    vi.mocked(bridge.settings.getTheme).mockResolvedValue('light')
+    render(<App />)
+
+    const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(initialPrompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(initialPrompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    const selectButton = screen.getByRole('button', { name: 'Select element' })
+    fireEvent.keyDown(selectButton, { key: 'Enter' })
+    fireEvent.keyUp(selectButton, { key: 'Enter' })
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+    expect(screen.getByRole('button', { name: 'Focused' })).toHaveAttribute('aria-pressed', 'true')
+    const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
+    expect(frame).toBeTruthy()
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html',
+        locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', clickedLabel: '<button#buy.primary>', usedAncestor: false,
+        rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 },
+      },
+    }))
+
+    const focusedEditor = await screen.findByRole('dialog', { name: 'Focused feedback' })
+    expect(within(focusedEditor).getByText(/pages\/pricing\.html:24-31/)).toBeInTheDocument()
+    const followUp = within(focusedEditor).getByRole('textbox', { name: 'Feedback for selected element' })
+    expect(followUp).toHaveFocus()
+    fireEvent.change(followUp, { target: { value: 'Make this call to action calmer' } })
+    expect(screen.getByRole('button', { name: 'Queue' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Submit & fix' }))
+
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith(
+      'design-1', 'Make this call to action calmer', 'mock', 'mock-v1', undefined, [], target,
+    ))
+    expect(screen.queryByRole('dialog', { name: 'Focused feedback' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Select element' })).toHaveAttribute('aria-pressed', 'true'))
+    fireEvent.click(screen.getByRole('button', { name: 'Select element' }))
+    expect(screen.getByRole('button', { name: 'Select element' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('returns fully to active selection after closing an unsubmitted focused popup', async () => {
+    const bridge = installBridge()
+    const firstTarget: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const secondTarget: FocusedTarget = {
+      ...firstTarget,
+      locationId: 'fb57d30b-fc27-4edc-b6ad-b5d0886ae152',
+      startLine: 28,
+      endLine: 31,
+      label: '<button.primary>',
+      stableId: 'hero-action',
+      excerpt: '<button>Get started</button>',
+    }
+    vi.mocked(bridge.preview.resolveFocusedTarget).mockResolvedValueOnce(firstTarget).mockResolvedValueOnce(secondTarget)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+    const selectButton = screen.getByRole('button', { name: 'Select element' })
+    await waitFor(() => expect(selectButton).toBeEnabled())
+    fireEvent.click(selectButton)
+    await waitFor(() => expect(selectButton).toHaveAttribute('aria-pressed', 'true'))
+    const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage')
+    const select = (target: FocusedTarget, top: number) => window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html', locationId: target.locationId,
+        clickedLabel: target.label, usedAncestor: false,
+        rect: { left: 40, top, right: 180, bottom: top + 40, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 },
+      },
+    }))
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'omnidesign-preview-shim', type: 'selection-cancelled', page: 'index.html' },
+    }))
+    expect(selectButton).toHaveAttribute('aria-pressed', 'true')
+
+    select(firstTarget, 80)
+    const firstPopup = await screen.findByRole('dialog', { name: 'Focused feedback' })
+    expect(within(firstPopup).getByText(/index\.html:12-16/)).toBeInTheDocument()
+    postMessage.mockClear()
+    fireEvent.click(within(firstPopup).getByRole('button', { name: 'Close focused feedback' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Focused feedback' })).not.toBeInTheDocument()
+    expect(selectButton).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith({ type: 'omnidesign-selection-start' }, '*'))
+
+    select(secondTarget, 180)
+    const secondPopup = await screen.findByRole('dialog', { name: 'Focused feedback' })
+    expect(within(secondPopup).getByText(/index\.html:28-31/)).toBeInTheDocument()
+    expect(bridge.preview.resolveFocusedTarget).toHaveBeenCalledTimes(2)
+  })
+
+  it('queues multiple focused comments in the conversation and submits them as one batch', async () => {
+    const bridge = installBridge()
+    const firstTarget: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const secondTarget: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-1', locationId: 'fb57d30b-fc27-4edc-b6ad-b5d0886ae152', path: 'index.html', startLine: 28, endLine: 31,
+      label: '<button.primary>', stableId: 'hero-action', excerpt: '<button>Get started</button>', dynamicDescription: null,
+    }
+    const firstFeedback: FocusedFeedback = {
+      id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885', comment: 'Make the heading feel more grounded.', target: firstTarget, createdAt: '2026-07-27T10:00:00.000Z',
+    }
+    const secondFeedback: FocusedFeedback = {
+      id: 'a91b71b4-8a42-4fb8-b93e-bf398c19329d', comment: 'Give this action more breathing room.', target: secondTarget, createdAt: '2026-07-27T10:01:00.000Z',
+    }
+    vi.mocked(bridge.preview.resolveFocusedTarget)
+      .mockResolvedValueOnce(firstTarget)
+      .mockResolvedValueOnce(secondTarget)
+    vi.mocked(bridge.workspace.queueFocusedFeedback)
+      .mockResolvedValueOnce([firstFeedback])
+      .mockResolvedValueOnce([firstFeedback, secondFeedback])
+    render(<App />)
+
+    const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(initialPrompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(initialPrompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+    const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
+    const selectTarget = async (locationId: string, label: string, expectedReference: string) => {
+      const selectButton = screen.getByRole('button', { name: 'Select element' })
+      if (selectButton.getAttribute('aria-pressed') !== 'true') {
+        fireEvent.keyDown(selectButton, { key: 'Enter' })
+        fireEvent.keyUp(selectButton, { key: 'Enter' })
+      }
+      await waitFor(() => expect(selectButton).toHaveAttribute('aria-pressed', 'true'))
+      window.dispatchEvent(new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: {
+          source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html', locationId,
+          clickedLabel: label, usedAncestor: false,
+          rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 },
+        },
+      }))
+      await screen.findByText(new RegExp(expectedReference.replace('.', '\\.')))
+    }
+
+    await selectTarget('6c81c254-bf06-4a04-8b3c-4c39779b2466', '<h1.hero-title>', 'index.html:12-16')
+    const followUp = screen.getByRole('textbox', { name: 'Feedback for selected element' })
+    fireEvent.change(followUp, { target: { value: firstFeedback.comment } })
+    fireEvent.click(screen.getByRole('button', { name: 'Queue' }))
+    await waitFor(() => expect(bridge.workspace.queueFocusedFeedback).toHaveBeenCalledWith('design-1', firstFeedback.comment, firstTarget))
+    expect(await screen.findByText('1 focused note queued')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.preview.locateFocusedTargets).toHaveBeenCalled())
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+        data: { source: 'omnidesign-preview-shim', type: 'focused-anchors', page: 'index.html', anchors: [{ id: 'focused-thread-1', locationId: firstTarget.locationId, rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 } }] },
+      }))
+    expect(await screen.findByRole('button', { name: 'Focused edit thread 1, 1 comment, 1 pending' })).toBeInTheDocument()
+
+    await selectTarget('fb57d30b-fc27-4edc-b6ad-b5d0886ae152', '<button.primary>', 'index.html:28-31')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Feedback for selected element' }), { target: { value: secondFeedback.comment } })
+    fireEvent.click(screen.getByRole('button', { name: 'Queue' }))
+    expect(await screen.findByText('2 focused notes queued')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.preview.locateFocusedTargets).toHaveBeenLastCalledWith(expect.objectContaining({
+      targets: expect.arrayContaining([{ id: 'focused-thread-1', target: firstTarget }, { id: 'focused-thread-2', target: secondTarget }]),
+    })))
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'omnidesign-preview-shim', type: 'focused-anchors', page: 'index.html', anchors: [
+          { id: 'focused-thread-1', locationId: firstTarget.locationId, rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 } },
+          { id: 'focused-thread-2', locationId: secondTarget.locationId, rect: { left: 240, top: 220, right: 360, bottom: 260, width: 120, height: 40, viewportWidth: 800, viewportHeight: 600 } },
+        ] },
+      }))
+    expect(await screen.findByRole('button', { name: 'Focused edit thread 2, 1 comment, 1 pending' })).toBeInTheDocument()
+    expect(screen.getByText(firstFeedback.comment)).toBeInTheDocument()
+    expect(screen.getByText(secondFeedback.comment)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fix all' }))
+    await waitFor(() => expect(bridge.workspace.submitFocusedFeedbackBatch).toHaveBeenCalledWith(
+      'design-1', [firstFeedback.id, secondFeedback.id], 'mock', 'mock-v1', undefined,
+    ))
+    expect(screen.queryByRole('region', { name: 'Focused feedback queue' })).not.toBeInTheDocument()
+    expect(bridge.workspace.submitFocusedFeedbackBatch).toHaveBeenCalledTimes(1)
+    expect(bridge.workspace.generate).not.toHaveBeenCalled()
+  })
+
+  it('keeps submitted focused edits grouped as a historical thread on their element', async () => {
+    const historicalTarget: FocusedTarget = {
+      designId: 'design-1', revisionId: 'revision-before-edit', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 12, endLine: 16,
+      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const submittedFeedback: FocusedFeedback = {
+      id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885', comment: 'Reduce the heading width.', target: historicalTarget, createdAt: '2026-07-27T10:01:00.000Z',
+    }
+    const pendingFeedback: FocusedFeedback = {
+      id: 'a91b71b4-8a42-4fb8-b93e-bf398c19329d', comment: 'Try a softer weight next.', target: historicalTarget, createdAt: '2026-07-27T10:02:00.000Z',
+    }
+    const historicalDesign: OmniDesignDocument = {
+      ...design,
+      messages: [
+        ...design.messages,
+        { id: 'focused-message', role: 'user', text: 'Make the heading feel calmer.', focusedTarget: historicalTarget, createdAt: '2026-07-27T10:00:00.000Z' },
+        { id: 'focused-batch', role: 'user', text: 'Apply 1 focused edit.', focusedFeedback: [submittedFeedback], createdAt: '2026-07-27T10:01:00.000Z' },
+      ],
+    }
+    const bridge = installBridge([historicalDesign], historicalDesign)
+    const currentLocationId = 'fb57d30b-fc27-4edc-b6ad-b5d0886ae152'
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    vi.mocked(bridge.workspace.listFocusedFeedback).mockResolvedValue([pendingFeedback])
+    vi.mocked(bridge.preview.locateFocusedTargets).mockResolvedValue([{ id: 'focused-thread-1', locationId: currentLocationId }])
+    render(<App />)
+
+    const frame = await waitFor(() => {
+      const candidate = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement | null
+      expect(candidate).toBeTruthy()
+      return candidate!
+    })
+    await waitFor(() => expect(bridge.preview.locateFocusedTargets).toHaveBeenCalledWith(expect.objectContaining({
+      designId: design.id,
+      revisionId: design.selectedRevisionId,
+      targets: [{ id: 'focused-thread-1', target: historicalTarget }],
+    })))
+    await waitFor(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: frame.contentWindow,
+        data: { source: 'omnidesign-preview-shim', type: 'focused-anchors', page: 'index.html', anchors: [{ id: 'focused-thread-1', locationId: currentLocationId, rect: { left: 40, top: 80, right: 180, bottom: 120, width: 140, height: 40, viewportWidth: 800, viewportHeight: 600 } }] },
+      }))
+      expect(screen.getByRole('button', { name: 'Focused edit thread 1, 3 comments, 1 pending' })).toBeInTheDocument()
+    })
+
+    const threadButton = screen.getByRole('button', { name: 'Focused edit thread 1, 3 comments, 1 pending' })
+    expect(threadButton).toHaveAttribute('data-has-pending', 'true')
+    const threadDetail = document.getElementById(threadButton.getAttribute('aria-describedby')!)!
+    expect(within(threadDetail).getByText('Make the heading feel calmer.')).toBeInTheDocument()
+    expect(within(threadDetail).getByText('Reduce the heading width.')).toBeInTheDocument()
+    expect(within(threadDetail).getByText('Try a softer weight next.')).toBeInTheDocument()
+    expect(within(threadDetail).getAllByText('Submitted')).toHaveLength(2)
+    expect(within(threadDetail).getByText('Pending')).toBeInTheDocument()
+  })
+
+  it('drops a focused resolution that becomes stale while the preview mode changes', async () => {
+    const bridge = installBridge()
+    let finishResolution: ((target: FocusedTarget) => void) | undefined
+    vi.mocked(bridge.preview.resolveFocusedTarget).mockImplementation(() => new Promise((resolve) => { finishResolution = resolve }))
+    render(<App />)
+
+    const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(initialPrompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(initialPrompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+    const selectElement = screen.getByRole('button', { name: 'Select element' })
+    await waitFor(() => expect(selectElement).toBeEnabled())
+    fireEvent.click(selectElement)
+    await waitFor(() => expect(selectElement).toHaveAttribute('aria-pressed', 'true'))
+    const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'omnidesign-preview-shim', type: 'selection', page: 'index.html', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', clickedLabel: '<button>', usedAncestor: false },
+    }))
+    await waitFor(() => expect(bridge.preview.resolveFocusedTarget).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
+    expect(selectElement).toHaveAttribute('aria-pressed', 'true')
+    await act(async () => finishResolution?.({
+      designId: 'design-1', revisionId: 'revision-1', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 5, endLine: 5,
+      label: '<button>', stableId: null, excerpt: '<button>Go</button>', dynamicDescription: null,
+    }))
+
+    expect(screen.queryByText('index.html:5-5')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Focused' }))
+    expect(selectElement).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('configures and persists a custom canvas size while focused mode stays unconstrained', async () => {
     const bridge = installBridge()
     render(<App />)
@@ -1069,6 +1743,36 @@ describe('Phase 1 walking skeleton UI', () => {
 
     // Back in focused mode: the canvas-only fit controls are gone.
     await waitFor(() => expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument())
+  })
+
+  it('recognizes when an in-preview link navigates the focused frame to another design page', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.preview.register).mockResolvedValue({
+      token: 'token-1',
+      pages: [
+        { path: 'index.html', title: 'Home', order: 0, isHome: true },
+        { path: 'about.html', title: 'About', order: 1, isHome: false },
+      ],
+      entryPagePath: 'index.html',
+    })
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    const frame = await waitFor(() => {
+      const candidate = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement | null
+      expect(candidate?.dataset.page).toBe('index.html')
+      return candidate!
+    })
+
+    window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: { source: 'omnidesign-preview-shim', type: 'page', page: 'about.html' },
+    }))
+
+    await waitFor(() => expect((document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement).dataset.page).toBe('about.html'))
+    expect(screen.getByRole('button', { name: 'Preview page' })).toHaveTextContent('About')
   })
 
   it('recovers saved designs into the home list', async () => {

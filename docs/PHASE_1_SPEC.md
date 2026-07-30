@@ -57,7 +57,7 @@ Phase 1 supports basic multiple-design organization within a project. Multiple c
 
 ### Deferred Beyond Phase 1
 
-- API-key provider configuration, the provider setup and configuration UI, multiple configurations per provider, and automatic configuration testing. Phase 1 reaches providers through the installed-CLI discovery pilot; full provider configuration moves to Phase 3 (product-owner decision, 2026-07-21).
+- API-key provider configuration, direct provider API integrations, an OmniDesign-owned provider harness, the provider setup and configuration UI, multiple configurations per provider, and automatic configuration testing. Phase 1 reaches providers through the installed-CLI discovery pilot; this broader provider infrastructure is deferred to an unassigned future milestone rather than Phase 3 (product-owner decision, 2026-07-27, superseding the 2026-07-21 Phase 3 assignment).
 - Multiple conversations per design.
 - Visible branching, merging, branch comparison, and running one prompt through multiple providers or models.
 - Editing or resubmitting an earlier prompt.
@@ -282,6 +282,7 @@ OmniDesign saves layout independently for each design and restores it when that 
 - Preview visibility.
 - Popped-out state.
 - Relevant window and panel sizing.
+- Selected preview page, preview mode, device and fit choices, and Canvas zoom/pan viewport.
 
 The screen position of a popped-out preview window does not need to be restored exactly.
 
@@ -334,7 +335,7 @@ Attachments are referenced in place and are not copied into OmniDesign storage. 
 
 - Phase 1 reaches Codex and Claude through the installed-CLI discovery pilot, reusing each tool's existing sign-in state without storing credentials.
 - Availability and capability reporting come from provider adapters rather than provider-specific UI assumptions.
-- API-key provider configuration, the multi-configuration setup UI, and automatic configuration testing are deferred to Phase 3 (product-owner decision, 2026-07-21). When built, secrets must use operating-system credential storage and a failed configuration test must produce a warning with clear diagnostics.
+- API-key provider configuration, direct provider API integrations, an OmniDesign-owned provider harness, the multi-configuration setup UI, and automatic configuration testing are deferred to an unassigned future provider-infrastructure milestone (product-owner decision, 2026-07-27). When built, secrets must use operating-system credential storage and a failed configuration test must produce a warning with clear diagnostics.
 
 ### Removing or Losing a Provider
 
@@ -684,7 +685,7 @@ Phase 1 is complete only when all of the following are true.
 - The mock provider remains available for automated tests and development.
 - Availability reporting, removal, switching, retry, cancellation, streaming, usage, and error reporting behave as specified.
 - Provider contract tests cover both real adapters' supported capabilities.
-- API-key configuration, multiple configurations per provider, and configuration setup testing are deferred to Phase 3.
+- API-key configuration, direct provider API integrations, an OmniDesign-owned provider harness, multiple configurations per provider, and configuration setup testing are deferred to an unassigned future provider-infrastructure milestone.
 
 ### Home, Projects, and Designs
 

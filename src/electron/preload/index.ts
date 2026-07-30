@@ -5,18 +5,37 @@ import type { GenerationActivity, GenerationSelection, Layout } from '../workspa
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
     developmentProviderEnabled: Boolean(process.env.VITE_DEV_SERVER_URL || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1'),
-    discover: () => ipcRenderer.invoke('providers:discover'),
+    getCached: () => ipcRenderer.invoke('providers:get-cached'),
+    refresh: () => ipcRenderer.invoke('providers:refresh'),
+    openSetup: (providerId: 'codex' | 'claude') => ipcRenderer.invoke('providers:open-setup', providerId),
     prompt: (request: ProviderPrompt) => ipcRenderer.invoke('providers:prompt', request),
+    onUpdated: (listener: (providers: readonly import('../provider/types.js').ProviderStatus[]) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, providers: readonly import('../provider/types.js').ProviderStatus[]) => listener(providers)
+      ipcRenderer.on('providers:updated', handler)
+      return () => ipcRenderer.removeListener('providers:updated', handler)
+    },
     onActivity: (listener: (activity: ProviderActivity) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, activity: ProviderActivity) => listener(activity)
       ipcRenderer.on('providers:activity', handler)
       return () => ipcRenderer.removeListener('providers:activity', handler)
     },
   },
+  environment: {
+    platform: process.platform,
+    discover: () => ipcRenderer.invoke('environment:discover'),
+    openSetup: (dependencyId: 'git') => ipcRenderer.invoke('environment:open-setup', dependencyId),
+  },
   workspace: {
     list: () => ipcRenderer.invoke('workspace:list'),
     listProjects: () => ipcRenderer.invoke('workspace:list-projects'),
     getProject: (projectId: string) => ipcRenderer.invoke('workspace:get-project', { projectId }),
+    getProjectDesignDefinitions: (projectId: string) => ipcRenderer.invoke('workspace:get-project-design-definitions', { projectId }),
+    saveProjectDesignDefinitions: (projectId: string, definitions: import('../workspace/contracts.js').ProjectDesignDefinitions) => ipcRenderer.invoke('workspace:save-project-design-definitions', { projectId, definitions }),
+    proposeProjectDesignDefinitions: (projectId: string, providerId: 'mock' | 'codex' | 'claude', modelId: string, effort?: string | null) => ipcRenderer.invoke('workspace:propose-project-design-definitions', { projectId, providerId, modelId, effort: effort ?? null }),
+    setProjectDefinitionPromptSuppressed: (projectId: string, suppressed: boolean) => ipcRenderer.invoke('workspace:set-project-definition-prompt-suppressed', { projectId, suppressed }),
+    keepProjectDesignDefinitions: (designId: string, targetVersion: number) => ipcRenderer.invoke('workspace:keep-project-design-definitions', { designId, targetVersion }),
+    applyProjectDesignDefinitions: (designId: string, targetVersion: number, selection?: { providerId: 'codex' | 'claude'; modelId: string; effort: string | null } | null) => ipcRenderer.invoke('workspace:apply-project-design-definitions', { designId, targetVersion, ...(selection ?? {}) }),
+    applyProjectDesignDefinitionsToAll: (projectId: string, targetVersion: number) => ipcRenderer.invoke('workspace:apply-project-design-definitions-to-all', { projectId, targetVersion }),
     associateDesign: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-design', { designId, projectId }),
     duplicateDesign: (designId: string) => ipcRenderer.invoke('workspace:duplicate-design', { designId }),
     associateAndRestart: (designId: string, projectId: string) => ipcRenderer.invoke('workspace:associate-and-restart', { designId, projectId }),
@@ -43,7 +62,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
     renameDesign: (designId: string, title: string) => ipcRenderer.invoke('workspace:rename-design', { designId, title }),
     renameProject: (projectId: string, name: string) => ipcRenderer.invoke('workspace:rename-project', { projectId, name }),
     create: (prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, target?: { sourceProjectPath?: string | null; projectId?: string | null; cloneRemoteUrl?: string | null; cloneDestinationDirectory?: string | null } | null, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:create', { prompt, providerId, modelId, effort: effort ?? null, sourceProjectPath: target?.sourceProjectPath ?? null, projectId: target?.projectId ?? null, cloneRemoteUrl: target?.cloneRemoteUrl ?? null, cloneDestinationDirectory: target?.cloneDestinationDirectory ?? null, attachments }),
-    generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null, attachments }),
+    generate: (designId: string, prompt: string, providerId = 'mock', modelId = 'mock-v1', effort?: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = [], focusedTarget: import('../workspace/contracts.js').FocusedTarget | null = null) => ipcRenderer.invoke('workspace:generate', { designId, prompt, providerId, modelId, effort: effort ?? null, attachments, focusedTarget }),
+    listFocusedFeedback: (designId: string) => ipcRenderer.invoke('workspace:list-focused-feedback', { designId }),
+    queueFocusedFeedback: (designId: string, comment: string, target: import('../workspace/contracts.js').FocusedTarget) => ipcRenderer.invoke('workspace:queue-focused-feedback', { designId, comment, target }),
+    removeFocusedFeedback: (designId: string, feedbackId: string) => ipcRenderer.invoke('workspace:remove-focused-feedback', { designId, feedbackId }),
+    submitFocusedFeedbackBatch: (designId: string, feedbackIds: readonly string[], providerId = 'mock', modelId = 'mock-v1', effort?: string) => ipcRenderer.invoke('workspace:submit-focused-feedback-batch', { designId, feedbackIds, providerId, modelId, effort: effort ?? null }),
     chooseProjectFolder: () => ipcRenderer.invoke('workspace:choose-project-folder'),
     chooseAttachments: (kind: 'files' | 'folder') => ipcRenderer.invoke('workspace:choose-attachments', { kind }),
     openAttachment: (attachment: import('../workspace/contracts.js').Attachment) => ipcRenderer.invoke('workspace:open-attachment', attachment),
@@ -53,6 +76,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     continueGeneration: (jobId: string) => ipcRenderer.invoke('workspace:continue-generation', { jobId }),
     resumeGenerationQueue: (designId: string) => ipcRenderer.invoke('workspace:resume-generation-queue', { designId }),
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),
+    compareRevisions: (designId: string, baseRevisionId: string, targetRevisionId: string) => ipcRenderer.invoke('workspace:compare-revisions', { designId, baseRevisionId, targetRevisionId }),
     restoreRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:restore-revision', { designId, revisionId }),
     saveDraft: (designId: string, draft: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:save-draft', { designId, draft, attachments }),
     saveLayout: (designId: string, layout: Layout) => ipcRenderer.invoke('workspace:save-layout', { designId, layout }),
@@ -91,6 +115,8 @@ contextBridge.exposeInMainWorld('omnidesign', {
   },
   preview: {
     register: (designId: string, revisionId: string) => ipcRenderer.invoke('preview:register', { designId, revisionId }),
+    resolveFocusedTarget: (request: { designId: string; revisionId: string; token: string; page: string; locationId: string; clickedLabel: string; usedAncestor: boolean }) => ipcRenderer.invoke('preview:resolve-focused-target', request),
+    locateFocusedTargets: (request: { designId: string; revisionId: string; token: string; targets: readonly { id: string; target: import('../workspace/contracts.js').FocusedTarget }[] }) => ipcRenderer.invoke('preview:locate-focused-targets', request),
     reportDiagnostic: (designId: string, revisionId: string, diagnostic: { level: 'warning' | 'error'; message: string; source: string | null; line: number | null }) => ipcRenderer.invoke('preview:report-diagnostic', { designId, revisionId, diagnostic }),
     capture: (designId: string, revisionId: string): Promise<boolean> => ipcRenderer.invoke('preview:capture', { designId, revisionId }),
     popOut: (request: { designId: string; revisionId: string; page?: string }) => ipcRenderer.invoke('preview:pop-out', request),

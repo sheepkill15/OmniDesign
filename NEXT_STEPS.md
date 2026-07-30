@@ -4,7 +4,7 @@ This is a working plan, not a finalized product specification. The project owner
 
 ## Immediate Objective
 
-Phase 2 project and design organization is complete on `feature/phase-2`. Keep it green and documented while defining the Phase 3 contract; do not silently pull focused editing or provider-configuration scope backward.
+Phase 2 project and design organization is complete and merged into `develop`. Phase 3 is implemented on `codex/feature/phase-3` and audited against `docs/PHASE_3_SPEC.md`; the evidence ledger is `docs/PHASE_3_RELEASE_AUDIT.md`. Post-Phase 3 product-trust integration is implemented on `codex/feature/product-trust-polish` against `docs/PRODUCT_TRUST_POLISH_SPEC.md`: the first result stays unobstructed, every revision receives a persisted deterministic quality report, and historical revisions can be compared with the current head using Git-derived authored-file evidence. API-key providers, direct provider APIs, an OmniDesign-owned harness, multiple provider configurations, and setup/testing remain outside Phase 3 in an unassigned provider-infrastructure milestone.
 
 The first complete user journey should be:
 
@@ -92,13 +92,17 @@ The product must demonstrate the level of UI and UX quality expected from a desi
 
 Before full implementation, decide and record:
 
-- Electron packaging and update tooling.
+- Long-term semantic release numbering, stable/beta channel policy, and signed
+  Windows distribution. The current rolling pre-1.0 GitHub Release channel and
+  packaged auto-updater are implemented; macOS release publication requires the
+  documented Developer ID and notarization secrets.
 - Application state-management approach.
 - SQLite library and migration strategy.
 - Runtime schema-validation library.
 - Logging, diagnostics, and error boundaries.
 - Test runners and responsibilities for each test layer.
-- Continuous-integration targets for Windows, macOS, and Linux.
+- Whether Linux packaging becomes a supported delivery target. Pull-request CI
+  and Windows/macOS delivery targets are now implemented.
 - Supported operating-system versions and architectures.
 - Development, preview, and production Content Security Policies.
 
@@ -141,12 +145,12 @@ The walking skeleton boundaries are complete. Browser-console, runtime, and prev
 
 ### 5. Complete the Provider Integration
 
-The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. The accepted next execution model is repo-native agent work: OmniDesign initializes a self-contained Git repository and `index.html` for each design, starts the provider harness in that repository, and supplies a linked original project only as an explicit read-only reference. Git determines changes and revisions; the agent neither inventories changed files nor chooses an entry point. Continue by:
+The narrow installed-subscription pilot is implemented behind a provider-neutral adapter gateway. The accepted execution model is repo-native agent work: OmniDesign initializes a self-contained Git repository and `index.html` for each design, starts the provider harness in that repository, and supplies the original linked project directly when project context is needed. The provider-owned harness currently has accepted read-write access; OmniDesign does not create disposable or safety copies. Git determines design changes and revisions; the agent neither inventories changed files nor chooses an entry point. Continue by:
 
 - Preserving the provider-neutral contracts described in `ARCHITECTURE.md` and keeping provider-specific concepts in adapters.
 - Preserve the mock provider for automated tests and local development.
 - Add Codex and Claude contract and integration tests appropriate to their supported capabilities.
-- Add the deferred cancellation, continuation, configuration, and API-key behavior when its Phase 1 contract is defined.
+- Add remaining deferred cancellation and continuation behavior when its contract is defined. Provider API, harness, configuration, and API-key work belong to the unassigned provider-infrastructure milestone, not Phase 3.
 - Implement the managed design-repository lifecycle and provider-harness working-directory contract.
 - Define and validate the remaining JSON completion-payload schema with the product owner. `response` is required for the agent's conversational reply and may be returned without a design change. Keep Git state, validation and diagnostics harness-owned, and usage adapter-owned; no agent field may inventory changed files or choose an entry point.
 
@@ -179,13 +183,24 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 ## Current Handoff State
 
-- Active work is on `feature/phase-2`; `docs/PHASE_2_PLAN.md` is the Phase 2 implementation and completion ledger.
+- Active work is on `codex/feature/phase-3`; `docs/PHASE_3_SPEC.md` is the Phase 3 product contract and `docs/PHASE_3_RELEASE_AUDIT.md` records the completed acceptance audit. `docs/PHASE_2_PLAN.md` remains the completed Phase 2 ledger.
 - Phase 2 now provides the complete project/design Library with nested folders, drag and accessible moves, tags, search, project-kind/provider/tag/folder filters, and shared sorting.
 - Multiple-design organization includes duplication, moves between any projects, project-grid multi-select, and bulk move/remove. App owns one shared design collection; Sidebar and ProjectPage no longer fetch their own copies.
 - Multiple-page designs are discovered from Git, compiled into one shared Tailwind stylesheet, previewed in Focused or Canvas mode, exported in full, and controlled through home/title/order metadata. Canvas persists preset or custom device dimensions and Artboard/Fixed fit; Focused intentionally fills the available pane.
 - The iframe preview's Phase 2 security floor combines opaque-origin sandboxing, restrictive CSP, guarded navigation, a curated external-resource allowlist, and matching session-level HTTP(S) request filtering.
-- Verification on 2026-07-27: `pnpm typecheck`, 221 unit tests, production build, and all eight Playwright Electron journeys pass. The Phase 2 journey covers multi-page creation, page/view switching, custom Canvas sizing, fit, offline export, restart, and restored settings.
-- Do not begin Phase 3 implementation until its product behavior is specified. The older Phase 1 audit gaps moved there by owner decision remain visible rather than being retroactively counted as Phase 2 work.
+- Phase 3 provides versioned structured project definitions, AI proposals, materialized semantic tokens, AI Agent instructions on new-design prompts, persistent per-design apply/keep/apply-all decisions, deterministic and queued-AI propagation, durable application attempts, and exact single-element focused edits through immutable source maps.
+- Focused selection preserves the isolated preview boundary: generated code receives only opaque source keys and cannot claim paths, lines, revisions, or excerpts. The selection control stays enabled for repeated element picks until explicitly disabled, while each pick opens a trusted feedback popup beside its element. Each matched element retains one subtle directional thread marker combining pending and submitted focused comments in chronological order; markers avoid each other, hide with offscreen elements, and reveal their thread on hover or keyboard focus. Historical targets follow later revisions only through a unique same-page stable identity or unchanged exact source, never fuzzy matching. **Fix all** submits every ordered comment and exact target as one provider turn and one generation attempt. Resolved batch metadata persists in message and attempt history while the active target remains ephemeral.
+- The product-trust polish keeps the first completed result free of automatic setup dialogs, displays the applied definition version in the toolbar, runs persisted per-revision quality checks across every page at phone and desktop widths, offers explicit provider-backed repair from findings, and compares an earlier revision with the current head using Git-authored file evidence that excludes managed build output.
+- Verification on 2026-07-27: `pnpm typecheck`, 258 unit tests across 25 files, production build, and all nine Playwright Electron journeys pass. The Phase 3 journey covers definition setup, version decisions, deterministic propagation, two exact focused selections, conversation-side queueing, one batch generation and immutable revision, restart, and recovered batch history.
+- Product-trust verification on 2026-07-30: `pnpm typecheck`, 282 tests across 29 files, production build, and all 10 Playwright Electron journeys pass sequentially. The suite now also proves an unobstructed first result, a persisted built-browser quality pass even when optional thumbnail capture fails, provider-backed repair wiring, Git-derived comparison of an earlier revision with the current head, updater lifecycle and development-disable behavior, and multi-architecture release assembly. Versioned reports replace older quality results on the next active-revision preview. The existing Vite advisory remains: the main renderer chunk is 544.68 kB (157.29 kB gzip), above the 500 kB advisory threshold.
+- Pre-shipping startup/state hardening caches validated non-secret installed-provider metadata in SQLite, displays it before one de-duplicated background refresh completes, and uses an honest checking state when no cache exists. Per-design restoration now also includes the selected preview page and Canvas zoom/pan viewport alongside the existing draft, attachment, generation selection, revision, layout, device, and fit state.
+- Startup/state verification on 2026-07-30: `pnpm typecheck`, 286 unit/component tests across 29 files, production build, and all 10 Playwright Electron journeys pass sequentially. The multi-page restart journey now also proves Canvas zoom restoration. The existing Vite advisory remains: the main renderer chunk is 546.28 kB (157.60 kB gzip), above the 500 kB advisory threshold.
+- GitHub Actions now runs typecheck, unit/component tests, a production build,
+  and Windows Electron E2E for every pull request. Every push to `main` repeats
+  release verification, builds Windows x64 plus macOS x64 and arm64 installers,
+  merges architecture-aware update metadata, and publishes versioned GitHub
+  Releases. Packaged apps check, download, and offer to install newer releases;
+  publication fails closed until macOS signing/notarization secrets are present.
 
 ## Historical Handoff Notes (superseded where they conflict with the status above)
 
@@ -194,7 +209,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - The walking skeleton is complete: it captures and persists preview console, runtime, and load diagnostics; its per-design split-divider state survives restart and is keyboard operable; aspect-ratio-preserving revision thumbnails are captured through the isolated preview and persisted as managed artifacts; and invalid candidates persist outside completed history without replacing the prior valid revision. The built Electron application has automated coverage for creation, preview framing, offline export, close, relaunch, and recovery with isolated test storage.
 - The product owner accepted the Quiet Studio home direction. The consolidated implementation and its future-screen rules are documented in `docs/HOME_DESIGN_BASELINE.md` and `DESIGN_SYSTEM.md`.
 - The trusted application now exposes a Settings appearance screen. Its dark and light themes use the existing semantic tokens, persist through the validated Electron IPC boundary and SQLite migration, and never alter the isolated generated-design preview.
-- Providers now has an availability surface backed by the provider-neutral discovery gateway. It refreshes locally installed Codex and Claude Code availability, sign-in diagnostics, and adapter-reported model counts without exposing credentials or subprocess access to the renderer. Persisted provider configurations and per-prompt provider/model selection remain to be connected to design generation.
+- Providers now has an availability surface backed by the provider-neutral discovery gateway. It refreshes locally installed Codex and Claude Code availability, sign-in diagnostics, and adapter-reported model counts without exposing credentials or subprocess access to the renderer. The same screen quietly checks required local tools, beginning with Git, and offers setup only when a tool is missing or after a related operation fails; it never launches installers automatically. Persisted provider configurations and per-prompt provider/model selection remain to be connected to design generation.
 - Generation now enters a persisted job queue. The initial coordinator runs up to two designs concurrently while maintaining a sequential queue per design, retains job state in SQLite, and marks queued or running work interrupted on application shutdown or restart. The workspace exposes Stop for active or queued work and Retry for stopped attempts; cancellation avoids creating an invalid candidate and retries create a fresh queued attempt while retaining prior diagnostics. Stop now aborts the active Codex or Claude provider invocation through the provider-neutral adapter contract, rather than waiting for its eventual response. Queued mock generations make up to three automatic validation self-repair attempts before retaining an invalid candidate; provider/transport retries, Continue, and broader queue management remain the next additions to this subsystem.
 - The persistent Generations navigation entry now shows the active-job count and opens a cross-design queue view. It identifies queued and running prompts, lets the user open the associated design, and provides Stop without requiring the user to return to that design first. Per-job elapsed time, provider/model details, detailed activity, and queue-paused state remain to be surfaced.
 - A failed or cancelled predecessor now persists a paused state for its design queue. Later prompts remain queued, including after restart, until the user retries the stopped attempt; the retry resumes the queue and is ordered ahead of its paused successors.
@@ -205,7 +220,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - Dropdown controls are shared components in `src/renderer/components/`. There are two, chosen by context:
   All four dropdowns (layout, revision-history, generation-settings, project-selector) use one shared React Aria component: `src/renderer/components/DropdownButton.tsx` — a `MenuTrigger`/`Popover` with a caret that rotates while open (via the `[aria-expanded]` rule). It is uncontrolled and **modal** by default: a modal popover dismisses on any outside click (via its underlay) and on Escape, and provides consistent keyboard/focus behavior. The trade-off — the rest of the workspace is inert while a menu is open — is accepted (product-owner decision, 2026-07-21). Its `onOpenChange` drives the preview freeze so the two header dropdowns (layout, history) that open over the preview detach the native layer while open, which removes both occlusion and the focus contention that would otherwise disrupt React Aria's focus-driven menu behavior. (An earlier plain-DOM variant and a non-modal RA variant were both tried and rejected: non-modal RA only dismisses on focus-out, which left the menu stuck.)
 - The isolated preview is a native layer composited above the DOM, so trusted-UI overlays that sit over a docked preview (the header layout menu and revision-history dropdown) would otherwise be hidden behind it. The fix keeps the accepted `WebContentsView` isolation (dedicated session partition, sandboxed process, no preload) and uses a freeze-frame: while such an overlay is open, the main process `capturePage()`s the docked preview, the renderer shows that still image on the preview surface, and only then is the native layer hidden via `setVisible(false)` — so the overlay paints over a frozen frame with no visible gap. Closing the overlay restores the live layer. Only a docked preview is affected (detached/popped-out views are untouched). An in-renderer `<iframe>`/`<webview>` was considered and rejected: a plain iframe shares the trusted renderer's session and lives inside it (an isolation downgrade the spec forbids without an explicit ARCHITECTURE change). If future overlays sit over the preview, drive them through the same `overlayCoversPreview` signal in `DesignWorkspace`.
-- Full provider configuration is deferred to Phase 3 by product-owner decision (2026-07-21): API-key configuration, the provider setup UI, multiple configurations per provider, and configuration testing. Phase 1 continues to reach Codex and Claude through the installed-CLI discovery pilot. `AGENTS.md`, `docs/PHASE_1_SPEC.md`, and this file record the deferral.
+- The earlier 2026-07-21 assignment of full provider configuration to Phase 3 is superseded by product-owner decision (2026-07-27). API-key providers, direct provider APIs, an OmniDesign-owned harness, multiple configurations, setup UI, credential storage, and configuration testing are deferred to an unassigned provider-infrastructure milestone. Phase 3 continues using the installed Codex and Claude CLI harnesses.
 - The temporary concept switcher and rejected Visual Gallery and Project Workbench implementations have been removed. Representative project/design data remains non-functional placeholder content until persistence is connected.
 - The project charter and roadmap are recorded in `AGENTS.md`.
 - Accepted and proposed technical direction is recorded in `ARCHITECTURE.md`.

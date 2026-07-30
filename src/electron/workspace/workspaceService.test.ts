@@ -14,6 +14,76 @@ afterEach(() => {
 })
 
 describe('WorkspaceService', () => {
+  it('materializes the captured project definitions and exposes first-prompt AI Agent instructions', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const seed = store.createStandaloneDesign('Seed', 'Studio')
+    store.saveProjectDesignDefinitions(seed.projectId, {
+      schemaVersion: 1,
+      colors: [{ name: 'primary', value: '#123456', description: null }],
+      typography: [],
+      spacing: [{ name: 'section-gap', value: '4rem', description: null }],
+      shape: [],
+      visualGuidance: 'Use generous negative space.',
+      aiAgentInstructions: 'Keep navigation understated.',
+    })
+
+    const shell = service.createAgentDesignShell('Create a settings page', () => undefined, { projectId: seed.projectId }, 'Settings')
+    expect(shell.definitionVersion).toBe(1)
+    expect(service.getInitialProjectDefinitionPromptContext(shell.id)).toContain('AI Agent instructions:\nKeep navigation understated.')
+    const repositoryPath = service.getDesignRepositoryPath(shell.id)
+    expect(readFileSync(path.join(repositoryPath, 'omnidesign.theme.css'), 'utf8')).toContain('--od-color-primary: #123456;')
+    expect(readFileSync(path.join(repositoryPath, 'index.html'), 'utf8')).toContain('data-omnidesign-theme="1"')
+
+    const saved = await service.saveAgentWorkspaceResult(shell.id, 'Create a settings page', 'codex', 'model-1', 'Finished.', () => undefined)
+    expect(saved.revisions[0].definitionVersion).toBe(1)
+    expect(service.getInitialProjectDefinitionPromptContext(saved.id)).toBe('')
+    const files = service.getRevisionFiles(saved.id, saved.revisions[0].id)
+    expect(files['omnidesign.theme.css']).toContain('--od-space-section-gap: 4rem;')
+
+    store.saveProjectDesignDefinitions(seed.projectId, {
+      ...store.getProjectDesignDefinitionState(seed.projectId)!.current!.definitions,
+      colors: [{ name: 'primary', value: '#654321', description: null }],
+    })
+    const applied = await service.applyProjectDesignDefinitions(saved.id, 2)
+    expect(applied).toMatchObject({ definitionVersion: 2, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
+    expect(applied.revisions).toHaveLength(2)
+    expect(service.getRevisionFiles(applied.id, applied.revisions[1].id)['omnidesign.theme.css']).toContain('--od-color-primary: #654321;')
+    expect(service.getRevisionFiles(applied.id, applied.revisions[0].id)['omnidesign.theme.css']).toContain('--od-color-primary: #123456;')
+    expect(store.listProjectDefinitionApplicationAttempts(saved.id)).toMatchObject([{
+      targetVersion: 2, mechanism: 'deterministic', state: 'completed', resultingRevisionId: applied.revisions[1].id,
+    }])
+
+    store.saveProjectDesignDefinitions(seed.projectId, {
+      ...store.getProjectDesignDefinitionState(seed.projectId)!.current!.definitions,
+      visualGuidance: 'Change the composition substantially.',
+    })
+    const unavailable = await service.applyProjectDesignDefinitions(saved.id, 3)
+    expect(unavailable).toMatchObject({ pendingDefinitionVersion: 3, definitionApplicationState: 'unavailable' })
+    expect(store.listProjectDefinitionApplicationAttempts(saved.id).at(-1)).toMatchObject({ targetVersion: 3, mechanism: 'ai', state: 'unavailable', diagnostic: expect.stringContaining('needs AI interpretation') })
+    expect(service.prepareAIProjectDefinitionApplication(saved.id, 3)).toContain('Target definitions:')
+    const currentHtml = readFileSync(path.join(repositoryPath, 'index.html'), 'utf8')
+    writeFileSync(path.join(repositoryPath, 'index.html'), currentHtml.replace('</body>', '<p>AI-applied direction</p></body>'), 'utf8')
+    const interpreted = await service.saveAgentWorkspaceResult(saved.id, 'Apply project definitions version 3', 'codex', 'model-1', 'Applied the shared direction.', () => undefined, false, 3)
+    const completed = store.completeProjectDefinitionApplication(saved.id, 3)
+    expect(interpreted.revisions.at(-1)?.definitionVersion).toBe(3)
+    expect(completed).toMatchObject({ definitionVersion: 3, pendingDefinitionVersion: null, definitionApplicationState: 'current' })
+
+    const restored = service.restoreRevision(saved.id, applied.revisions[0].id)
+    expect(restored.revisions.at(-1)?.definitionVersion).toBe(1)
+    expect(restored).toMatchObject({ definitionVersion: 1, pendingDefinitionVersion: 3, definitionApplicationState: 'pending' })
+    expect(service.getRevisionFiles(restored.id, restored.revisions.at(-1)!.id)['omnidesign.theme.css']).toContain('--od-color-primary: #123456;')
+
+    store.saveProjectDesignDefinitions(seed.projectId, {
+      ...store.getProjectDesignDefinitionState(seed.projectId)!.current!.definitions,
+      visualGuidance: 'Another new direction.',
+    })
+    expect(service.keepProjectDesignDefinitions(saved.id, 4)).toMatchObject({ definitionVersion: 1, keptDefinitionVersion: 4, pendingDefinitionVersion: null, definitionApplicationState: 'kept' })
+    store.close()
+  })
+
   it('runs creation and iteration through generation, compilation, validation, and immutable persistence', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

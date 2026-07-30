@@ -1,5 +1,9 @@
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildConversationRecap, createDesignAgentInstructions, normalizeAgentReply } from './agentHarness.js'
+import { buildConversationRecap, createDesignAgentInstructions, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from './agentHarness.js'
+
+const workspacePath = path.resolve('test-workspace', 'design')
+const projectPath = path.resolve('test-projects', 'aurora')
 
 describe('conversation recap', () => {
   it('recaps recent user and assistant turns and skips system notices and blanks', () => {
@@ -19,9 +23,9 @@ describe('conversation recap', () => {
   })
 
   it('injects the recap into the agent instructions only when provided', () => {
-    expect(createDesignAgentInstructions('C:\\workspace\\design', [], null, 'User: Build a dashboard')).toContain('conversation so far')
-    expect(createDesignAgentInstructions('C:\\workspace\\design', [], null, 'User: Build a dashboard')).toContain('User: Build a dashboard')
-    expect(createDesignAgentInstructions('C:\\workspace\\design')).not.toContain('conversation so far')
+    expect(createDesignAgentInstructions(workspacePath, [], null, 'User: Build a dashboard')).toContain('conversation so far')
+    expect(createDesignAgentInstructions(workspacePath, [], null, 'User: Build a dashboard')).toContain('User: Build a dashboard')
+    expect(createDesignAgentInstructions(workspacePath)).not.toContain('conversation so far')
   })
 })
 
@@ -35,15 +39,15 @@ describe('agent reply', () => {
   })
 
   it('directs the agent to work in the prepared repository without self-reporting Git evidence', () => {
-    const instructions = createDesignAgentInstructions('C:\\workspace\\design')
-    expect(instructions).toContain('C:\\workspace\\design')
+    const instructions = createDesignAgentInstructions(workspacePath)
+    expect(instructions).toContain(workspacePath)
     expect(instructions).toContain('Do not claim which files changed')
     expect(instructions).toContain('x-collapse')
     expect(() => createDesignAgentInstructions('relative/design')).toThrow('must be absolute')
   })
 
   it('tells the agent it may author multiple linked pages discovered from Git', () => {
-    const instructions = createDesignAgentInstructions('C:\\workspace\\design')
+    const instructions = createDesignAgentInstructions(workspacePath)
     // Multi-page contract: pages are discovered, not declared; index.html is home; relative links.
     expect(instructions).toContain('Every *.html file you commit outside the .build/ folder is a page')
     expect(instructions).toContain('index.html is the home page when it exists')
@@ -57,7 +61,7 @@ describe('agent reply', () => {
   })
 
   it('tells the agent to write for a non-technical audience and imposes no reply format', () => {
-    const instructions = createDesignAgentInstructions('C:\\workspace\\design')
+    const instructions = createDesignAgentInstructions(workspacePath)
     expect(instructions).toContain('who may not be technical')
     expect(instructions).toContain('Do NOT mention code, file names')
     expect(instructions).toContain('There is no required format')
@@ -65,9 +69,71 @@ describe('agent reply', () => {
   })
 
   it('directs the agent to inspect a linked project before implementing the design', () => {
-    const instructions = createDesignAgentInstructions('C:\\workspace\\design', [], 'C:\\projects\\aurora')
+    const instructions = createDesignAgentInstructions(workspacePath, [], projectPath)
 
-    expect(instructions).toContain('C:\\projects\\aurora')
+    expect(instructions).toContain(projectPath)
     expect(instructions).toContain('Inspect its relevant source, styles, assets, and configuration')
+  })
+})
+
+describe('focused edit prompt', () => {
+  it('keeps the user wording and adds exact trusted source context plus supporting-file permission', () => {
+    const result = createFocusedEditPrompt('Make this call to action calmer.', {
+      designId: 'design-1',
+      revisionId: 'revision-1',
+      path: 'pages/pricing.html',
+      startLine: 24,
+      endLine: 31,
+      label: '<button#buy.primary>',
+      stableId: 'pricing-cta',
+      excerpt: '<button data-od-id="pricing-cta">Buy now</button>',
+      dynamicDescription: null,
+    })
+
+    expect(result).toContain('Make this call to action calmer.')
+    expect(result).toContain('pages/pricing.html:24-31')
+    expect(result).toContain('stable identifier: pricing-cta')
+    expect(result).toContain('supporting CSS, JavaScript, shared components, or adjacent markup')
+    expect(result).toContain('<button data-od-id="pricing-cta">Buy now</button>')
+  })
+
+  it('discloses nearest-authored-ancestor fallback', () => {
+    const result = createFocusedEditPrompt('Change this item.', {
+      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 5, endLine: 8,
+      label: '<li>', stableId: null, excerpt: '<ul x-data="items"></ul>', dynamicDescription: '<span.runtime-item>',
+    })
+
+    expect(result).toContain('clicked runtime element was <span.runtime-item>')
+    expect(result).toContain('nearest authored ancestor')
+  })
+
+  it('combines queued feedback into one coordinated edit with every exact target', () => {
+    const result = createFocusedFeedbackBatchPrompt([
+      {
+        id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885',
+        comment: 'Make the heading feel more grounded.',
+        target: {
+          designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 12, endLine: 16,
+          label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+        },
+        createdAt: '2026-07-27T10:00:00.000Z',
+      },
+      {
+        id: 'a91b71b4-8a42-4fb8-b93e-bf398c19329d',
+        comment: 'Give this action more breathing room.',
+        target: {
+          designId: 'design-1', revisionId: 'revision-1', path: 'pages/pricing.html', startLine: 24, endLine: 31,
+          label: '<button#buy.primary>', stableId: 'pricing-cta', excerpt: '<button>Buy now</button>', dynamicDescription: null,
+        },
+        createdAt: '2026-07-27T10:01:00.000Z',
+      },
+    ])
+
+    expect(result).toContain('one coordinated update')
+    expect(result).toContain('Make the heading feel more grounded.')
+    expect(result).toContain('index.html:12-16')
+    expect(result).toContain('Give this action more breathing room.')
+    expect(result).toContain('pages/pricing.html:24-31')
+    expect(result).toContain('supporting CSS, JavaScript, shared components, or adjacent markup')
   })
 })

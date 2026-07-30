@@ -7,6 +7,9 @@ export const revisionSchema = z.object({
   providerId: z.string().min(1),
   modelId: z.string().min(1),
   gitCommit: z.string().regex(/^[0-9a-f]{40}$/).nullable(),
+  definitionVersion: z.number().int().positive().nullable().optional(),
+  qualityCheckedAt: z.string().datetime().nullable().optional(),
+  qualityCheckVersion: z.number().int().positive().nullable().optional(),
   createdAt: z.string().datetime(),
   thumbnailDataUrl: z.string().nullable(),
 })
@@ -47,6 +50,9 @@ export const layoutSchema = z.object({
   previewCustomWidth: z.number().int().min(240).max(3840).default(1280),
   previewCustomHeight: z.number().int().min(320).max(4320).default(800),
   previewPage: z.string().min(1).nullable().default(null),
+  previewZoom: z.number().min(0.2).max(2).default(0.75),
+  previewPanX: z.number().min(-100_000).max(100_000).default(0),
+  previewPanY: z.number().min(-100_000).max(100_000).default(0),
 })
 
 export const designPageSchema = z.object({
@@ -83,6 +89,81 @@ export const folderSchema = z.object({
 
 export const projectKindSchema = z.enum(['standalone', 'linked'])
 
+const definitionNameSchema = z.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, 'Use lowercase semantic names separated by hyphens.')
+const definitionDescriptionSchema = z.string().trim().max(500).nullable().default(null)
+
+export function isSafeCssDefinitionValue(value: string): boolean {
+  const input = value.trim()
+  if (!input || /[;{}\u0000-\u001f\u007f]/.test(input) || /\/\*|\*\/|!\s*important/i.test(input)) return false
+  const stack: string[] = []
+  let quote: '"' | "'" | null = null
+  let escaped = false
+  for (const character of input) {
+    if (escaped) { escaped = false; continue }
+    if (character === '\\') { escaped = true; continue }
+    if (quote) { if (character === quote) quote = null; continue }
+    if (character === '"' || character === "'") { quote = character; continue }
+    if (character === '(' || character === '[') stack.push(character)
+    else if (character === ')' || character === ']') {
+      const expected = character === ')' ? '(' : '['
+      if (stack.pop() !== expected) return false
+    }
+  }
+  return !quote && !escaped && stack.length === 0
+}
+
+const cssDefinitionValueSchema = (maximum: number) => z.string().trim().min(1).max(maximum)
+  .refine(isSafeCssDefinitionValue, 'Enter one CSS-compatible value without semicolons, braces, comments, control characters, or !important.')
+
+function uniqueDefinitionNames<T extends { readonly name: string }>(items: readonly T[], context: z.RefinementCtx): void {
+  const names = new Set<string>()
+  items.forEach((item, index) => {
+    if (names.has(item.name)) context.addIssue({ code: 'custom', path: [index, 'name'], message: `Duplicate definition name: ${item.name}` })
+    names.add(item.name)
+  })
+}
+
+const namedDefinitionValueSchema = z.object({
+  name: definitionNameSchema,
+  value: cssDefinitionValueSchema(500),
+  description: definitionDescriptionSchema,
+})
+
+const namedDefinitionValuesSchema = z.array(namedDefinitionValueSchema).max(100).superRefine(uniqueDefinitionNames)
+
+export const typographyDefinitionSchema = z.object({
+  name: definitionNameSchema,
+  fontFamily: cssDefinitionValueSchema(500),
+  fontSize: cssDefinitionValueSchema(100),
+  fontWeight: cssDefinitionValueSchema(100),
+  lineHeight: cssDefinitionValueSchema(100),
+  letterSpacing: cssDefinitionValueSchema(100).nullable().default(null),
+  description: definitionDescriptionSchema,
+})
+
+export const projectDesignDefinitionsSchema = z.object({
+  schemaVersion: z.literal(1).default(1),
+  colors: namedDefinitionValuesSchema.default([]),
+  typography: z.array(typographyDefinitionSchema).max(100).superRefine(uniqueDefinitionNames).default([]),
+  spacing: namedDefinitionValuesSchema.default([]),
+  shape: namedDefinitionValuesSchema.default([]),
+  visualGuidance: z.string().trim().max(20_000).default(''),
+  aiAgentInstructions: z.string().trim().max(50_000).default(''),
+})
+
+export const projectDesignDefinitionVersionSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().min(1),
+  version: z.number().int().positive(),
+  definitions: projectDesignDefinitionsSchema,
+  createdAt: z.string().datetime(),
+})
+
+export const projectDesignDefinitionStateSchema = z.object({
+  current: projectDesignDefinitionVersionSchema.nullable(),
+  promptSuppressed: z.boolean(),
+})
+
 export const attachmentSchema = z.object({
   id: z.string().uuid(),
   path: z.string().min(1).max(32_000),
@@ -94,11 +175,55 @@ export const attachmentSchema = z.object({
   status: z.enum(['available', 'changed', 'missing']),
 })
 
+const repositoryRelativeHtmlPathSchema = z.string().min(1).max(2_000).refine((value) => !value.startsWith('/') && !value.includes('\\') && !value.split('/').includes('..') && /\.html?$/i.test(value), 'Use a repository-relative HTML path.')
+
+export const focusedTargetSchema = z.object({
+  designId: z.string().min(1).max(100),
+  revisionId: z.string().min(1).max(100),
+  locationId: z.string().uuid().nullable().optional(),
+  path: repositoryRelativeHtmlPathSchema,
+  startLine: z.number().int().positive(),
+  endLine: z.number().int().positive(),
+  label: z.string().min(1).max(200),
+  stableId: z.string().max(500).nullable(),
+  excerpt: z.string().min(1).max(4_100),
+  dynamicDescription: z.string().max(500).nullable(),
+}).refine((value) => value.endLine >= value.startLine, { message: 'Focused target line range is invalid.' })
+
+export const focusedFeedbackSchema = z.object({
+  id: z.string().uuid(),
+  comment: z.string().trim().min(1).max(100_000),
+  target: focusedTargetSchema,
+  createdAt: z.string().datetime(),
+})
+
+export const resolveFocusedTargetRequestSchema = z.object({
+  designId: z.string().min(1).max(100),
+  revisionId: z.string().min(1).max(100),
+  token: z.string().uuid(),
+  page: repositoryRelativeHtmlPathSchema,
+  locationId: z.string().uuid(),
+  clickedLabel: z.string().trim().min(1).max(200),
+  usedAncestor: z.boolean(),
+})
+
+export const locateFocusedTargetsRequestSchema = z.object({
+  designId: z.string().min(1).max(100),
+  revisionId: z.string().min(1).max(100),
+  token: z.string().uuid(),
+  targets: z.array(z.object({
+    id: z.string().min(1).max(100),
+    target: focusedTargetSchema,
+  })).max(200),
+})
+
 export const messageSchema = z.object({
   id: z.string().min(1),
   role: z.enum(['user', 'assistant', 'system']),
   text: z.string(),
   attachments: z.array(attachmentSchema).default([]),
+  focusedTarget: focusedTargetSchema.nullable().default(null),
+  focusedFeedback: z.array(focusedFeedbackSchema).max(50).optional(),
   createdAt: z.string().datetime(),
 })
 
@@ -117,10 +242,38 @@ export const projectSummarySchema = z.object({
   lastProviderId: z.string().nullable(),
   folderId: z.string().nullable(),
   tags: z.array(tagSchema).default([]),
+  currentDefinitionVersion: z.number().int().positive().nullable().default(null),
+  definitionPromptSuppressed: z.boolean().default(false),
 })
 
 export const projectIdRequestSchema = z.object({
   projectId: z.string().min(1).max(100),
+})
+
+export const saveProjectDesignDefinitionsRequestSchema = projectIdRequestSchema.extend({
+  definitions: projectDesignDefinitionsSchema,
+})
+
+export const proposeProjectDesignDefinitionsRequestSchema = projectIdRequestSchema.extend({
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().trim().min(1).max(200),
+  effort: z.string().trim().min(1).max(100).nullable().optional(),
+})
+
+export const setProjectDefinitionPromptSuppressedRequestSchema = projectIdRequestSchema.extend({
+  suppressed: z.boolean(),
+})
+
+export const projectDefinitionDecisionRequestSchema = z.object({
+  designId: z.string().min(1).max(100),
+  targetVersion: z.number().int().positive(),
+  providerId: z.enum(['codex', 'claude']).optional(),
+  modelId: z.string().trim().min(1).max(200).optional(),
+  effort: z.string().trim().min(1).max(100).nullable().optional(),
+}).refine((value) => Boolean(value.providerId) === Boolean(value.modelId), { message: 'Provider and model must be supplied together.' })
+
+export const applyProjectDefinitionsToAllRequestSchema = projectIdRequestSchema.extend({
+  targetVersion: z.number().int().positive(),
 })
 
 export const renameProjectRequestSchema = projectIdRequestSchema.extend({
@@ -193,6 +346,9 @@ export const generationJobSchema = z.object({
   attachments: z.array(attachmentSchema).default([]),
   mode: generationJobModeSchema.default('fresh'),
   providerSessionId: z.string().min(1).nullable().default(null),
+  definitionTargetVersion: z.number().int().positive().nullable().default(null),
+  focusedTarget: focusedTargetSchema.nullable().default(null),
+  focusedFeedback: z.array(focusedFeedbackSchema).max(50).optional(),
   state: generationJobStateSchema,
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),
@@ -210,6 +366,11 @@ export const designSchema = z.object({
   updatedAt: z.string().datetime(),
   activeRevisionId: z.string().nullable(),
   selectedRevisionId: z.string().nullable(),
+  definitionVersion: z.number().int().positive().nullable().optional(),
+  pendingDefinitionVersion: z.number().int().positive().nullable().optional(),
+  keptDefinitionVersion: z.number().int().positive().nullable().optional(),
+  definitionApplicationState: z.enum(['current', 'pending', 'applying', 'kept', 'failed', 'unavailable']).optional(),
+  definitionApplicationError: z.string().nullable().optional(),
   draft: z.string(),
   draftAttachments: z.array(attachmentSchema),
   thumbnailDataUrl: z.string().nullable(),
@@ -262,10 +423,45 @@ export const generateRequestSchema = designIdRequestSchema.extend({
   modelId: z.string().trim().min(1).max(200).default('mock-v1'),
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   attachments: z.array(attachmentSchema).max(100).default([]),
+  focusedTarget: focusedTargetSchema.nullable().optional(),
+})
+
+export const queueFocusedFeedbackRequestSchema = designIdRequestSchema.extend({
+  comment: z.string().trim().min(1).max(100_000),
+  target: focusedTargetSchema,
+})
+
+export const removeFocusedFeedbackRequestSchema = designIdRequestSchema.extend({
+  feedbackId: z.string().uuid(),
+})
+
+export const submitFocusedFeedbackBatchRequestSchema = designIdRequestSchema.extend({
+  feedbackIds: z.array(z.string().uuid()).min(1).max(50).refine((ids) => new Set(ids).size === ids.length, 'Focused feedback identifiers must be unique.'),
+  providerId: z.enum(['mock', 'codex', 'claude']).default('mock'),
+  modelId: z.string().trim().min(1).max(200).default('mock-v1'),
+  effort: z.string().trim().min(1).max(100).nullable().optional(),
 })
 
 export const selectRevisionRequestSchema = designIdRequestSchema.extend({
   revisionId: z.string().min(1).max(100),
+})
+
+export const compareRevisionsRequestSchema = designIdRequestSchema.extend({
+  baseRevisionId: z.string().min(1).max(100),
+  targetRevisionId: z.string().min(1).max(100),
+})
+
+export const revisionComparisonSchema = z.object({
+  baseRevisionId: z.string().min(1),
+  targetRevisionId: z.string().min(1),
+  files: z.array(z.object({
+    path: z.string().min(1),
+    status: z.enum(['added', 'modified', 'removed']),
+    additions: z.number().int().nonnegative().nullable(),
+    deletions: z.number().int().nonnegative().nullable(),
+  })),
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
 })
 
 export const saveDraftRequestSchema = designIdRequestSchema.extend({
@@ -358,7 +554,11 @@ export const tagTargetRequestSchema = z.object({
 })
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>
+export type ProjectDesignDefinitions = z.infer<typeof projectDesignDefinitionsSchema>
+export type ProjectDesignDefinitionVersion = z.infer<typeof projectDesignDefinitionVersionSchema>
+export type ProjectDesignDefinitionState = z.infer<typeof projectDesignDefinitionStateSchema>
 export type ProjectIdRequest = z.infer<typeof projectIdRequestSchema>
+export type SaveProjectDesignDefinitionsRequest = z.infer<typeof saveProjectDesignDefinitionsRequestSchema>
 export type RenameProjectRequest = z.infer<typeof renameProjectRequestSchema>
 export type ReconnectProjectRequest = z.infer<typeof reconnectProjectRequestSchema>
 export type CloneProjectRequest = z.infer<typeof cloneProjectRequestSchema>
@@ -367,13 +567,20 @@ export type TrashItem = z.infer<typeof trashItemSchema>
 export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>
 export type Attachment = z.infer<typeof attachmentSchema>
+export type FocusedTarget = z.infer<typeof focusedTargetSchema>
+export type FocusedFeedback = z.infer<typeof focusedFeedbackSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
 export type Message = z.infer<typeof messageSchema>
 export type PreviewDiagnostic = z.infer<typeof previewDiagnosticSchema>
 export type InvalidCandidate = z.infer<typeof invalidCandidateSchema>
 export type CreateDesignRequest = z.infer<typeof createDesignRequestSchema>
 export type GenerateRequest = z.infer<typeof generateRequestSchema>
+export type QueueFocusedFeedbackRequest = z.infer<typeof queueFocusedFeedbackRequestSchema>
+export type RemoveFocusedFeedbackRequest = z.infer<typeof removeFocusedFeedbackRequestSchema>
+export type SubmitFocusedFeedbackBatchRequest = z.infer<typeof submitFocusedFeedbackBatchRequestSchema>
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
+export type CompareRevisionsRequest = z.infer<typeof compareRevisionsRequestSchema>
+export type RevisionComparison = z.infer<typeof revisionComparisonSchema>
 export type RenameDesignRequest = z.infer<typeof renameDesignRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>

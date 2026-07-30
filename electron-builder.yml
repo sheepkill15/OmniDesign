@@ -1,0 +1,31 @@
+appId: dev.omnidesign.app
+productName: OmniDesign
+asar: true
+
+directories:
+  output: release
+
+files:
+  - dist-electron/**/*
+  - dist-renderer/**/*
+  - package.json
+
+publish:
+  provider: github
+  owner: sheepkill15
+  repo: OmniDesign
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-windows-${arch}-setup.${ext}
+
+mac:
+  category: public.app-category.developer-tools
+  notarize: true
+  target:
+    - target: dmg
+    - target: zip
+  artifactName: ${productName}-${version}-macos-${arch}.${ext}

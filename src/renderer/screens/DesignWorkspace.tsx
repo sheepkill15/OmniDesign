@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField } from 'react-aria-components'
 import {
   ArrowDownTrayIcon,
@@ -10,22 +10,26 @@ import {
   CheckCircleIcon,
   ClockIcon,
   ComputerDesktopIcon,
+  CursorArrowRaysIcon,
   DevicePhoneMobileIcon,
   DeviceTabletIcon,
   ExclamationTriangleIcon,
   FolderIcon,
   InformationCircleIcon,
+  QueueListIcon,
   SparklesIcon,
   Squares2X2Icon,
   StopIcon,
+  SwatchIcon,
   TrashIcon,
   ViewColumnsIcon,
   WindowIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
 import { AppModal } from '../components/AppModal'
 import { DropdownButton } from '../components/DropdownButton'
 import { Markdown } from '../components/Markdown'
-import { DesignPreview } from './DesignPreview'
+import { DesignPreview, type CanvasViewport, type FocusedEditThread } from './DesignPreview'
 import { AttachmentPicker, EditableTitle, GenerationActivitySection, IconButton, terminalGenerationStages, type AttachmentPickerKind, type Icon } from '../components/common'
 import { GenerationSettingsMenu, ProjectSelectionMenu } from '../components/composer'
 
@@ -33,6 +37,40 @@ type ConversationFeedItem =
   | { readonly kind: 'message'; readonly createdAt: string; readonly message: DesignMessage }
   | { readonly kind: 'step'; readonly createdAt: string; readonly step: GenerationStep }
   | { readonly kind: 'activity'; readonly createdAt: string; readonly id: string; readonly steps: GenerationStep[] }
+
+const REVISION_QUALITY_VERSION = 1
+
+function focusedThreadKey(target: FocusedTarget): string {
+  return target.stableId
+    ? `${target.path}\u0000stable\u0000${target.stableId}`
+    : `${target.path}\u0000source\u0000${target.label}\u0000${target.excerpt}`
+}
+
+function buildFocusedEditThreads(design: OmniDesignDocument, pendingFeedback: readonly FocusedFeedback[]): readonly FocusedEditThread[] {
+  const grouped = new Map<string, { target: FocusedTarget; entries: FocusedEditThread['entries'][number][] }>()
+  const seen = new Set<string>()
+  const add = (target: FocusedTarget, entry: FocusedEditThread['entries'][number]) => {
+    if (seen.has(entry.id)) return
+    seen.add(entry.id)
+    const key = focusedThreadKey(target)
+    const thread = grouped.get(key)
+    if (thread) {
+      thread.target = target
+      thread.entries.push(entry)
+    } else grouped.set(key, { target, entries: [entry] })
+  }
+  for (const message of design.messages) {
+    if (message.role !== 'user') continue
+    if (message.focusedTarget) add(message.focusedTarget, { id: `message-${message.id}`, comment: message.text, createdAt: message.createdAt, state: 'submitted' })
+    for (const feedback of message.focusedFeedback ?? []) add(feedback.target, { id: feedback.id, comment: feedback.comment, createdAt: feedback.createdAt, state: 'submitted' })
+  }
+  for (const feedback of pendingFeedback) add(feedback.target, { id: feedback.id, feedbackId: feedback.id, comment: feedback.comment, createdAt: feedback.createdAt, state: 'pending' })
+  return [...grouped.values()].map((thread, index) => ({
+    id: `focused-thread-${index + 1}`,
+    target: thread.target,
+    entries: thread.entries.sort((first, second) => first.createdAt.localeCompare(second.createdAt)),
+  })).slice(-200)
+}
 
 // Interleave persisted user/assistant messages with the recorded generation milestones so the major
 // steps of each run appear in the conversation history in the order they happened.
@@ -77,6 +115,8 @@ function ConversationMessage({ message, onOpenAttachment }: { readonly message: 
         <div className="message-bubble">
           {isUser ? <p>{message.text}</p> : <Markdown text={message.text} />}
           {message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => onOpenAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}
+          {message.focusedTarget && <div className="focused-target-reference">Target · {message.focusedTarget.path}:{message.focusedTarget.startLine}-{message.focusedTarget.endLine} · {message.focusedTarget.label}</div>}
+          {message.focusedFeedback?.length ? <div className="focused-feedback-history" aria-label="Submitted focused feedback">{message.focusedFeedback.map((item, index) => <div key={item.id}><strong>{index + 1}. {item.comment}</strong><small>{item.target.path}:{item.target.startLine}-{item.target.endLine} · {item.target.label}</small></div>)}</div> : null}
         </div>
       </div>
     </article>
@@ -121,9 +161,10 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
   )
 }
 
-export function DesignWorkspace({ design, providers, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders }: {
+export function DesignWorkspace({ design, providers, providersLoading, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders, onOpenDefinitions }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
+  readonly providersLoading: boolean
   readonly projects: readonly ProjectSummary[]
   readonly associationNotice: { readonly projectId: string; readonly projectName: string; readonly mode: 'associated' | 'suggested' } | null
   readonly activity: GenerationActivity | null
@@ -137,6 +178,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   readonly onAssociateAndRestart: (design: OmniDesignDocument, projectId: string) => Promise<void>
   readonly onDismissAssociation: () => void
   readonly onOpenProviders: () => void
+  readonly onOpenDefinitions: () => void
 }) {
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
@@ -157,10 +199,18 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>(design.layout.previewDevice)
   const [previewCustomWidth, setPreviewCustomWidth] = useState(design.layout.previewCustomWidth)
   const [previewCustomHeight, setPreviewCustomHeight] = useState(design.layout.previewCustomHeight)
+  const [canvasViewport, setCanvasViewport] = useState<CanvasViewport>({ zoom: design.layout.previewZoom, panX: design.layout.previewPanX, panY: design.layout.previewPanY })
+  const [selectionActive, setSelectionActive] = useState(false)
+  const [focusedTarget, setFocusedTarget] = useState<FocusedTarget | null>(null)
+  const [focusedComment, setFocusedComment] = useState('')
+  const [focusedFeedbackQueue, setFocusedFeedbackQueue] = useState<readonly FocusedFeedback[]>([])
+  const focusedEditThreads = useMemo(() => buildFocusedEditThreads(design, focusedFeedbackQueue), [design, focusedFeedbackQueue])
   const [customSizeOpen, setCustomSizeOpen] = useState(false)
   const [customWidthDraft, setCustomWidthDraft] = useState(String(design.layout.previewCustomWidth))
   const [customHeightDraft, setCustomHeightDraft] = useState(String(design.layout.previewCustomHeight))
   const [pageRename, setPageRename] = useState<{ readonly path: string; readonly value: string } | null>(null)
+  const [comparison, setComparison] = useState<RevisionComparison | null>(null)
+  const [comparisonLoading, setComparisonLoading] = useState(false)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -183,6 +233,8 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   }, [mode])
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
+  const qualityCheckCurrent = selectedRevision?.qualityCheckVersion === REVISION_QUALITY_VERSION
+  const qualityDiagnostics = qualityCheckCurrent ? selectedRevision?.diagnostics.filter((diagnostic) => diagnostic.kind === 'quality') ?? [] : []
   const latestInvalidCandidate = design.invalidCandidates.at(-1)
   // Only surface a rejected candidate while it is still the design's latest outcome. Once a later
   // revision lands (e.g. a repair attempt succeeded), the rejection is history, not a current problem.
@@ -212,19 +264,61 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
       return undefined
     }
   }
+  const applyDefinitions = async () => {
+    const target = design.pendingDefinitionVersion
+    if (!api || !target) return
+    const providerSelection = selection.providerId === 'mock' || !hasUsableSelection ? null : { providerId: selection.providerId, modelId: selection.modelId, effort: selection.effort }
+    const updated = await runWorkspaceAction(() => api.applyProjectDesignDefinitions(design.id, target, providerSelection), 'Project definitions could not be applied.')
+    if (updated) onChange(updated)
+  }
+  const keepDefinitions = async () => {
+    const target = design.pendingDefinitionVersion
+    if (!api || !target) return
+    const updated = await runWorkspaceAction(() => api.keepProjectDesignDefinitions(design.id, target), 'The project-definition decision could not be saved.')
+    if (updated) onChange(updated)
+  }
+  const applyDefinitionsToAll = async () => {
+    const target = design.pendingDefinitionVersion
+    if (!api || !target) return
+    const updated = await runWorkspaceAction(() => api.applyProjectDesignDefinitionsToAll(design.projectId, target), 'Project definitions could not be applied to every design.')
+    const current = updated?.find((candidate) => candidate.id === design.id)
+    if (current) onChange(current)
+    if (updated) {
+      const needsAttention = updated.filter((candidate) => candidate.definitionApplicationState === 'failed' || candidate.definitionApplicationState === 'unavailable')
+      const applying = updated.filter((candidate) => candidate.definitionApplicationState === 'applying')
+      if (needsAttention.length) setFeedback({ tone: 'error', message: `${needsAttention.length} design${needsAttention.length === 1 ? ' still needs' : 's still need'} attention.`, detail: 'Successful updates were kept. Open each remaining design to retry or choose a provider.' })
+      else if (applying.length) setFeedback({ tone: 'success', message: `Definition updates are queued for ${applying.length} design${applying.length === 1 ? '' : 's'}.` })
+      else setFeedback({ tone: 'success', message: 'Project definitions were applied to every pending design.' })
+    }
+  }
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
   useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
-  useEffect(() => setSelection(design.lastSelection), [design.id])
+  useEffect(() => setSelection(design.lastSelection), [design.id, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort])
+  useEffect(() => {
+    let active = true
+    void window.omnidesign?.workspace.listFocusedFeedback(design.id)
+      .then((items) => { if (active) setFocusedFeedbackQueue(items) })
+      .catch((reason: unknown) => { if (active) setFeedback({ tone: 'error', message: 'Queued feedback could not be loaded.', ...(reason instanceof Error ? { detail: reason.message } : {}) }) })
+    return () => { active = false }
+  }, [design.id, design.activeRevisionId])
   useEffect(() => {
     setPreviewViewMode(design.layout.previewViewMode)
     setPreviewFit(design.layout.previewFit)
     setPreviewDevice(design.layout.previewDevice)
     setPreviewCustomWidth(design.layout.previewCustomWidth)
     setPreviewCustomHeight(design.layout.previewCustomHeight)
-  }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice, design.layout.previewCustomWidth, design.layout.previewCustomHeight])
+    setPreviewPage(design.layout.previewPage)
+    setCanvasViewport({ zoom: design.layout.previewZoom, panX: design.layout.previewPanX, panY: design.layout.previewPanY })
+  }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice, design.layout.previewCustomWidth, design.layout.previewCustomHeight, design.layout.previewPage, design.layout.previewZoom, design.layout.previewPanX, design.layout.previewPanY])
+  useEffect(() => setSelectionActive(false), [design.id])
+  useEffect(() => { setFocusedTarget(null); setFocusedComment('') }, [design.id, design.selectedRevisionId, previewPage])
+  useEffect(() => { setComparison(null); setComparisonLoading(false) }, [design.id, design.selectedRevisionId])
+  useEffect(() => {
+    if (previewViewMode === 'canvas') { setFocusedTarget(null); setFocusedComment('') }
+  }, [previewViewMode])
   // Register the selected revision's files with the preview server, which returns the opaque token the
   // iframes load from plus the discovered pages. The preview defaults to the home page.
   useEffect(() => {
@@ -291,10 +385,10 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   }, [api, design.id, draft, attachments])
   useEffect(() => {
     if (!api) return
-    const layout: Layout = { conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage }
+    const layout: Layout = { conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage, previewZoom: canvasViewport.zoom, previewPanX: canvasViewport.panX, previewPanY: canvasViewport.panY }
     const timer = window.setTimeout(() => { void api.saveLayout(design.id, layout).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'The workspace layout could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 250)
     return () => window.clearTimeout(timer)
-  }, [api, conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage, design.id])
+  }, [api, conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage, canvasViewport, design.id])
   // While the popped-out layout is active, open the preview in its own window (a later revision reloads
   // it); leaving the layout or unmounting closes that window.
   useEffect(() => {
@@ -330,6 +424,45 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
       setAttachments(submittedAttachments)
     }
   }
+  const fixQualityIssues = async () => {
+    if (!api || !qualityDiagnostics.length || busy || !selectedIsHead || !hasUsableSelection) return
+    const findings = qualityDiagnostics.map((diagnostic) => `- [${diagnostic.level}] ${diagnostic.source ?? 'design'}: ${diagnostic.message}`).join('\n')
+    const prompt = `Fix the visual quality issues below. Preserve the intended content and design direction, make the smallest coherent changes, and keep every page responsive and accessible.\n\n${findings}`
+    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, []), 'The quality repair could not be submitted.')
+    if (updated) onChange(updated)
+  }
+  const submitFocusedFeedback = async () => {
+    if (!api || !focusedComment.trim() || !focusedTarget || busy || !selectedIsHead || !hasUsableSelection) return
+    const comment = focusedComment.trim()
+    const target = focusedTarget
+    setFocusedTarget(null)
+    setFocusedComment('')
+    const updated = await runWorkspaceAction(() => api.generate(design.id, comment, selection.providerId, selection.modelId, selection.effort ?? undefined, [], target), 'The focused edit could not be submitted. Your comment has been restored.')
+    if (updated) onChange(updated)
+    else { setFocusedTarget(target); setFocusedComment(comment) }
+  }
+  const queueFocusedFeedback = async () => {
+    if (!api || !focusedComment.trim() || !focusedTarget || busy || !selectedIsHead) return
+    const comment = focusedComment.trim()
+    const updated = await runWorkspaceAction(() => api.queueFocusedFeedback(design.id, comment, focusedTarget), 'Focused feedback could not be queued. Your comment is still here.')
+    if (!updated) return
+    setFocusedFeedbackQueue(updated)
+    setFocusedTarget(null)
+    setFocusedComment('')
+  }
+  const removeFocusedFeedback = async (feedbackId: string) => {
+    if (!api) return
+    const updated = await runWorkspaceAction(() => api.removeFocusedFeedback(design.id, feedbackId), 'That queued feedback item could not be removed.')
+    if (updated) setFocusedFeedbackQueue(updated)
+  }
+  const submitFocusedFeedbackBatch = async () => {
+    if (!api || !focusedFeedbackQueue.length || busy || !selectedIsHead || !hasUsableSelection || !previewToken) return
+    const submitted = focusedFeedbackQueue
+    const updated = await runWorkspaceAction(() => api.submitFocusedFeedbackBatch(design.id, submitted.map((item) => item.id), selection.providerId, selection.modelId, selection.effort ?? undefined), 'The focused feedback batch could not be submitted. Your queue is unchanged.')
+    if (!updated) return
+    setFocusedFeedbackQueue([])
+    onChange(updated)
+  }
   const selectRevision = async (revisionId: string) => {
     if (!api || revisionId === design.selectedRevisionId) return
     const updated = await runWorkspaceAction(() => api.selectRevision(design.id, revisionId), 'That revision could not be opened.')
@@ -339,6 +472,13 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     if (!api || !design.selectedRevisionId) return
     const updated = await runWorkspaceAction(() => api.restoreRevision(design.id, design.selectedRevisionId!), 'That revision could not be restored.')
     if (updated) onChange(updated)
+  }
+  const compareToCurrent = async () => {
+    if (!api || !design.selectedRevisionId || !design.activeRevisionId || selectedIsHead || comparisonLoading) return
+    setComparisonLoading(true)
+    const result = await runWorkspaceAction(() => api.compareRevisions(design.id, design.selectedRevisionId!, design.activeRevisionId!), 'These revisions could not be compared.')
+    if (result) setComparison(result)
+    setComparisonLoading(false)
   }
   const exportRevision = async () => {
     if (!api || !design.selectedRevisionId) return
@@ -444,9 +584,16 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     }
   }
 
-  const previewStatus = selectedRevision ? 'Offline · validated' : 'Waiting for revision'
+  const previewStatus = !selectedRevision
+    ? 'Waiting for revision'
+    : !qualityCheckCurrent
+      ? 'Local · checking quality'
+      : qualityDiagnostics.length
+        ? `Local · ${qualityDiagnostics.length} quality issue${qualityDiagnostics.length === 1 ? '' : 's'}`
+        : 'Local · quality checked'
+  const comparisonBase = comparison ? design.revisions.find((revision) => revision.id === comparison.baseRevisionId) : null
+  const comparisonTarget = comparison ? design.revisions.find((revision) => revision.id === comparison.targetRevisionId) : null
   const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
-
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
@@ -464,17 +611,27 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
           <p>OmniDesign kept your last working design.</p>
           <details><summary>What went wrong</summary><p>{latestInvalidCandidate!.diagnostic}</p></details>
         </section>}
+        {qualityDiagnostics.length > 0 && <section className="revision-quality-report" role="status">
+          <span><ExclamationTriangleIcon aria-hidden="true" /><span><strong>Visual quality check found {qualityDiagnostics.length} issue{qualityDiagnostics.length === 1 ? '' : 's'}.</strong><small>Every page was rendered at phone and desktop widths.</small></span></span>
+          <details><summary>Review findings</summary><ul>{qualityDiagnostics.map((diagnostic) => <li key={diagnostic.id}><strong>{diagnostic.source ?? 'Design'}</strong>{diagnostic.message}</li>)}</ul></details>
+          {selectedIsHead && <Button className="secondary-action" isDisabled={busy || !hasUsableSelection} onPress={() => void fixQualityIssues()}><WrenchScrewdriverIcon aria-hidden="true" />Fix issues</Button>}
+        </section>}
         {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
         {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
+        {design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
       </div>
-      {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
+      {focusedFeedbackQueue.length > 0 && <section className="focused-feedback-queue" aria-label="Focused feedback queue">
+        <header><span><QueueListIcon aria-hidden="true" /><span><strong>{focusedFeedbackQueue.length} focused note{focusedFeedbackQueue.length === 1 ? '' : 's'} queued</strong><small>Review them on the preview, then fix them together.</small></span></span><Button className="primary-action" isDisabled={busy || !selectedIsHead || !hasUsableSelection || !previewToken} onPress={() => void submitFocusedFeedbackBatch()}><WrenchScrewdriverIcon aria-hidden="true" />Fix all</Button></header>
+      </section>}
+      {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Compare it with the current head or restore it before prompting.</span><span className="historical-actions"><Button className="secondary-action" isDisabled={comparisonLoading} onPress={() => void compareToCurrent()}>{comparisonLoading ? 'Comparing…' : 'Compare to current'}</Button><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></span></div>}
       <div className="workspace-composer">
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
-        {!hasUsableSelection && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
+        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        {!hasUsableSelection && providersLoading && !readyProviders.length && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Your draft and design history remain available while provider status refreshes.</small></span></div>}
+        {!hasUsableSelection && (!providersLoading || readyProviders.length > 0) && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
     </section>
   )
@@ -491,8 +648,9 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         <div className="preview-controls">
           <div className="preview-view-toggle" role="group" aria-label="Preview layout">
             <Button className="preview-toggle-option" data-active={previewViewMode === 'focused' || undefined} aria-pressed={previewViewMode === 'focused'} onPress={() => setPreviewViewMode('focused')}><WindowIcon aria-hidden="true" />Focused</Button>
-            <Button className="preview-toggle-option" data-active={previewViewMode === 'canvas' || undefined} aria-pressed={previewViewMode === 'canvas'} onPress={() => setPreviewViewMode('canvas')}><Squares2X2Icon aria-hidden="true" />Canvas</Button>
+            <Button className="preview-toggle-option" data-active={previewViewMode === 'canvas' || undefined} aria-pressed={previewViewMode === 'canvas'} onPress={() => { setFocusedTarget(null); setPreviewViewMode('canvas') }}><Squares2X2Icon aria-hidden="true" />Canvas</Button>
           </div>
+          <Button className="preview-toggle-option" data-active={selectionActive || undefined} aria-pressed={selectionActive} isDisabled={!selectedIsHead || !previewToken} onPress={() => { setFocusedTarget(null); setFocusedComment(''); setPreviewViewMode('focused'); setSelectionActive((current) => !current) }}><CursorArrowRaysIcon aria-hidden="true" />Select element</Button>
           {previewViewMode === 'focused' && previewPages.length > 1 && (
             <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<span>{currentPageLabel}</span>}>
               <Menu aria-label="Preview page" onAction={(key) => {
@@ -535,7 +693,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
         <small>{previewStatus}</small>
       </div>
       {previewToken && design.selectedRevisionId
-        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && !selectedRevision.thumbnailDataUrl} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} />
+        ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && (!selectedRevision.thumbnailDataUrl || !qualityCheckCurrent)} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} canvasViewport={canvasViewport} onCanvasViewportChange={setCanvasViewport} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => { setFocusedTarget(null); setFocusedComment('') }} onSelectionError={(message) => setFeedback({ tone: 'error', message })} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
         : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
     </section>
   )
@@ -559,7 +717,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
                   {revision.thumbnailDataUrl
                     ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
                     : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
-                  <span><strong>{index === 0 ? `Current head · ${new Date(revision.createdAt).toLocaleString()}` : new Date(revision.createdAt).toLocaleString()}</strong><small title={revision.prompt}>{revision.prompt}</small></span>
+                  <span><strong>{index === 0 ? `Current head · ${new Date(revision.createdAt).toLocaleString()}` : new Date(revision.createdAt).toLocaleString()}</strong><small title={revision.prompt}>Request · {revision.prompt}</small><small className="history-meta">{revision.qualityCheckVersion === REVISION_QUALITY_VERSION ? revision.diagnostics.some((diagnostic) => diagnostic.kind === 'quality') ? 'Quality issues found' : 'Quality checked' : 'Quality pending'} · {revision.providerId}</small></span>
                 </MenuItem>
               ))}
             </Menu>
@@ -568,9 +726,23 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
+          <Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button>
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
+      <AppModal isOpen={comparison !== null} onOpenChange={(open) => { if (!open) setComparison(null) }} className="revision-comparison-modal" title="Compare revisions">
+        {(close) => comparison && <>
+          <div className="revision-comparison-snapshots">
+            <article><span>Earlier revision</span>{comparisonBase?.thumbnailDataUrl ? <img alt="Earlier revision preview" src={comparisonBase.thumbnailDataUrl} /> : <div className="revision-comparison-placeholder">Preview unavailable</div>}<strong>{comparisonBase?.prompt ?? 'Earlier revision'}</strong><small>{comparisonBase ? new Date(comparisonBase.createdAt).toLocaleString() : ''}</small></article>
+            <article><span>Current head</span>{comparisonTarget?.thumbnailDataUrl ? <img alt="Current revision preview" src={comparisonTarget.thumbnailDataUrl} /> : <div className="revision-comparison-placeholder">Preview unavailable</div>}<strong>{comparisonTarget?.prompt ?? 'Current revision'}</strong><small>{comparisonTarget ? new Date(comparisonTarget.createdAt).toLocaleString() : ''}</small></article>
+          </div>
+          <section className="revision-comparison-changes" aria-label="Authored file changes">
+            <header><span><strong>{comparison.files.length} authored file{comparison.files.length === 1 ? '' : 's'} changed</strong><small>Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{comparison.additions}</strong><strong>−{comparison.deletions}</strong></span></header>
+            {comparison.files.length > 0 ? <ul>{comparison.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files changed between these snapshots.</p>}
+          </section>
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Close</Button></div>
+        </>}
+      </AppModal>
       <AppModal isOpen={pageRename !== null} onOpenChange={(open) => { if (!open) setPageRename(null) }} title="Rename page">
         {(close) => <>
           <p>Give this page a display title. The file name on disk stays the same.</p>

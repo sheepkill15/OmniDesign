@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, designSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
-import type { Attachment, Design, DesignPage, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import { attachmentSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import { providerStatusesSchema, type ProviderStatus } from '../provider/types.js'
+import type { Attachment, Design, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import { REVISION_QUALITY_VERSION } from './revisionQuality.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
 // regardless of the host the store runs on.
@@ -40,6 +42,11 @@ interface DesignRow {
   title_pending: number
   adaptation_pending: number
   entry_page_path: string | null
+  definition_version: number | null
+  pending_definition_version: number | null
+  kept_definition_version: number | null
+  definition_application_state: 'current' | 'pending' | 'applying' | 'kept' | 'failed' | 'unavailable'
+  definition_application_error: string | null
 }
 
 interface DesignPageRow {
@@ -58,6 +65,48 @@ interface ProjectRow {
   design_count: number
   last_design_activity: string | null
   folder_id: string | null
+  current_definition_version: number | null
+  definition_prompt_suppressed: number
+}
+
+interface ProjectDefinitionVersionRow {
+  id: string
+  project_id: string
+  version: number
+  definitions_json: string
+  created_at: string
+}
+
+export interface ProjectDefinitionApplicationAttempt {
+  readonly id: string
+  readonly designId: string
+  readonly targetVersion: number
+  readonly mechanism: 'deterministic' | 'ai'
+  readonly state: 'applying' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'unavailable'
+  readonly generationJobId: string | null
+  readonly providerId: string | null
+  readonly modelId: string | null
+  readonly effort: string | null
+  readonly diagnostic: string | null
+  readonly resultingRevisionId: string | null
+  readonly createdAt: string
+  readonly completedAt: string | null
+}
+
+interface ProjectDefinitionApplicationAttemptRow {
+  id: string
+  design_id: string
+  target_version: number
+  mechanism: ProjectDefinitionApplicationAttempt['mechanism']
+  state: ProjectDefinitionApplicationAttempt['state']
+  generation_job_id: string | null
+  provider_id: string | null
+  model_id: string | null
+  effort: string | null
+  diagnostic: string | null
+  resulting_revision_id: string | null
+  created_at: string
+  completed_at: string | null
 }
 
 interface TagRow {
@@ -101,6 +150,9 @@ interface RevisionRow {
   provider_id: string
   model_id: string
   git_commit: string | null
+  definition_version: number | null
+  quality_checked_at: string | null
+  quality_check_version: number | null
   created_at: string
 }
 
@@ -109,6 +161,8 @@ interface MessageRow {
   role: Message['role']
   text: string
   attachments_json: string
+  focused_target_json: string | null
+  focused_feedback_json: string
   created_at: string
 }
 
@@ -140,6 +194,9 @@ interface GenerationJobRow {
   attachments_json: string
   mode: 'fresh' | 'continue'
   provider_session_id: string | null
+  definition_target_version: number | null
+  focused_target_json: string | null
+  focused_feedback_json: string
   state: GenerationJobState
   created_at: string
   started_at: string | null
@@ -470,6 +527,86 @@ const migrationThirtyTwo = `
 ALTER TABLE designs ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
 `
 
+// Phase 3 project-level definitions are immutable versioned JSON records. Projects point to the
+// current version number and retain a separate per-project choice for suppressing automatic setup
+// prompts. Design-level applied/kept/pending state lands with the propagation slice.
+const migrationThirtyThree = `
+ALTER TABLE projects ADD COLUMN current_definition_version INTEGER CHECK (current_definition_version IS NULL OR current_definition_version > 0);
+ALTER TABLE projects ADD COLUMN definition_prompt_suppressed INTEGER NOT NULL DEFAULT 0 CHECK (definition_prompt_suppressed IN (0, 1));
+CREATE TABLE project_definition_versions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL CHECK (version > 0),
+  definitions_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (project_id, version)
+) STRICT;
+CREATE INDEX project_definition_versions_by_project ON project_definition_versions(project_id, version DESC);
+`
+
+const migrationThirtyFour = `
+ALTER TABLE designs ADD COLUMN definition_version INTEGER CHECK (definition_version IS NULL OR definition_version > 0);
+ALTER TABLE revisions ADD COLUMN definition_version INTEGER CHECK (definition_version IS NULL OR definition_version > 0);
+`
+
+const migrationThirtyFive = `
+ALTER TABLE designs ADD COLUMN pending_definition_version INTEGER CHECK (pending_definition_version IS NULL OR pending_definition_version > 0);
+ALTER TABLE designs ADD COLUMN kept_definition_version INTEGER CHECK (kept_definition_version IS NULL OR kept_definition_version > 0);
+ALTER TABLE designs ADD COLUMN definition_application_state TEXT NOT NULL DEFAULT 'current' CHECK (definition_application_state IN ('current', 'pending', 'applying', 'kept', 'failed', 'unavailable'));
+ALTER TABLE designs ADD COLUMN definition_application_error TEXT;
+`
+
+const migrationThirtySix = `
+ALTER TABLE generation_jobs ADD COLUMN definition_target_version INTEGER CHECK (definition_target_version IS NULL OR definition_target_version > 0);
+`
+
+const migrationThirtySeven = `
+ALTER TABLE messages ADD COLUMN focused_target_json TEXT;
+ALTER TABLE generation_jobs ADD COLUMN focused_target_json TEXT;
+`
+
+const migrationThirtyEight = `
+CREATE TABLE project_definition_application_attempts (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  target_version INTEGER NOT NULL CHECK (target_version > 0),
+  mechanism TEXT NOT NULL CHECK (mechanism IN ('deterministic', 'ai')),
+  state TEXT NOT NULL CHECK (state IN ('applying', 'completed', 'failed', 'cancelled', 'interrupted', 'unavailable')),
+  generation_job_id TEXT REFERENCES generation_jobs(id) ON DELETE SET NULL,
+  provider_id TEXT,
+  model_id TEXT,
+  effort TEXT,
+  diagnostic TEXT,
+  resulting_revision_id TEXT REFERENCES revisions(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+) STRICT;
+CREATE INDEX project_definition_application_attempts_by_design ON project_definition_application_attempts(design_id, created_at);
+CREATE INDEX project_definition_application_attempts_by_job ON project_definition_application_attempts(generation_job_id);
+`
+
+const migrationThirtyNine = `
+CREATE TABLE focused_feedback_queue (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  revision_id TEXT NOT NULL REFERENCES revisions(id) ON DELETE CASCADE,
+  comment TEXT NOT NULL,
+  target_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX focused_feedback_queue_by_design ON focused_feedback_queue(design_id, created_at);
+ALTER TABLE messages ADD COLUMN focused_feedback_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE generation_jobs ADD COLUMN focused_feedback_json TEXT NOT NULL DEFAULT '[]';
+`
+
+const migrationForty = `
+ALTER TABLE revisions ADD COLUMN quality_checked_at TEXT;
+`
+
+const migrationFortyOne = `
+ALTER TABLE revisions ADD COLUMN quality_check_version INTEGER CHECK (quality_check_version IS NULL OR quality_check_version > 0);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -489,6 +626,8 @@ export class WorkspaceStore {
     this.purgeExpiredTrash()
     // A background title request never survives a process exit, so no design can still be pending on open.
     this.database.exec('UPDATE designs SET title_pending = 0 WHERE title_pending = 1')
+    this.database.exec("UPDATE designs SET definition_application_state = 'failed', definition_application_error = 'Definition application was interrupted when OmniDesign closed.' WHERE definition_application_state = 'applying'")
+    this.database.exec("UPDATE project_definition_application_attempts SET state = 'interrupted', diagnostic = 'OmniDesign closed before this definition application completed.', completed_at = datetime('now') WHERE state = 'applying'")
     this.purgeTimer = setInterval(() => { try { this.purgeExpiredTrash() } catch { /* a transient DB error should not crash the sweep */ } }, TRASH_PURGE_INTERVAL_MS)
     // Do not keep the process alive solely for the sweep.
     this.purgeTimer.unref?.()
@@ -507,7 +646,8 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
+             d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.trashed_at IS NULL AND p.trashed_at IS NULL
       ORDER BY d.updated_at DESC
@@ -519,7 +659,8 @@ export class WorkspaceStore {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
+             d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
@@ -528,6 +669,7 @@ export class WorkspaceStore {
   public listProjects(): ProjectSummary[] {
     const rows = this.database.prepare(`
       SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at, p.folder_id,
+             p.current_definition_version, p.definition_prompt_suppressed,
              COUNT(d.id) AS design_count,
              MAX(d.updated_at) AS last_design_activity
       FROM projects p
@@ -542,6 +684,7 @@ export class WorkspaceStore {
   public getProjectSummary(projectId: string): ProjectSummary | null {
     const row = this.database.prepare(`
       SELECT p.id, p.name, p.kind, p.source_path, p.created_at, p.updated_at, p.folder_id,
+             p.current_definition_version, p.definition_prompt_suppressed,
              COUNT(d.id) AS design_count,
              MAX(d.updated_at) AS last_design_activity
       FROM projects p
@@ -556,7 +699,8 @@ export class WorkspaceStore {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
              d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
-             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
+             d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id
       WHERE d.project_id = ? AND d.trashed_at IS NULL
       ORDER BY d.sort_order, d.updated_at DESC, d.rowid DESC
@@ -574,6 +718,186 @@ export class WorkspaceStore {
     const result = this.database.prepare('UPDATE projects SET name = ?, updated_at = ? WHERE id = ? AND trashed_at IS NULL').run(name, now, projectId)
     if (result.changes !== 1) throw new Error('Project not found.')
     return this.getProjectSummary(projectId)!
+  }
+
+  public getProjectDesignDefinitionState(projectId: string): ProjectDesignDefinitionState | null {
+    const project = this.database.prepare(`
+      SELECT current_definition_version, definition_prompt_suppressed
+      FROM projects WHERE id = ? AND trashed_at IS NULL
+    `).get(projectId) as { current_definition_version: number | null; definition_prompt_suppressed: number } | undefined
+    if (!project) return null
+    const current = project.current_definition_version === null
+      ? null
+      : this.readProjectDesignDefinitionVersion(projectId, project.current_definition_version)
+    if (project.current_definition_version !== null && !current) throw new Error('The current project design definitions are missing.')
+    return projectDesignDefinitionStateSchema.parse({ current, promptSuppressed: project.definition_prompt_suppressed === 1 })
+  }
+
+  public listProjectDesignDefinitionVersions(projectId: string): ProjectDesignDefinitionVersion[] {
+    const rows = this.database.prepare(`
+      SELECT id, project_id, version, definitions_json, created_at
+      FROM project_definition_versions WHERE project_id = ? ORDER BY version
+    `).all(projectId) as unknown as ProjectDefinitionVersionRow[]
+    return rows.map((row) => this.hydrateProjectDesignDefinitionVersion(row))
+  }
+
+  public saveProjectDesignDefinitions(projectId: string, definitions: ProjectDesignDefinitions): ProjectDesignDefinitionVersion {
+    const parsed = projectDesignDefinitionsSchema.parse(definitions)
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    let version = 0
+    this.transaction(() => {
+      const project = this.database.prepare(`
+        SELECT current_definition_version FROM projects WHERE id = ? AND trashed_at IS NULL
+      `).get(projectId) as { current_definition_version: number | null } | undefined
+      if (!project) throw new Error('Project not found.')
+      version = (project.current_definition_version ?? 0) + 1
+      this.database.prepare(`
+        INSERT INTO project_definition_versions (id, project_id, version, definitions_json, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(id, projectId, version, JSON.stringify(parsed), now)
+      this.database.prepare(`
+        UPDATE projects SET current_definition_version = ?, updated_at = ? WHERE id = ?
+      `).run(version, now, projectId)
+      this.database.prepare(`
+        UPDATE designs
+        SET pending_definition_version = ?, kept_definition_version = NULL,
+            definition_application_state = 'pending', definition_application_error = NULL
+        WHERE project_id = ? AND trashed_at IS NULL
+      `).run(version, projectId)
+    })
+    return projectDesignDefinitionVersionSchema.parse({ id, projectId, version, definitions: parsed, createdAt: now })
+  }
+
+  public setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): ProjectDesignDefinitionState {
+    const result = this.database.prepare(`
+      UPDATE projects SET definition_prompt_suppressed = ? WHERE id = ? AND trashed_at IS NULL
+    `).run(suppressed ? 1 : 0, projectId)
+    if (result.changes !== 1) throw new Error('Project not found.')
+    return this.getProjectDesignDefinitionState(projectId)!
+  }
+
+  public keepProjectDesignDefinitions(designId: string, targetVersion: number): Design {
+    const result = this.database.prepare(`
+      UPDATE designs
+      SET pending_definition_version = NULL, kept_definition_version = ?,
+          definition_application_state = 'kept', definition_application_error = NULL
+      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
+    `).run(targetVersion, designId, targetVersion)
+    if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
+    return this.requireDesign(designId)
+  }
+
+  public beginProjectDefinitionApplication(designId: string, targetVersion: number): Design {
+    const result = this.database.prepare(`
+      UPDATE designs SET definition_application_state = 'applying', definition_application_error = NULL
+      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
+    `).run(designId, targetVersion)
+    if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
+    return this.requireDesign(designId)
+  }
+
+  public completeProjectDefinitionApplication(designId: string, targetVersion: number): Design {
+    const result = this.database.prepare(`
+      UPDATE designs
+      SET definition_version = ?, pending_definition_version = NULL, kept_definition_version = NULL,
+          definition_application_state = 'current', definition_application_error = NULL
+      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
+    `).run(targetVersion, designId, targetVersion)
+    if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
+    return this.requireDesign(designId)
+  }
+
+  public failProjectDefinitionApplication(designId: string, targetVersion: number, error: string, unavailable = false): Design {
+    const result = this.database.prepare(`
+      UPDATE designs SET definition_application_state = ?, definition_application_error = ?
+      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
+    `).run(unavailable ? 'unavailable' : 'failed', error, designId, targetVersion)
+    if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
+    return this.requireDesign(designId)
+  }
+
+  public startProjectDefinitionApplicationAttempt(designId: string, targetVersion: number, options: {
+    readonly mechanism: 'deterministic' | 'ai'
+    readonly generationJobId?: string | null
+    readonly providerId?: string | null
+    readonly modelId?: string | null
+    readonly effort?: string | null
+    readonly state?: 'applying' | 'failed' | 'unavailable'
+    readonly diagnostic?: string | null
+  }): ProjectDefinitionApplicationAttempt {
+    this.requireDesign(designId)
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    const state = options.state ?? 'applying'
+    this.database.prepare(`
+      INSERT INTO project_definition_application_attempts
+        (id, design_id, target_version, mechanism, state, generation_job_id, provider_id, model_id, effort, diagnostic, resulting_revision_id, created_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    `).run(id, designId, targetVersion, options.mechanism, state, options.generationJobId ?? null, options.providerId ?? null, options.modelId ?? null, options.effort ?? null, options.diagnostic ?? null, now, state === 'applying' ? null : now)
+    return this.requireProjectDefinitionApplicationAttempt(id)
+  }
+
+  public finishProjectDefinitionApplicationAttempt(id: string, state: 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'unavailable', diagnostic: string | null = null, resultingRevisionId: string | null = null): ProjectDefinitionApplicationAttempt {
+    const result = this.database.prepare(`
+      UPDATE project_definition_application_attempts
+      SET state = ?, diagnostic = ?, resulting_revision_id = ?, completed_at = ?
+      WHERE id = ? AND state IN ('applying', 'interrupted')
+    `).run(state, diagnostic, resultingRevisionId, new Date().toISOString(), id)
+    if (result.changes !== 1) throw new Error('Definition application attempt is not active.')
+    return this.requireProjectDefinitionApplicationAttempt(id)
+  }
+
+  public finishProjectDefinitionApplicationAttemptForJob(generationJobId: string, state: 'completed' | 'failed' | 'cancelled' | 'interrupted', diagnostic: string | null = null, resultingRevisionId: string | null = null): ProjectDefinitionApplicationAttempt | null {
+    const row = this.database.prepare(`
+      SELECT id FROM project_definition_application_attempts
+      WHERE generation_job_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1
+    `).get(generationJobId) as { id: string } | undefined
+    return row ? this.finishProjectDefinitionApplicationAttempt(row.id, state, diagnostic, resultingRevisionId) : null
+  }
+
+  public listProjectDefinitionApplicationAttempts(designId: string): ProjectDefinitionApplicationAttempt[] {
+    const rows = this.database.prepare(`
+      SELECT id, design_id, target_version, mechanism, state, generation_job_id, provider_id, model_id, effort,
+             diagnostic, resulting_revision_id, created_at, completed_at
+      FROM project_definition_application_attempts WHERE design_id = ? ORDER BY created_at, rowid
+    `).all(designId) as unknown as ProjectDefinitionApplicationAttemptRow[]
+    return rows.map((row) => this.hydrateProjectDefinitionApplicationAttempt(row))
+  }
+
+  public listFocusedFeedback(designId: string): FocusedFeedback[] {
+    this.requireDesign(designId)
+    const rows = this.database.prepare(`
+      SELECT id, comment, target_json, created_at
+      FROM focused_feedback_queue WHERE design_id = ? ORDER BY created_at, rowid
+    `).all(designId) as unknown as Array<{ id: string; comment: string; target_json: string; created_at: string }>
+    return rows.map((row) => focusedFeedbackSchema.parse({
+      id: row.id,
+      comment: row.comment,
+      target: focusedTargetSchema.parse(safeParseJson(row.target_json)),
+      createdAt: row.created_at,
+    }))
+  }
+
+  public queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): FocusedFeedback[] {
+    const design = this.requireDesign(designId)
+    const parsedTarget = focusedTargetSchema.parse(target)
+    if (!design.activeRevisionId || design.activeRevisionId !== design.selectedRevisionId || parsedTarget.designId !== designId || parsedTarget.revisionId !== design.activeRevisionId) {
+      throw new Error('The selected element is stale or does not belong to the current design revision.')
+    }
+    if (this.listFocusedFeedback(designId).length >= 50) throw new Error('A design can queue at most 50 focused feedback items.')
+    const item = focusedFeedbackSchema.parse({ id: randomUUID(), comment, target: parsedTarget, createdAt: new Date().toISOString() })
+    this.database.prepare(`
+      INSERT INTO focused_feedback_queue (id, design_id, revision_id, comment, target_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(item.id, designId, parsedTarget.revisionId, item.comment, JSON.stringify(parsedTarget), item.createdAt)
+    return this.listFocusedFeedback(designId)
+  }
+
+  public removeFocusedFeedback(designId: string, feedbackId: string): FocusedFeedback[] {
+    const result = this.database.prepare('DELETE FROM focused_feedback_queue WHERE id = ? AND design_id = ?').run(feedbackId, designId)
+    if (result.changes !== 1) throw new Error('Focused feedback item not found.')
+    return this.listFocusedFeedback(designId)
   }
 
   public renameDesign(designId: string, title: string): Design {
@@ -652,10 +976,10 @@ export class WorkspaceStore {
     const designId = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
-      const project = this.database.prepare('SELECT id FROM projects WHERE id = ? AND trashed_at IS NULL').get(projectId)
+      const project = this.database.prepare('SELECT id, current_definition_version FROM projects WHERE id = ? AND trashed_at IS NULL').get(projectId) as { id: string; current_definition_version: number | null } | undefined
       if (!project) throw new Error('Project not found.')
-      this.database.prepare('INSERT INTO designs (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-        .run(designId, projectId, title, now, now)
+      this.database.prepare('INSERT INTO designs (id, project_id, title, definition_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(designId, projectId, title, project.current_definition_version, now, now)
       if (prompt) {
         this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
           .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments), now)
@@ -696,13 +1020,13 @@ export class WorkspaceStore {
       }
       this.database.prepare(`
         INSERT INTO designs (id, project_id, title, active_revision_id, selected_revision_id, draft, draft_attachments_json, layout_json, queue_paused,
-          last_provider_id, last_model_id, last_effort, entry_page_path, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, '', '[]', ?, 0, ?, ?, ?, ?, ?, ?)
-      `).run(newDesignId, projectId, newTitle, newRevisionId, newRevisionId, JSON.stringify(source.layout), source.lastSelection.providerId, source.lastSelection.modelId, source.lastSelection.effort, source.entryPagePath, now, now)
+          last_provider_id, last_model_id, last_effort, entry_page_path, definition_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, '', '[]', ?, 0, ?, ?, ?, ?, ?, ?, ?)
+      `).run(newDesignId, projectId, newTitle, newRevisionId, newRevisionId, JSON.stringify(source.layout), source.lastSelection.providerId, source.lastSelection.modelId, source.lastSelection.effort, source.entryPagePath, source.definitionVersion ?? null, now, now)
       this.database.prepare(`
-        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
-        VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
-      `).run(newRevisionId, newDesignId, `Duplicated from ${source.title}`, activeRevision.providerId, activeRevision.modelId, activeRevision.gitCommit, now)
+        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at)
+        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
+      `).run(newRevisionId, newDesignId, `Duplicated from ${source.title}`, activeRevision.providerId, activeRevision.modelId, activeRevision.gitCommit, activeRevision.definitionVersion ?? null, now)
       for (const page of source.pages) {
         this.database.prepare('INSERT INTO design_pages (design_id, path, title, sort_order) VALUES (?, ?, ?, ?)').run(newDesignId, page.path, page.title, page.order)
       }
@@ -882,6 +1206,7 @@ export class WorkspaceStore {
     modelId = 'mock-v1',
     gitCommit: string | null = null,
     assistantResponse = 'Generated and validated a new design revision.',
+    definitionVersion: number | null = this.requireDesign(designId).definitionVersion ?? null,
   ): Design {
     const design = this.requireDesign(designId)
     const revisionId = randomUUID()
@@ -889,15 +1214,16 @@ export class WorkspaceStore {
 
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, now)
+        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, definitionVersion, now)
       if (!this.isLastMessageText(designId, assistantResponse)) {
         this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
           .run(randomUUID(), designId, 'assistant', assistantResponse, now)
       }
-      this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, updated_at = ?, draft = ? WHERE id = ?')
-        .run(revisionId, revisionId, now, '', designId)
+      this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, definition_version = ?, updated_at = ?, draft = ? WHERE id = ?')
+        .run(revisionId, revisionId, definitionVersion, now, '', designId)
+      this.database.prepare('DELETE FROM focused_feedback_queue WHERE design_id = ?').run(designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, design.projectId)
     })
 
@@ -912,7 +1238,17 @@ export class WorkspaceStore {
 
   public restoreRevision(designId: string, revisionId: string, gitCommit: string | null = null): Design {
     const revision = this.requireRevision(designId, revisionId)
-    return this.addRevision(designId, `Restored: ${revision.prompt}`, revision.providerId, revision.modelId, gitCommit)
+    const restored = this.addRevision(designId, `Restored: ${revision.prompt}`, revision.providerId, revision.modelId, gitCommit, undefined, revision.definitionVersion ?? null)
+    const project = this.database.prepare('SELECT current_definition_version FROM projects WHERE id = ?').get(restored.projectId) as { current_definition_version: number | null } | undefined
+    const currentVersion = project?.current_definition_version ?? null
+    if (currentVersion && currentVersion > (revision.definitionVersion ?? 0) && restored.keptDefinitionVersion !== currentVersion) {
+      this.database.prepare(`
+        UPDATE designs SET pending_definition_version = ?, definition_application_state = 'pending', definition_application_error = NULL
+        WHERE id = ?
+      `).run(currentVersion, designId)
+      return this.requireDesign(designId)
+    }
+    return restored
   }
 
   public saveDraft(designId: string, draft: string, attachments: readonly Attachment[] = []): void {
@@ -1061,6 +1397,20 @@ export class WorkspaceStore {
     `).run(JSON.stringify(generationSelectionSchema.parse(selection)))
   }
 
+  public getCachedProviderStatuses(): ProviderStatus[] {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'providers.cache'").get() as { value: string } | undefined
+    if (!setting) return []
+    return providerStatusesSchema.catch([]).parse(safeParseJson(setting.value))
+  }
+
+  public saveCachedProviderStatuses(statuses: readonly ProviderStatus[]): void {
+    const parsed = providerStatusesSchema.parse(statuses)
+    this.database.prepare(`
+      INSERT INTO settings (key, value) VALUES ('providers.cache', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(JSON.stringify(parsed))
+  }
+
   // The design open in the workspace when the app last closed, so a relaunch can reopen it (its page is
   // already persisted in the design's layout). Null — the row absent — means nothing was open; the app
   // then starts on Home. A stored id whose design no longer exists is treated as "nothing open" by the caller.
@@ -1094,17 +1444,30 @@ export class WorkspaceStore {
     `).run(randomUUID(), designId, jobId, stage, label, detail, new Date().toISOString())
   }
 
-  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh'): GenerationJob {
-    this.requireDesign(designId)
+  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = []): GenerationJob {
+    const design = this.requireDesign(designId)
+    const parsedFocusedFeedback = focusedFeedback.map((item) => focusedFeedbackSchema.parse(item))
+    if (parsedFocusedFeedback.length > 50) throw new Error('A focused feedback batch can contain at most 50 items.')
+    if (parsedFocusedFeedback.some((item) => item.target.designId !== designId || item.target.revisionId !== design.activeRevisionId || design.activeRevisionId !== design.selectedRevisionId)) {
+      throw new Error('Queued focused feedback is stale or does not belong to the current design revision.')
+    }
+    if (parsedFocusedFeedback.length) {
+      const queuedIds = new Set(this.listFocusedFeedback(designId).map((item) => item.id))
+      if (parsedFocusedFeedback.some((item) => !queuedIds.has(item.id))) throw new Error('Queued focused feedback changed before it could be submitted.')
+    }
     const id = randomUUID()
     const now = new Date().toISOString()
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), id, now)
+        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), now)
+      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, focused_target_json, focused_feedback_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), id, now)
+      if (parsedFocusedFeedback.length) {
+        const placeholders = parsedFocusedFeedback.map(() => '?').join(', ')
+        this.database.prepare(`DELETE FROM focused_feedback_queue WHERE design_id = ? AND id IN (${placeholders})`).run(designId, ...parsedFocusedFeedback.map((item) => item.id))
+      }
       // Sending any new prompt resolves a pending "adapt to project" decision.
       this.database.prepare('UPDATE designs SET updated_at = ?, adaptation_pending = 0 WHERE id = ?').run(now, designId)
     })
@@ -1115,7 +1478,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1123,7 +1486,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -1181,9 +1544,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -1213,9 +1576,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
     const continueId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
     return this.requireGenerationJob(continueId)
   }
 
@@ -1255,6 +1618,26 @@ export class WorkspaceStore {
       INSERT INTO preview_diagnostics (id, revision_id, kind, level, message, source, line, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(randomUUID(), revisionId, diagnostic.kind, diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line, new Date().toISOString())
+  }
+
+  public saveRevisionQualityReport(designId: string, revisionId: string, diagnostics: readonly Omit<PreviewDiagnostic, 'id' | 'createdAt' | 'kind'>[]): void {
+    this.requireRevision(designId, revisionId)
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.database.prepare("DELETE FROM preview_diagnostics WHERE revision_id = ? AND kind = 'quality'").run(revisionId)
+      const insert = this.database.prepare(`
+        INSERT INTO preview_diagnostics (id, revision_id, kind, level, message, source, line, created_at)
+        VALUES (?, ?, 'quality', ?, ?, ?, ?, ?)
+      `)
+      const seen = new Set<string>()
+      for (const diagnostic of diagnostics) {
+        const key = JSON.stringify([diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line])
+        if (seen.has(key)) continue
+        seen.add(key)
+        insert.run(randomUUID(), revisionId, diagnostic.level, diagnostic.message, diagnostic.source, diagnostic.line, now)
+      }
+      this.database.prepare('UPDATE revisions SET quality_checked_at = ?, quality_check_version = ? WHERE id = ?').run(now, REVISION_QUALITY_VERSION, revisionId)
+    })
   }
 
   public saveThumbnail(designId: string, revisionId: string, png: Uint8Array): void {
@@ -1301,7 +1684,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1322,10 +1705,10 @@ export class WorkspaceStore {
   }
 
   private hydrateDesign(row: DesignRow): Design {
-    const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
+    const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, focused_target_json, focused_feedback_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
       .all(row.id) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
-      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, created_at
+      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, quality_checked_at, quality_check_version, created_at
       FROM revisions WHERE design_id = ? ORDER BY created_at, rowid
     `).all(row.id) as unknown as RevisionRow[]
     const invalidCandidateRows = this.database.prepare(`
@@ -1343,6 +1726,11 @@ export class WorkspaceStore {
       updatedAt: row.updated_at,
       activeRevisionId: row.active_revision_id,
       selectedRevisionId: row.selected_revision_id,
+      definitionVersion: row.definition_version,
+      pendingDefinitionVersion: row.pending_definition_version,
+      keptDefinitionVersion: row.kept_definition_version,
+      definitionApplicationState: row.definition_application_state,
+      definitionApplicationError: row.definition_application_error,
       draft: row.draft,
       draftAttachments: this.hydrateAttachments(row.draft_attachments_json),
       thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
@@ -1359,7 +1747,7 @@ export class WorkspaceStore {
       },
       generationSteps: this.listGenerationStepsForDesign(row.id),
       layout: layoutSchema.parse(JSON.parse(row.layout_json)),
-      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), createdAt: message.created_at })),
+      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), focusedFeedback: this.hydrateFocusedFeedback(message.focused_feedback_json), createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
         id: candidate.id,
         prompt: candidate.prompt,
@@ -1375,6 +1763,9 @@ export class WorkspaceStore {
         providerId: revision.provider_id,
         modelId: revision.model_id,
         gitCommit: revision.git_commit,
+        definitionVersion: revision.definition_version,
+        qualityCheckedAt: revision.quality_checked_at,
+        qualityCheckVersion: revision.quality_check_version,
         createdAt: revision.created_at,
         thumbnailDataUrl: this.readThumbnailDataUrl(this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(revision.id) as { thumbnail_path: string } | undefined),
         diagnostics: this.database.prepare(`
@@ -1409,6 +1800,26 @@ export class WorkspaceStore {
       lastProviderId: latest?.last_provider_id ?? null,
       folderId: row.folder_id,
       tags: this.listTagsForTarget('project', row.id),
+      currentDefinitionVersion: row.current_definition_version,
+      definitionPromptSuppressed: row.definition_prompt_suppressed === 1,
+    })
+  }
+
+  private readProjectDesignDefinitionVersion(projectId: string, version: number): ProjectDesignDefinitionVersion | null {
+    const row = this.database.prepare(`
+      SELECT id, project_id, version, definitions_json, created_at
+      FROM project_definition_versions WHERE project_id = ? AND version = ?
+    `).get(projectId, version) as unknown as ProjectDefinitionVersionRow | undefined
+    return row ? this.hydrateProjectDesignDefinitionVersion(row) : null
+  }
+
+  private hydrateProjectDesignDefinitionVersion(row: ProjectDefinitionVersionRow): ProjectDesignDefinitionVersion {
+    return projectDesignDefinitionVersionSchema.parse({
+      id: row.id,
+      projectId: row.project_id,
+      version: row.version,
+      definitions: safeParseJson(row.definitions_json),
+      createdAt: row.created_at,
     })
   }
 
@@ -1445,6 +1856,34 @@ export class WorkspaceStore {
     return job
   }
 
+  private requireProjectDefinitionApplicationAttempt(id: string): ProjectDefinitionApplicationAttempt {
+    const row = this.database.prepare(`
+      SELECT id, design_id, target_version, mechanism, state, generation_job_id, provider_id, model_id, effort,
+             diagnostic, resulting_revision_id, created_at, completed_at
+      FROM project_definition_application_attempts WHERE id = ?
+    `).get(id) as unknown as ProjectDefinitionApplicationAttemptRow | undefined
+    if (!row) throw new Error('Definition application attempt not found.')
+    return this.hydrateProjectDefinitionApplicationAttempt(row)
+  }
+
+  private hydrateProjectDefinitionApplicationAttempt(row: ProjectDefinitionApplicationAttemptRow): ProjectDefinitionApplicationAttempt {
+    return {
+      id: row.id,
+      designId: row.design_id,
+      targetVersion: row.target_version,
+      mechanism: row.mechanism,
+      state: row.state,
+      generationJobId: row.generation_job_id,
+      providerId: row.provider_id,
+      modelId: row.model_id,
+      effort: row.effort,
+      diagnostic: row.diagnostic,
+      resultingRevisionId: row.resulting_revision_id,
+      createdAt: row.created_at,
+      completedAt: row.completed_at,
+    }
+  }
+
   private listGenerationStepsForDesign(designId: string): GenerationStep[] {
     const rows = this.database.prepare(`
       SELECT id, stage, label, detail, created_at
@@ -1455,7 +1894,7 @@ export class WorkspaceStore {
 
   private listGenerationJobsForDesign(designId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
     `).all(designId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1472,6 +1911,9 @@ export class WorkspaceStore {
       attachments: this.hydrateAttachments(row.attachments_json),
       mode: row.mode,
       providerSessionId: row.provider_session_id,
+      definitionTargetVersion: row.definition_target_version,
+      focusedTarget: this.hydrateFocusedTarget(row.focused_target_json),
+      focusedFeedback: this.hydrateFocusedFeedback(row.focused_feedback_json),
       state: row.state,
       createdAt: row.created_at,
       startedAt: row.started_at,
@@ -1497,6 +1939,21 @@ export class WorkspaceStore {
       } catch { attachments.push({ ...attachment, status: 'missing' }) }
     }
     return attachments
+  }
+
+  private hydrateFocusedTarget(value: string | null): FocusedTarget | null {
+    if (!value) return null
+    const parsed = focusedTargetSchema.safeParse(safeParseJson(value))
+    return parsed.success ? parsed.data : null
+  }
+
+  private hydrateFocusedFeedback(value: string | null): FocusedFeedback[] {
+    const parsed = safeParseJson(value ?? '[]')
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((candidate) => {
+      const result = focusedFeedbackSchema.safeParse(candidate)
+      return result.success ? [result.data] : []
+    })
   }
 
   private purgeExpiredTrash(): void {

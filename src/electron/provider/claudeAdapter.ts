@@ -57,7 +57,9 @@ export class ClaudeAdapter implements ProviderAdapter {
         name: 'Claude',
         installed: false,
         authenticated: false,
-        detail: error instanceof Error ? `Unavailable: ${error.message}` : 'Claude Code is unavailable.',
+        detail: error instanceof Error
+          ? `Unavailable: ${error.message} Install the Claude Code CLI so claude --version works from a terminal.`
+          : 'Claude Code is unavailable. Install the Claude Code CLI so claude --version works from a terminal.',
         models: [],
       }
     }
