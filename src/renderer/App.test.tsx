@@ -1363,6 +1363,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
     const selectButton = screen.getByRole('button', { name: 'Select element' })
+    await waitFor(() => expect(selectButton).toBeEnabled())
     fireEvent.click(selectButton)
     await waitFor(() => expect(selectButton).toHaveAttribute('aria-pressed', 'true'))
     const frame = document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement

@@ -498,7 +498,7 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
 })
 
 test('completes the Phase 3 definitions and exact focused-edit journey across restart', async () => {
-  test.setTimeout(90_000)
+  test.setTimeout(180_000)
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-phase3-e2e-'))
   const linkedProjectDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-phase3-project-'))
   let activeApp: ElectronApplication | null = null

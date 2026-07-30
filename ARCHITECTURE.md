@@ -576,6 +576,43 @@ Verify current documentation again before implementation because APIs and platfo
 - [Tauri](https://v2.tauri.app/start/)
 - [Capacitor](https://capacitorjs.com/docs)
 
+## Delivery Architecture
+
+### ADR 2026-07-30: GitHub Actions validates pull requests and packages main (accepted, implemented)
+
+GitHub Actions is the accepted automation boundary for the open-source
+repository. Every pull request runs TypeScript checks, the unit and component
+suite, a production build, and the Electron end-to-end suite on Windows. Every
+push to `main` repeats the release-candidate checks before packaging native
+desktop installers.
+
+Desktop packaging uses `electron-builder`. Windows produces an x64 NSIS
+installer on a Windows runner. macOS produces separate x64 and arm64 DMGs on
+native Intel and Apple Silicon runners rather than constructing a universal
+bundle around platform-native Tailwind dependencies. Successful packages are
+retained as GitHub Actions artifacts and assembled into one GitHub Release. Each
+main build receives the monotonic pre-1.0 version `0.0.<workflow run number>`.
+Windows emits `latest.yml`; the two native macOS jobs emit ZIP update payloads
+whose metadata is validated and merged into one `latest-mac.yml` containing both
+architectures.
+
+Packaged Windows and macOS applications use `electron-updater` against the
+public `sheepkill15/OmniDesign` GitHub Releases provider. They check once after
+startup, download newer releases automatically, and present one native restart
+decision after download. Deferring installs the retained update on the next
+ordinary quit. Development and E2E processes never contact the update provider.
+Choosing immediate restart first records active generations as interrupted so
+the existing recovery behavior remains truthful.
+
+The workflows use read-only repository permissions and frozen pnpm installs.
+Only the final release job receives `contents: write`. Signing credentials enter
+only through GitHub Actions secrets. GitHub Release publication fails closed
+without the Developer ID and Apple notarization credentials required for a
+working macOS updater. Windows signing remains optional but strongly recommended;
+unsigned Windows artifacts are internal-testing outputs because SmartScreen does
+not treat them as trusted public releases. Long-term release numbering and
+stable/beta channel policy remain open after the current rolling pre-1.0 channel.
+
 ## Phase 2 Architecture Decisions
 
 ### ADR 2026-07-24: Pages are discovered from Git (accepted, implemented)

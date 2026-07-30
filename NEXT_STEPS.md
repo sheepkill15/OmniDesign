@@ -92,13 +92,17 @@ The product must demonstrate the level of UI and UX quality expected from a desi
 
 Before full implementation, decide and record:
 
-- Electron packaging and update tooling.
+- Long-term semantic release numbering, stable/beta channel policy, and signed
+  Windows distribution. The current rolling pre-1.0 GitHub Release channel and
+  packaged auto-updater are implemented; macOS release publication requires the
+  documented Developer ID and notarization secrets.
 - Application state-management approach.
 - SQLite library and migration strategy.
 - Runtime schema-validation library.
 - Logging, diagnostics, and error boundaries.
 - Test runners and responsibilities for each test layer.
-- Continuous-integration targets for Windows, macOS, and Linux.
+- Whether Linux packaging becomes a supported delivery target. Pull-request CI
+  and Windows/macOS delivery targets are now implemented.
 - Supported operating-system versions and architectures.
 - Development, preview, and production Content Security Policies.
 
@@ -188,7 +192,13 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - Focused selection preserves the isolated preview boundary: generated code receives only opaque source keys and cannot claim paths, lines, revisions, or excerpts. The selection control stays enabled for repeated element picks until explicitly disabled, while each pick opens a trusted feedback popup beside its element. Each matched element retains one subtle directional thread marker combining pending and submitted focused comments in chronological order; markers avoid each other, hide with offscreen elements, and reveal their thread on hover or keyboard focus. Historical targets follow later revisions only through a unique same-page stable identity or unchanged exact source, never fuzzy matching. **Fix all** submits every ordered comment and exact target as one provider turn and one generation attempt. Resolved batch metadata persists in message and attempt history while the active target remains ephemeral.
 - The product-trust polish keeps the first completed result free of automatic setup dialogs, displays the applied definition version in the toolbar, runs persisted per-revision quality checks across every page at phone and desktop widths, offers explicit provider-backed repair from findings, and compares an earlier revision with the current head using Git-authored file evidence that excludes managed build output.
 - Verification on 2026-07-27: `pnpm typecheck`, 258 unit tests across 25 files, production build, and all nine Playwright Electron journeys pass. The Phase 3 journey covers definition setup, version decisions, deterministic propagation, two exact focused selections, conversation-side queueing, one batch generation and immutable revision, restart, and recovered batch history.
-- Product-trust verification on 2026-07-30: `pnpm typecheck`, 274 tests across 27 files, production build, and all 10 Playwright Electron journeys pass sequentially. The suite now also proves an unobstructed first result, a persisted built-browser quality pass even when optional thumbnail capture fails, provider-backed repair wiring, and Git-derived comparison of an earlier revision with the current head. Versioned reports replace older quality results on the next active-revision preview. The existing Vite advisory remains: the main renderer chunk is 544.68 kB (157.29 kB gzip), above the 500 kB advisory threshold.
+- Product-trust verification on 2026-07-30: `pnpm typecheck`, 282 tests across 29 files, production build, and all 10 Playwright Electron journeys pass sequentially. The suite now also proves an unobstructed first result, a persisted built-browser quality pass even when optional thumbnail capture fails, provider-backed repair wiring, Git-derived comparison of an earlier revision with the current head, updater lifecycle and development-disable behavior, and multi-architecture release assembly. Versioned reports replace older quality results on the next active-revision preview. The existing Vite advisory remains: the main renderer chunk is 544.68 kB (157.29 kB gzip), above the 500 kB advisory threshold.
+- GitHub Actions now runs typecheck, unit/component tests, a production build,
+  and Windows Electron E2E for every pull request. Every push to `main` repeats
+  release verification, builds Windows x64 plus macOS x64 and arm64 installers,
+  merges architecture-aware update metadata, and publishes versioned GitHub
+  Releases. Packaged apps check, download, and offer to install newer releases;
+  publication fails closed until macOS signing/notarization secrets are present.
 
 ## Historical Handoff Notes (superseded where they conflict with the status above)
 
