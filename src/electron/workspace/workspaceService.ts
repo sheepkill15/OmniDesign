@@ -1,5 +1,5 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
@@ -274,6 +274,15 @@ export class WorkspaceService {
     if (!revision) throw new Error('Revision not found.')
     if (!revision.gitCommit) throw new Error('Revision has no committed content.')
     return this.repositories.readRevisionFiles(designId, revision.gitCommit)
+  }
+
+  public compareRevisions(designId: string, baseRevisionId: string, targetRevisionId: string): RevisionComparison {
+    const design = this.store.getDesign(designId)
+    const base = design?.revisions.find((revision) => revision.id === baseRevisionId)
+    const target = design?.revisions.find((revision) => revision.id === targetRevisionId)
+    if (!base || !target) throw new Error('Revision not found.')
+    if (!base.gitCommit || !target.gitCommit) throw new Error('Revision comparison is unavailable for legacy revisions.')
+    return this.repositories.compareRevisions(designId, base.gitCommit, target.gitCommit, baseRevisionId, targetRevisionId)
   }
 
   /**

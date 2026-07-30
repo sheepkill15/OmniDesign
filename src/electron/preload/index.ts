@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     continueGeneration: (jobId: string) => ipcRenderer.invoke('workspace:continue-generation', { jobId }),
     resumeGenerationQueue: (designId: string) => ipcRenderer.invoke('workspace:resume-generation-queue', { designId }),
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),
+    compareRevisions: (designId: string, baseRevisionId: string, targetRevisionId: string) => ipcRenderer.invoke('workspace:compare-revisions', { designId, baseRevisionId, targetRevisionId }),
     restoreRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:restore-revision', { designId, revisionId }),
     saveDraft: (designId: string, draft: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:save-draft', { designId, draft, attachments }),
     saveLayout: (designId: string, layout: Layout) => ipcRenderer.invoke('workspace:save-layout', { designId, layout }),

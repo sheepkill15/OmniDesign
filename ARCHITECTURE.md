@@ -656,6 +656,12 @@ one page in all available workspace space; it intentionally fills the preview pa
 does not apply simulated device dimensions. The selected page and view mode still
 persist per design.
 
+### ADR 2026-07-30: Deterministic revision quality reports and Git-backed comparison (accepted, implemented)
+
+The off-screen isolated renderer used for revision thumbnails also renders every HTML page at phone and desktop widths. It records a bounded deterministic baseline: overflow, broken images, required document metadata and landmarks, and accessible names on interactive controls. SQLite stores an explicit `quality_checked_at` value on the immutable revision plus `quality` diagnostics. A timestamp with no findings is the pass signal; an empty diagnostic list alone is not. The trusted renderer may turn persisted findings into an explicit ordinary generation request, but it never repairs a revision silently.
+
+Revision comparison uses Git directly between the two stored revision commits. It returns authored-file status and numstat evidence while excluding OmniDesign-managed `.build` output. This preserves the existing rule that agent replies and agent-authored inventories are not evidence of repository changes. Comparison is read-only and restoration remains the only path that brings an earlier snapshot forward as a new head.
+
 ## Phase 3 Architecture Decisions
 
 ### ADR 2026-07-27: Version project definitions and materialize portable tokens (accepted)

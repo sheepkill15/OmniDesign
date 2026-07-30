@@ -132,6 +132,38 @@ test('creates and recovers a standalone design in the built Electron app', async
   }
 })
 
+test('compares an earlier revision with the current authored file changes', async () => {
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-compare-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const run = await launchWorkspace(userDataDirectory)
+    activeApp = run.app
+    const prompt = run.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await prompt.fill('A calm analytics dashboard')
+    await prompt.press('Enter')
+    await expect(run.window.getByText('Local · quality checked')).toBeVisible({ timeout: 15_000 })
+
+    const change = run.window.getByRole('textbox', { name: 'Request a design change' })
+    await change.fill('Make the dashboard denser and add a compact activity summary')
+    await change.press('Enter')
+    await expect(run.window.getByRole('button', { name: 'History · 2' })).toBeVisible({ timeout: 15_000 })
+    await continueWithoutDefinitions(run.window)
+    await run.window.getByRole('button', { name: 'History · 2' }).press('Enter')
+    await run.window.getByRole('menuitem', { name: /Request · A calm analytics dashboard/ }).click()
+    await run.window.getByRole('button', { name: 'Compare to current' }).click()
+
+    const comparison = run.window.getByRole('dialog', { name: 'Compare revisions' })
+    await expect(comparison).toBeVisible()
+    await expect(comparison.getByRole('region', { name: 'Authored file changes' })).toContainText('1 authored file changed')
+    await expect(comparison.getByRole('region', { name: 'Authored file changes' })).toContainText('index.html')
+    await run.app.close()
+    activeApp = null
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('keeps a removed standalone design recoverable across an Electron restart', async () => {
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-trash-e2e-'))
   let activeApp: ElectronApplication | null = null

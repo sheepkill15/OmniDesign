@@ -12,6 +12,7 @@ import {
   applyProjectDefinitionsToAllRequestSchema,
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
+  compareRevisionsRequestSchema,
   createFolderRequestSchema,
   createTagRequestSchema,
   designIdRequestSchema,
@@ -642,6 +643,11 @@ function registerIpc(): void {
     authorize(event)
     const request = selectRevisionRequestSchema.parse(value)
     return requireWorkspace().selectRevision(request.designId, request.revisionId)
+  })
+  ipcMain.handle('workspace:compare-revisions', (event, value: unknown) => {
+    authorize(event)
+    const request = compareRevisionsRequestSchema.parse(value)
+    return requireWorkspace().compareRevisions(request.designId, request.baseRevisionId, request.targetRevisionId)
   })
   ipcMain.handle('workspace:restore-revision', (event, value: unknown) => {
     authorize(event)

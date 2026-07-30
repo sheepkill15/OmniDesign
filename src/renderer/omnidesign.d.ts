@@ -66,6 +66,19 @@ interface DesignMessage {
   readonly createdAt: string
 }
 
+interface RevisionComparison {
+  readonly baseRevisionId: string
+  readonly targetRevisionId: string
+  readonly files: readonly {
+    readonly path: string
+    readonly status: 'added' | 'modified' | 'removed'
+    readonly additions: number | null
+    readonly deletions: number | null
+  }[]
+  readonly additions: number
+  readonly deletions: number
+}
+
 interface FocusedTarget {
   readonly designId: string
   readonly revisionId: string
@@ -371,6 +384,7 @@ interface Window {
       continueGeneration(jobId: string): Promise<GenerationJob>
       resumeGenerationQueue(designId: string): Promise<OmniDesignDocument>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
+      compareRevisions(designId: string, baseRevisionId: string, targetRevisionId: string): Promise<RevisionComparison>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
       saveLayout(designId: string, layout: Layout): Promise<void>

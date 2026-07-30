@@ -205,6 +205,8 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
   const [customWidthDraft, setCustomWidthDraft] = useState(String(design.layout.previewCustomWidth))
   const [customHeightDraft, setCustomHeightDraft] = useState(String(design.layout.previewCustomHeight))
   const [pageRename, setPageRename] = useState<{ readonly path: string; readonly value: string } | null>(null)
+  const [comparison, setComparison] = useState<RevisionComparison | null>(null)
+  const [comparisonLoading, setComparisonLoading] = useState(false)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -463,6 +465,13 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
     const updated = await runWorkspaceAction(() => api.restoreRevision(design.id, design.selectedRevisionId!), 'That revision could not be restored.')
     if (updated) onChange(updated)
   }
+  const compareToCurrent = async () => {
+    if (!api || !design.selectedRevisionId || !design.activeRevisionId || selectedIsHead || comparisonLoading) return
+    setComparisonLoading(true)
+    const result = await runWorkspaceAction(() => api.compareRevisions(design.id, design.selectedRevisionId!, design.activeRevisionId!), 'These revisions could not be compared.')
+    if (result) setComparison(result)
+    setComparisonLoading(false)
+  }
   const exportRevision = async () => {
     if (!api || !design.selectedRevisionId) return
     const result = await runWorkspaceAction(() => api.exportRevision(design.id, design.selectedRevisionId!), 'The design could not be exported.')
@@ -574,6 +583,8 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
       : qualityDiagnostics.length
         ? `Local · ${qualityDiagnostics.length} quality issue${qualityDiagnostics.length === 1 ? '' : 's'}`
         : 'Local · quality checked'
+  const comparisonBase = comparison ? design.revisions.find((revision) => revision.id === comparison.baseRevisionId) : null
+  const comparisonTarget = comparison ? design.revisions.find((revision) => revision.id === comparison.targetRevisionId) : null
   const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
@@ -604,7 +615,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
       {focusedFeedbackQueue.length > 0 && <section className="focused-feedback-queue" aria-label="Focused feedback queue">
         <header><span><QueueListIcon aria-hidden="true" /><span><strong>{focusedFeedbackQueue.length} focused note{focusedFeedbackQueue.length === 1 ? '' : 's'} queued</strong><small>Review them on the preview, then fix them together.</small></span></span><Button className="primary-action" isDisabled={busy || !selectedIsHead || !hasUsableSelection || !previewToken} onPress={() => void submitFocusedFeedbackBatch()}><WrenchScrewdriverIcon aria-hidden="true" />Fix all</Button></header>
       </section>}
-      {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Restore it as a new head before prompting.</span><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></div>}
+      {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Compare it with the current head or restore it before prompting.</span><span className="historical-actions"><Button className="secondary-action" isDisabled={comparisonLoading} onPress={() => void compareToCurrent()}>{comparisonLoading ? 'Comparing…' : 'Compare to current'}</Button><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></span></div>}
       <div className="workspace-composer">
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
@@ -697,7 +708,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
                   {revision.thumbnailDataUrl
                     ? <img alt={`Preview of revision ${index === 0 ? 'current head' : index + 1}`} className="history-thumbnail" src={revision.thumbnailDataUrl} />
                     : <span className="history-thumbnail history-thumbnail-placeholder" aria-hidden="true" />}
-                  <span><strong>{index === 0 ? `Current head · ${new Date(revision.createdAt).toLocaleString()}` : new Date(revision.createdAt).toLocaleString()}</strong><small title={revision.prompt}>{revision.prompt}</small></span>
+                  <span><strong>{index === 0 ? `Current head · ${new Date(revision.createdAt).toLocaleString()}` : new Date(revision.createdAt).toLocaleString()}</strong><small title={revision.prompt}>Request · {revision.prompt}</small><small className="history-meta">{revision.qualityCheckedAt ? revision.diagnostics.some((diagnostic) => diagnostic.kind === 'quality') ? 'Quality issues found' : 'Quality checked' : 'Quality pending'} · {revision.providerId}</small></span>
                 </MenuItem>
               ))}
             </Menu>
@@ -710,6 +721,19 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
+      <AppModal isOpen={comparison !== null} onOpenChange={(open) => { if (!open) setComparison(null) }} className="revision-comparison-modal" title="Compare revisions">
+        {(close) => comparison && <>
+          <div className="revision-comparison-snapshots">
+            <article><span>Earlier revision</span>{comparisonBase?.thumbnailDataUrl ? <img alt="Earlier revision preview" src={comparisonBase.thumbnailDataUrl} /> : <div className="revision-comparison-placeholder">Preview unavailable</div>}<strong>{comparisonBase?.prompt ?? 'Earlier revision'}</strong><small>{comparisonBase ? new Date(comparisonBase.createdAt).toLocaleString() : ''}</small></article>
+            <article><span>Current head</span>{comparisonTarget?.thumbnailDataUrl ? <img alt="Current revision preview" src={comparisonTarget.thumbnailDataUrl} /> : <div className="revision-comparison-placeholder">Preview unavailable</div>}<strong>{comparisonTarget?.prompt ?? 'Current revision'}</strong><small>{comparisonTarget ? new Date(comparisonTarget.createdAt).toLocaleString() : ''}</small></article>
+          </div>
+          <section className="revision-comparison-changes" aria-label="Authored file changes">
+            <header><span><strong>{comparison.files.length} authored file{comparison.files.length === 1 ? '' : 's'} changed</strong><small>Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{comparison.additions}</strong><strong>−{comparison.deletions}</strong></span></header>
+            {comparison.files.length > 0 ? <ul>{comparison.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files changed between these snapshots.</p>}
+          </section>
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Close</Button></div>
+        </>}
+      </AppModal>
       <AppModal isOpen={pageRename !== null} onOpenChange={(open) => { if (!open) setPageRename(null) }} title="Rename page">
         {(close) => <>
           <p>Give this page a display title. The file name on disk stays the same.</p>

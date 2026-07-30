@@ -152,6 +152,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       continueGeneration: vi.fn().mockResolvedValue(undefined),
       resumeGenerationQueue: vi.fn().mockResolvedValue(design),
       selectRevision: vi.fn().mockResolvedValue(design),
+      compareRevisions: vi.fn().mockResolvedValue({ baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [], additions: 0, deletions: 0 }),
       restoreRevision: vi.fn().mockResolvedValue(design),
       saveDraft: vi.fn().mockResolvedValue(undefined),
       saveLayout: vi.fn().mockResolvedValue(undefined),
@@ -1062,6 +1063,35 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('img', { name: 'Preview of revision current head' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
     expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent(new Date(thumbnailDesign.revisions[0].createdAt).toLocaleString())
     expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent('A calm dashboard')
+  })
+
+  it('compares an earlier revision with the current head using authored file changes', async () => {
+    const historicalDesign: OmniDesignDocument = { ...engagedDesign, selectedRevisionId: 'revision-1' }
+    const bridge = installBridge([engagedDesign], engagedDesign)
+    vi.mocked(bridge.workspace.selectRevision).mockResolvedValue(historicalDesign)
+    vi.mocked(bridge.workspace.compareRevisions).mockResolvedValue({
+      baseRevisionId: 'revision-1',
+      targetRevisionId: 'revision-2',
+      files: [
+        { path: 'index.html', status: 'modified', additions: 8, deletions: 3 },
+        { path: 'assets/chart.js', status: 'added', additions: 14, deletions: 0 },
+      ],
+      additions: 22,
+      deletions: 3,
+    })
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    await screen.findByRole('region', { name: 'Design conversation' })
+    fireEvent.click(screen.getByRole('button', { name: /History/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Request · A calm dashboard/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare to current' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Compare revisions' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Authored file changes' })).toHaveTextContent('2 authored files changed')
+    expect(screen.getByRole('region', { name: 'Authored file changes' })).toHaveTextContent('assets/chart.js')
+    expect(bridge.workspace.compareRevisions).toHaveBeenCalledWith('design-1', 'revision-1', 'revision-2')
   })
 
   it('shows persisted visual quality findings and submits an explicit repair prompt', async () => {

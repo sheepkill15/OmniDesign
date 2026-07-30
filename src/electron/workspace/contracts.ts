@@ -442,6 +442,24 @@ export const selectRevisionRequestSchema = designIdRequestSchema.extend({
   revisionId: z.string().min(1).max(100),
 })
 
+export const compareRevisionsRequestSchema = designIdRequestSchema.extend({
+  baseRevisionId: z.string().min(1).max(100),
+  targetRevisionId: z.string().min(1).max(100),
+})
+
+export const revisionComparisonSchema = z.object({
+  baseRevisionId: z.string().min(1),
+  targetRevisionId: z.string().min(1),
+  files: z.array(z.object({
+    path: z.string().min(1),
+    status: z.enum(['added', 'modified', 'removed']),
+    additions: z.number().int().nonnegative().nullable(),
+    deletions: z.number().int().nonnegative().nullable(),
+  })),
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+})
+
 export const saveDraftRequestSchema = designIdRequestSchema.extend({
   draft: z.string().max(100_000),
   attachments: z.array(attachmentSchema).max(100).default([]),
@@ -557,6 +575,8 @@ export type QueueFocusedFeedbackRequest = z.infer<typeof queueFocusedFeedbackReq
 export type RemoveFocusedFeedbackRequest = z.infer<typeof removeFocusedFeedbackRequestSchema>
 export type SubmitFocusedFeedbackBatchRequest = z.infer<typeof submitFocusedFeedbackBatchRequestSchema>
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
+export type CompareRevisionsRequest = z.infer<typeof compareRevisionsRequestSchema>
+export type RevisionComparison = z.infer<typeof revisionComparisonSchema>
 export type RenameDesignRequest = z.infer<typeof renameDesignRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>
