@@ -24,7 +24,8 @@ pnpm run build
 Pull requests run typechecking, unit and component tests, a production build,
 and the Electron end-to-end suite through GitHub Actions. Every push to `main`
 that passes the release checks produces a Windows x64 installer and separate
-Apple Silicon and Intel macOS disk images.
+Apple Silicon and Intel macOS disk images, then publishes them as a versioned
+GitHub Release consumed by the packaged application's automatic updater.
 
 See [`docs/CI_CD.md`](docs/CI_CD.md) for artifact names, branch-protection
-settings, local packaging commands, and the current unsigned-build boundary.
+settings, release secrets, and local packaging commands.

@@ -65,6 +65,7 @@ import { WorkspaceService } from '../workspace/workspaceService.js'
 import { WorkspaceStore } from '../workspace/store.js'
 import { createDesignTitlePrompt, designTitleReferencePaths, fallbackDesignTitle, normalizeDesignTitle, selectLightweightMetadataSelection, shouldReplaceFallbackTitle } from '../workspace/designTitle.js'
 import { createMockProjectDefinitionProposal, createProjectDefinitionProposalPrompt, parseProjectDefinitionProposal, selectProjectDefinitionAnalysisRoots } from '../workspace/projectDefinitionProposal.js'
+import { UpdateService } from '../update/updateService.js'
 
 const developmentServerUrl = process.env.VITE_DEV_SERVER_URL
 const testUserDataDirectory = process.env.OMNIDESIGN_USER_DATA_DIR
@@ -84,6 +85,7 @@ let popWindowDesignId: string | null = null
 let workspace: WorkspaceService | null = null
 let workspaceStore: WorkspaceStore | null = null
 let generationQueue: GenerationQueue | null = null
+let updateService: UpdateService | null = null
 let closingAfterGenerationConfirmation = false
 const lastPersistedStageByDesign = new Map<string, string>()
 
@@ -917,6 +919,31 @@ void app.whenReady().then(() => {
   thumbnailCapturer = new ThumbnailCapturer(session.defaultSession, previewServer)
   mainWindow = createMainWindow()
   registerIpc()
+  updateService = new UpdateService({
+    enabled: app.isPackaged && (process.platform === 'win32' || process.platform === 'darwin'),
+    async promptForRestart(version) {
+      if (!mainWindow || mainWindow.isDestroyed()) return false
+      const activeJobs = store.listGenerationJobs(['queued', 'running'])
+      const detail = activeJobs.length > 0
+        ? `${activeJobs.length} active generation${activeJobs.length === 1 ? '' : 's'} will be interrupted and can be continued after OmniDesign restarts.`
+        : 'Restart now to apply the update, or choose Later to install it when you next quit OmniDesign.'
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update ready',
+        message: `OmniDesign ${version} is ready to install.`,
+        detail,
+        buttons: ['Restart and update', 'Later'],
+        defaultId: activeJobs.length > 0 ? 1 : 0,
+        cancelId: 1,
+      })
+      return result.response === 0
+    },
+    beforeInstall() {
+      closingAfterGenerationConfirmation = true
+      store.markGenerationJobsInterrupted()
+    },
+  })
+  updateService.start()
 
   mainWindow.on('closed', () => {
     if (popWindow && !popWindow.isDestroyed()) popWindow.destroy()
@@ -973,5 +1000,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  updateService?.stop()
   generationQueue?.recoverAfterRestart()
 })

@@ -10,6 +10,11 @@ files:
   - dist-renderer/**/*
   - package.json
 
+publish:
+  provider: github
+  owner: sheepkill15
+  repo: OmniDesign
+
 win:
   target:
     - target: nsis
@@ -19,6 +24,8 @@ win:
 
 mac:
   category: public.app-category.developer-tools
+  notarize: true
   target:
     - target: dmg
+    - target: zip
   artifactName: ${productName}-${version}-macos-${arch}.${ext}

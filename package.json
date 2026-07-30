@@ -19,11 +19,13 @@
     "package:win": "pnpm build && electron-builder --win --x64 --publish never",
     "package:mac:arm64": "pnpm build && electron-builder --mac --arm64 --publish never",
     "package:mac:x64": "pnpm build && electron-builder --mac --x64 --publish never",
+    "release:prepare": "node scripts/prepare-update-release.mjs",
     "vendor:alpine": "node scripts/vendor-alpine.mjs"
   },
   "dependencies": {
     "@heroicons/react": "2.2.0",
     "@tailwindcss/node": "4.3.3",
+    "electron-updater": "^6.8.9",
     "fflate": "0.8.3",
     "parse5": "8.0.1",
     "react": "^19.2.7",
@@ -51,7 +53,8 @@
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10",
-    "wait-on": "^9.0.10"
+    "wait-on": "^9.0.10",
+    "yaml": "^2.9.0"
   },
   "optionalDependencies": {
     "lightningcss-darwin-arm64": "1.32.0",
