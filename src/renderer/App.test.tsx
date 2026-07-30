@@ -42,6 +42,21 @@ const design: OmniDesignDocument = {
   revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
+const engagedDesign: OmniDesignDocument = {
+  ...design,
+  updatedAt: '2026-07-20T10:05:00.000Z',
+  activeRevisionId: 'revision-2',
+  selectedRevisionId: 'revision-2',
+  messages: [
+    ...design.messages,
+    { id: 'message-2', role: 'user', text: 'Make the overview more compact', createdAt: '2026-07-20T10:04:00.000Z' },
+  ],
+  revisions: [
+    ...design.revisions,
+    { id: 'revision-2', parentRevisionId: 'revision-1', prompt: 'Make the overview more compact', providerId: 'mock', modelId: 'mock-v1', createdAt: '2026-07-20T10:05:00.000Z', thumbnailDataUrl: null, diagnostics: [] },
+  ],
+}
+
 function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
   return {
     id: candidate.projectId,
@@ -708,11 +723,23 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.create).toHaveBeenCalledWith('A linked dashboard', 'mock', 'mock-v1', undefined, { sourceProjectPath: 'C:\\Projects\\Aurora' }))
   })
 
-  it('offers design-definition setup for an empty project and can hide the prompt permanently', async () => {
+  it('keeps the first completed result visible instead of interrupting it with definition setup', async () => {
     const bridge = installBridge([design], design)
     const project = { ...projectFromDesign(design), currentDefinitionVersion: null }
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
     vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    render(<App />)
+
+    expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /Set up design definitions/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Definitions' })).toBeInTheDocument()
+  })
+
+  it('offers design-definition setup after the user has iterated and can hide the prompt permanently', async () => {
+    const bridge = installBridge([engagedDesign], engagedDesign)
+    const project = { ...projectFromDesign(engagedDesign), currentDefinitionVersion: null }
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(engagedDesign.id)
     render(<App />)
 
     const dialog = await screen.findByRole('dialog', { name: 'Set up design definitions for Calm dashboard?' })
@@ -726,10 +753,10 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('offers proposal, manual, and continue setup paths and starts the chosen proposal for review', async () => {
-    const bridge = installBridge([design], design)
-    const project = { ...projectFromDesign(design), currentDefinitionVersion: null }
+    const bridge = installBridge([engagedDesign], engagedDesign)
+    const project = { ...projectFromDesign(engagedDesign), currentDefinitionVersion: null }
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(engagedDesign.id)
     vi.mocked(bridge.settings.getTheme).mockResolvedValue('light')
     render(<App />)
 

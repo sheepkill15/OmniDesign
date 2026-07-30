@@ -687,7 +687,7 @@ export function DesignWorkspace({ design, providers, projects, associationNotice
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
-          <Button className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions</Button>
+          <Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button>
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>

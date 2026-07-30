@@ -179,6 +179,10 @@ export function App() {
     if (definitionsProject || definitionPromptProject || definitionSetupChooserProject) return
     const project = activeDesign ? projects.find((candidate) => candidate.id === activeDesign.projectId) : activeProject
     if (!project || project.currentDefinitionVersion !== null || project.definitionPromptSuppressed || definitionPromptsSeen.current.has(project.id)) return
+    const hasEngagedWithFirstResult = !activeDesign
+      || activeDesign.revisions.length > 1
+      || activeDesign.messages.filter((message) => message.role === 'user').length > 1
+    if (!hasEngagedWithFirstResult) return
     const hasActiveWork = activeDesign?.projectId === project.id && activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')
     const hasUnsavedInput = activeDesign?.projectId === project.id && (Boolean(activeDesign.draft.trim()) || activeDesign.draftAttachments.length > 0)
     if (hasActiveWork || hasUnsavedInput) return
@@ -227,6 +231,13 @@ export function App() {
   const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
   const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
   const openDefinitions = (project: ProjectSummary, setupPath: 'proposal' | 'manual' | null = null) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDefinitionSetupPath(setupPath); setDefinitionsProject(project) }
+  const definitionsSaved = (version: ProjectDesignDefinitionVersion) => {
+    setDefinitionsProject((current) => current ? { ...current, currentDefinitionVersion: version.version } : current)
+    void refresh()
+    if (activeDesign?.projectId === version.projectId && workspaceApi) {
+      void workspaceApi.get(activeDesign.id).then((updated) => { if (updated) updateDesign(updated) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The design-definition decision could not refresh.'))
+    }
+  }
   const suppressDefinitionPrompt = async (project: ProjectSummary) => {
     try {
       await workspaceApi?.setProjectDefinitionPromptSuppressed(project.id, true)
@@ -394,7 +405,7 @@ export function App() {
         : settingsOpen
         ? <Settings theme={theme} notificationsEnabled={notificationsEnabled} generationDetail={generationDetail} initialError={settingsError} onThemeChange={changeTheme} onNotificationsChange={changeNotifications} onGenerationDetailChange={changeGenerationDetail} />
         : definitionsProject
-        ? <DesignDefinitions project={definitionsProject} providers={providerState.providers} initialSetupPath={definitionSetupPath} onBack={() => { setDefinitionsProject(null); setDefinitionSetupPath(null) }} onSaved={(version) => { setDefinitionsProject((current) => current ? { ...current, currentDefinitionVersion: version.version } : current); void refresh() }} />
+        ? <DesignDefinitions project={definitionsProject} providers={providerState.providers} initialSetupPath={definitionSetupPath} onBack={() => { setDefinitionsProject(null); setDefinitionSetupPath(null) }} onSaved={definitionsSaved} />
         : activeDesign
         ? <DesignWorkspace design={activeDesign} providers={providerState.providers} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
         : activeProject

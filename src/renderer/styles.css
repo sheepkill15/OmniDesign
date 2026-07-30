@@ -1930,6 +1930,17 @@ button:not(:disabled):active {
   width: 15px;
 }
 
+.toolbar-definition-version {
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-selected);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
 /* Caret appended to every DropdownButton trigger; rotates while the React Aria menu is open. */
 .dropdown-caret {
   width: 14px;
