@@ -3,6 +3,11 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const packageCommands = new Set(['package:mac:arm64', 'package:mac:x64'])
+const unsignedConfigurationArguments = [
+  '-c.mac.identity=null',
+  '-c.mac.hardenedRuntime=false',
+  '-c.mac.notarize=false',
+]
 const credentialMappings = [
   ['OMNIDESIGN_MAC_CSC_LINK', 'CSC_LINK'],
   ['OMNIDESIGN_MAC_CSC_KEY_PASSWORD', 'CSC_KEY_PASSWORD'],
@@ -15,7 +20,7 @@ function hasValue(value) {
   return typeof value === 'string' && value.length > 0
 }
 
-export function prepareMacPackagingEnvironment(sourceEnvironment) {
+export function prepareMacPackagingEnvironment(sourceEnvironment, { forceUnsigned = false } = {}) {
   const environment = { ...sourceEnvironment }
   const providedCredentials = credentialMappings.filter(([sourceName]) => hasValue(sourceEnvironment[sourceName]))
 
@@ -24,7 +29,7 @@ export function prepareMacPackagingEnvironment(sourceEnvironment) {
     delete environment[targetName]
   }
 
-  if (providedCredentials.length === 0) {
+  if (forceUnsigned || providedCredentials.length === 0) {
     environment.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
     return { environment, signed: false }
   }
@@ -43,15 +48,19 @@ export function prepareMacPackagingEnvironment(sourceEnvironment) {
   return { environment, signed: true }
 }
 
-export async function runMacPackaging(command, sourceEnvironment = process.env) {
+export function macPackagingArguments(command, signed) {
+  return ['run', command, ...(signed ? [] : ['--', ...unsignedConfigurationArguments])]
+}
+
+export async function runMacPackaging(command, sourceEnvironment = process.env, options = {}) {
   if (!packageCommands.has(command)) {
     throw new Error(`Unsupported macOS package command: ${command || '<missing>'}`)
   }
 
-  const { environment, signed } = prepareMacPackagingEnvironment(sourceEnvironment)
+  const { environment, signed } = prepareMacPackagingEnvironment(sourceEnvironment, options)
   console.log(`Packaging ${signed ? 'signed and notarized' : 'unsigned'} macOS artifacts.`)
 
-  const child = spawn('pnpm', ['run', command], {
+  const child = spawn('pnpm', macPackagingArguments(command, signed), {
     env: environment,
     shell: process.platform === 'win32',
     stdio: 'inherit',
@@ -70,7 +79,11 @@ export async function runMacPackaging(command, sourceEnvironment = process.env) 
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  runMacPackaging(process.argv[2]).catch((error) => {
+  const mode = process.argv[3]
+  const options = mode === '--unsigned' ? { forceUnsigned: true } : {}
+  const invalidMode = mode && mode !== '--unsigned' ? new Error(`Unsupported macOS packaging mode: ${mode}`) : undefined
+  const packaging = invalidMode ? Promise.reject(invalidMode) : runMacPackaging(process.argv[2], process.env, options)
+  packaging.catch((error) => {
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
   })

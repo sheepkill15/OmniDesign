@@ -120,13 +120,7 @@ jobs:
 
       - name: Package macOS application
         if: matrix.platform == 'macos'
-        run: node scripts/package-macos.mjs ${{ matrix.command }}
-        env:
-          OMNIDESIGN_MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          OMNIDESIGN_MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          OMNIDESIGN_APPLE_ID: ${{ secrets.APPLE_ID }}
-          OMNIDESIGN_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          OMNIDESIGN_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/package-macos.mjs ${{ matrix.command }} --unsigned
 
       - name: Upload installer
         uses: actions/upload-artifact@v7
@@ -146,24 +140,6 @@ jobs:
       contents: write
 
     steps:
-      - name: Require macOS release credentials
-        shell: bash
-        env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          missing=()
-          for name in MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name}" ]; then missing+=("$name"); fi
-          done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::GitHub Release publication requires macOS signing and notarization secrets: ${missing[*]}"
-            exit 1
-          fi
-
       - name: Check out repository
         uses: actions/checkout@v6
 

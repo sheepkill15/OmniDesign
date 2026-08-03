@@ -92,10 +92,11 @@ The product must demonstrate the level of UI and UX quality expected from a desi
 
 Before full implementation, decide and record:
 
-- Long-term semantic release numbering, stable/beta channel policy, and signed
-  Windows distribution. The current rolling pre-1.0 GitHub Release channel and
-  packaged auto-updater are implemented; macOS release publication requires the
-  documented Developer ID and notarization secrets.
+- Long-term semantic release numbering, stable/beta channel policy, signed
+  Windows distribution, and eventual signed/notarized macOS distribution. The
+  current rolling pre-1.0 GitHub Release channel deliberately publishes unsigned
+  macOS artifacts and keeps macOS automatic updates disabled until an Apple
+  Developer account is available.
 - Application state-management approach.
 - SQLite library and migration strategy.
 - Runtime schema-validation library.
@@ -195,12 +196,19 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 - Product-trust verification on 2026-07-30: `pnpm typecheck`, 282 tests across 29 files, production build, and all 10 Playwright Electron journeys pass sequentially. The suite now also proves an unobstructed first result, a persisted built-browser quality pass even when optional thumbnail capture fails, provider-backed repair wiring, Git-derived comparison of an earlier revision with the current head, updater lifecycle and development-disable behavior, and multi-architecture release assembly. Versioned reports replace older quality results on the next active-revision preview. The existing Vite advisory remains: the main renderer chunk is 544.68 kB (157.29 kB gzip), above the 500 kB advisory threshold.
 - Pre-shipping startup/state hardening caches validated non-secret installed-provider metadata in SQLite, displays it before one de-duplicated background refresh completes, and uses an honest checking state when no cache exists. Per-design restoration now also includes the selected preview page and Canvas zoom/pan viewport alongside the existing draft, attachment, generation selection, revision, layout, device, and fit state.
 - Startup/state verification on 2026-07-30: `pnpm typecheck`, 286 unit/component tests across 29 files, production build, and all 10 Playwright Electron journeys pass sequentially. The multi-page restart journey now also proves Canvas zoom restoration. The existing Vite advisory remains: the main renderer chunk is 546.28 kB (157.60 kB gzip), above the 500 kB advisory threshold.
+- macOS packaged launches now recover `PATH` once from the user's interactive login shell and propagate the merged path through provider discovery, provider execution, the Codex app server, and local dependency commands. This covers shell-managed Homebrew/npm/NVM/Volta/user-bin installs without importing unrelated shell environment variables. Verification on Windows on 2026-08-03: `pnpm typecheck`, 298 unit/component tests across 32 files, and the production build pass; macOS packaged runtime verification remains required.
 - GitHub Actions now runs typecheck, unit/component tests, a production build,
   and Windows Electron E2E for every pull request. Every push to `main` repeats
   release verification, builds Windows x64 plus macOS x64 and arm64 installers,
   merges architecture-aware update metadata, and publishes versioned GitHub
-  Releases. Packaged apps check, download, and offer to install newer releases;
-  publication fails closed until macOS signing/notarization secrets are present.
+  Releases. Windows packages check, download, and offer to install newer releases.
+  macOS packages are explicitly unsigned and unnotarized, require manual download
+  and Gatekeeper approval, and do not enable automatic updates at this stage.
+- Unsigned-delivery verification on Windows on 2026-08-03: the CD workflow parses
+  with explicit unsigned overrides and no Apple-credential publication gate;
+  `pnpm typecheck`, 300 unit/component tests across 32 files, and the production
+  build pass. Native arm64/x64 packaging and launch still require the macOS CD
+  runners and must not be inferred from these Windows-hosted checks.
 
 ## Historical Handoff Notes (superseded where they conflict with the status above)
 

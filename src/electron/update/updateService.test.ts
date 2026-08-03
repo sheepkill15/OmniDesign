@@ -25,9 +25,9 @@ describe('UpdateService', () => {
     expect(shouldEnableUpdates(false, 'linux')).toBe(false)
   })
 
-  it('enables update checks only for packaged Windows and macOS applications', () => {
+  it('enables update checks only for packaged Windows applications while macOS builds are unsigned', () => {
     expect(shouldEnableUpdates(true, 'win32')).toBe(true)
-    expect(shouldEnableUpdates(true, 'darwin')).toBe(true)
+    expect(shouldEnableUpdates(true, 'darwin')).toBe(false)
     expect(shouldEnableUpdates(true, 'linux')).toBe(false)
   })
 

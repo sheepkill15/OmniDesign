@@ -2,10 +2,14 @@ import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
+const SHELL_ENV_BEGIN = '__OMNIDESIGN_SHELL_ENV_BEGIN__'
+const SHELL_ENV_END = '__OMNIDESIGN_SHELL_ENV_END__'
+let macOsShellPathPromise: Promise<string | undefined> | undefined
 
 export interface ResolvedCommand {
   readonly command: string
   readonly kind: 'direct' | 'cmd-shim'
+  readonly environmentPath?: string
 }
 
 export interface CommandResult {
@@ -33,6 +37,39 @@ async function windowsCandidates(command: string): Promise<string[]> {
   }
 }
 
+export function extractMacOsShellPath(output: string): string | undefined {
+  const start = output.lastIndexOf(SHELL_ENV_BEGIN)
+  if (start < 0) return undefined
+  const end = output.indexOf(SHELL_ENV_END, start + SHELL_ENV_BEGIN.length)
+  if (end < 0) return undefined
+  const environment = output.slice(start + SHELL_ENV_BEGIN.length, end)
+  return environment.split(/\r?\n/).find((line) => line.startsWith('PATH='))?.slice('PATH='.length).trim() || undefined
+}
+
+export function mergeUnixPaths(...values: readonly (string | undefined)[]): string | undefined {
+  const entries = uniqueNonEmpty(values.flatMap((value) => value?.split(':') ?? []))
+  return entries.length ? entries.join(':') : undefined
+}
+
+async function readMacOsShellPath(): Promise<string | undefined> {
+  if (process.platform !== 'darwin') return undefined
+  macOsShellPathPromise ??= (async () => {
+    const shell = process.env.SHELL?.startsWith('/') ? process.env.SHELL : '/bin/zsh'
+    try {
+      const command = `/usr/bin/printf '${SHELL_ENV_BEGIN}\\n'; /usr/bin/env; /usr/bin/printf '${SHELL_ENV_END}\\n'`
+      const result = await execFileAsync(shell, ['-ilc', command], { timeout: 5_000, windowsHide: true })
+      return extractMacOsShellPath(result.stdout)
+    } catch {
+      return undefined
+    }
+  })()
+  return macOsShellPathPromise
+}
+
+export function commandEnvironment(resolved: ResolvedCommand): NodeJS.ProcessEnv | undefined {
+  return resolved.environmentPath ? { ...process.env, PATH: resolved.environmentPath } : undefined
+}
+
 export async function runCommand(
   resolved: ResolvedCommand,
   args: readonly string[],
@@ -47,8 +84,10 @@ export async function runCommand(
 ): Promise<CommandResult> {
   if (options.signal?.aborted) return Promise.reject(new Error('Provider command was cancelled.'))
   const invocation = resolveSpawnInvocation(resolved, args)
+  const env = commandEnvironment(resolved)
   const child = spawn(invocation.command, invocation.args, {
     ...(options.cwd ? { cwd: options.cwd } : {}),
+    ...(env ? { env } : {}),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,
@@ -131,10 +170,14 @@ export function resolveSpawnInvocation(resolved: ResolvedCommand, args: readonly
 
 export async function resolveInstalledCommand(command: string, displayName = `${command} CLI`): Promise<ResolvedCommand> {
   const candidates = process.platform === 'win32' ? await windowsCandidates(command) : [command]
+  const environmentPath = process.platform === 'darwin'
+    ? mergeUnixPaths(await readMacOsShellPath(), process.env.PATH)
+    : undefined
   for (const candidate of candidates) {
     const resolved: ResolvedCommand = {
       command: candidate,
       kind: process.platform === 'win32' && /\.(cmd|bat)$/i.test(candidate) ? 'cmd-shim' : 'direct',
+      ...(environmentPath ? { environmentPath } : {}),
     }
     try {
       const probe = await runCommand(resolved, ['--version'], { timeoutMs: 8_000 })
@@ -143,7 +186,7 @@ export async function resolveInstalledCommand(command: string, displayName = `${
       continue
     }
   }
-  throw new Error(`${displayName} is not installed, executable, or available on Electron's PATH.`)
+  throw new Error(`${displayName} is not installed, executable, or available on OmniDesign's PATH.`)
 }
 
 export async function resolveProviderCommand(command: string): Promise<ResolvedCommand> {

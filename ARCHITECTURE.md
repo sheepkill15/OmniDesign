@@ -597,22 +597,26 @@ Windows emits `latest.yml`; the two native macOS jobs emit ZIP update payloads
 whose metadata is validated and merged into one `latest-mac.yml` containing both
 architectures.
 
-Packaged Windows and macOS applications use `electron-updater` against the
-public `sheepkill15/OmniDesign` GitHub Releases provider. They check once after
-startup, download newer releases automatically, and present one native restart
-decision after download. Deferring installs the retained update on the next
-ordinary quit. Development and E2E processes never contact the update provider.
-Choosing immediate restart first records active generations as interrupted so
-the existing recovery behavior remains truthful.
+Packaged Windows applications use `electron-updater` against the public
+`sheepkill15/OmniDesign` GitHub Releases provider. They check once after startup,
+download newer releases automatically, and present one native restart decision
+after download. Deferring installs the retained update on the next ordinary
+quit. Development, E2E, and the current unsigned macOS packages never contact
+the update provider. Choosing immediate restart first records active generations
+as interrupted so the existing recovery behavior remains truthful.
 
 The workflows use read-only repository permissions and frozen pnpm installs.
-Only the final release job receives `contents: write`. Signing credentials enter
-only through GitHub Actions secrets. GitHub Release publication fails closed
-without the Developer ID and Apple notarization credentials required for a
-working macOS updater. Windows signing remains optional but strongly recommended;
-unsigned Windows artifacts are internal-testing outputs because SmartScreen does
-not treat them as trusted public releases. Long-term release numbering and
-stable/beta channel policy remain open after the current rolling pre-1.0 channel.
+Only the final release job receives `contents: write`. Until OmniDesign has an
+Apple Developer account, the macOS jobs deliberately set `identity: null`,
+disable hardened runtime and notarization, and publish unsigned DMG and ZIP
+artifacts for manual download. GitHub Release publication does not require Apple
+credentials, and macOS automatic updates remain disabled because the updater
+requires signed applications. Reintroducing signed/notarized macOS distribution
+and updates requires an explicit delivery-policy change. Windows signing remains
+optional but strongly recommended; unsigned Windows artifacts are internal-testing
+outputs because SmartScreen does not treat them as trusted public releases.
+Long-term release numbering and stable/beta channel policy remain open after the
+current rolling pre-1.0 channel.
 
 ## Phase 2 Architecture Decisions
 
