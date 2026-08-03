@@ -28,7 +28,7 @@ const defaultLogger: UpdateLogger = {
 }
 
 export function shouldEnableUpdates(isPackaged: boolean, platform: NodeJS.Platform): boolean {
-  return isPackaged && (platform === 'win32' || platform === 'darwin')
+  return isPackaged && platform === 'win32'
 }
 
 export class UpdateService {

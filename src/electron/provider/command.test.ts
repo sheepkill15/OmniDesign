@@ -1,5 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSpawnInvocation, runCommand } from './command.js'
+import { commandEnvironment, extractMacOsShellPath, mergeUnixPaths, resolveSpawnInvocation, runCommand } from './command.js'
+
+describe('macOS command environment', () => {
+  it('extracts PATH from a noisy interactive login shell environment', () => {
+    const output = [
+      'shell startup notice',
+      '__OMNIDESIGN_SHELL_ENV_BEGIN__',
+      'SHELL=/bin/zsh',
+      'PATH=/Users/example/.volta/bin:/opt/homebrew/bin:/usr/bin:/bin',
+      '__OMNIDESIGN_SHELL_ENV_END__',
+      'shell logout notice',
+    ].join('\n')
+
+    expect(extractMacOsShellPath(output)).toBe('/Users/example/.volta/bin:/opt/homebrew/bin:/usr/bin:/bin')
+    expect(extractMacOsShellPath('shell output without an environment block')).toBeUndefined()
+  })
+
+  it('merges shell and launch paths without duplicate entries', () => {
+    expect(mergeUnixPaths(
+      '/Users/example/.local/bin:/opt/homebrew/bin:/usr/bin',
+      '/usr/bin:/bin',
+    )).toBe('/Users/example/.local/bin:/opt/homebrew/bin:/usr/bin:/bin')
+  })
+
+  it('passes the recovered PATH to provider subprocesses', async () => {
+    const environmentPath = '/Users/example/.local/bin:/usr/bin:/bin'
+    const resolved = { command: process.execPath, kind: 'direct' as const, environmentPath }
+
+    expect(commandEnvironment(resolved)).toMatchObject({ PATH: environmentPath })
+    await expect(runCommand(resolved, ['-e', 'process.stdout.write(process.env.PATH ?? "")']))
+      .resolves.toMatchObject({ code: 0, stdout: environmentPath })
+  })
+})
 
 describe('resolveSpawnInvocation', () => {
   it('launches Windows command shims through cmd without shell mode', () => {

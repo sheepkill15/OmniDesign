@@ -8,7 +8,7 @@ This is a narrow implementation pilot. It is not the completed Phase 1 provider 
 
 - Route discovery, prompts, replies, and streamed activity through one provider-neutral adapter contract. Electron and IPC callers never branch on Codex-versus-Claude behavior; built-in adapters own those differences and future providers can join the registry through the same interface.
 - Detect the locally installed Codex and Claude Code CLIs from Electron's main process.
-- Resolve the real executable or Windows command shim before launching a provider. The Codex Desktop-bundled executable is not treated as an installed Codex CLI because it is not an externally supported app-server entry point.
+- Resolve the real executable or Windows command shim before launching a provider. On macOS, a Finder-launched packaged app recovers `PATH` once from the user's interactive login shell, merges it with the launch environment, and uses that same path for discovery and provider subprocesses. This supports CLIs installed through shell-managed locations such as Homebrew, npm, NVM, Volta, or a user-local bin directory without importing unrelated shell environment variables. The Codex Desktop-bundled executable is not treated as an installed Codex CLI because it is not an externally supported app-server entry point.
 - Reuse their existing sign-in state; OmniDesign stores no API keys or credentials.
 - Ask Codex App Server for the account and live model catalogue.
 - Ask Claude Code for its version and authenticated status. Claude Code does not expose a comparable subscription model-list endpoint, so OmniDesign derives the current model aliases advertised by the installed CLI rather than maintaining a static catalogue.
