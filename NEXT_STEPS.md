@@ -92,10 +92,11 @@ The product must demonstrate the level of UI and UX quality expected from a desi
 
 Before full implementation, decide and record:
 
-- Long-term semantic release numbering, stable/beta channel policy, and signed
-  Windows distribution. The current rolling pre-1.0 GitHub Release channel and
-  packaged auto-updater are implemented; macOS release publication requires the
-  documented Developer ID and notarization secrets.
+- Long-term semantic release numbering, stable/beta channel policy, signed
+  Windows distribution, and eventual signed/notarized macOS distribution. The
+  current rolling pre-1.0 GitHub Release channel deliberately publishes unsigned
+  macOS artifacts and keeps macOS automatic updates disabled until an Apple
+  Developer account is available.
 - Application state-management approach.
 - SQLite library and migration strategy.
 - Runtime schema-validation library.
@@ -200,8 +201,14 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
   and Windows Electron E2E for every pull request. Every push to `main` repeats
   release verification, builds Windows x64 plus macOS x64 and arm64 installers,
   merges architecture-aware update metadata, and publishes versioned GitHub
-  Releases. Packaged apps check, download, and offer to install newer releases;
-  publication fails closed until macOS signing/notarization secrets are present.
+  Releases. Windows packages check, download, and offer to install newer releases.
+  macOS packages are explicitly unsigned and unnotarized, require manual download
+  and Gatekeeper approval, and do not enable automatic updates at this stage.
+- Unsigned-delivery verification on Windows on 2026-08-03: the CD workflow parses
+  with explicit unsigned overrides and no Apple-credential publication gate;
+  `pnpm typecheck`, 300 unit/component tests across 32 files, and the production
+  build pass. Native arm64/x64 packaging and launch still require the macOS CD
+  runners and must not be inferred from these Windows-hosted checks.
 
 ## Historical Handoff Notes (superseded where they conflict with the status above)
 

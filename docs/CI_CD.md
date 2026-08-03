@@ -29,22 +29,32 @@ shared CI-runner load.
 
 Each run derives version `0.0.<workflow run number>`, merges the two native macOS
 metadata documents into one architecture-aware `latest-mac.yml`, and publishes
-all update payloads under a `v0.0.<workflow run number>` GitHub Release. The
-public packaged application checks the repository's latest release on startup,
-downloads a newer version, and asks whether to restart. Choosing Later retains
-the download and installs it on the next ordinary quit.
+all payloads under a `v0.0.<workflow run number>` GitHub Release. The packaged
+Windows application checks the repository's latest release on startup, downloads
+a newer version, and asks whether to restart. Choosing Later retains the download
+and installs it on the next ordinary quit. macOS automatic updates remain disabled
+while its packages are unsigned.
 
-## Release credentials
+## Unsigned macOS stage
 
-macOS auto-update requires a signed application and the ZIP update target. The
-GitHub Release job therefore fails closed unless all of these repository secrets
-exist:
+OmniDesign does not currently have an Apple Developer account. Both macOS CD jobs
+therefore package with explicit electron-builder overrides:
 
-- `MAC_CSC_LINK`: base64-encoded Developer ID Application `.p12` certificate
-- `MAC_CSC_KEY_PASSWORD`: password for the `.p12`
-- `APPLE_ID`: Apple developer account email
-- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific Apple password
-- `APPLE_TEAM_ID`: Apple Developer team identifier
+- `mac.identity=null`
+- `mac.hardenedRuntime=false`
+- `mac.notarize=false`
+
+The jobs do not receive Apple signing secrets, and GitHub Release publication does
+not require them. The resulting DMG and ZIP files are unsigned, intended for manual
+testing and early distribution, and may require approval through macOS System
+Settings. Automatic updates are disabled on macOS because electron-updater requires
+the application to be signed.
+
+When an Apple Developer account becomes available, restoring signed/notarized CD
+is an explicit delivery change: configure a Developer ID Application certificate,
+notarization credentials, hardened runtime, and macOS updater coverage together.
+
+## Windows release credentials
 
 Windows signing is strongly recommended and is enabled automatically when these
 optional secrets exist:
@@ -55,17 +65,8 @@ optional secrets exist:
 The release job alone receives `contents: write`; CI and package jobs retain
 read-only repository access. Certificates and passwords must never be committed.
 
-Unsigned action artifacts remain available for internal inspection when release
-credentials are missing, but no GitHub update release is published. Windows
-SmartScreen may warn until Windows signing is configured and publisher
+Windows SmartScreen may warn until Windows signing is configured and publisher
 reputation is established.
-
-The macOS package jobs pass secrets through OmniDesign-prefixed staging
-variables. A complete set is mapped to electron-builder's signing and
-notarization variables; when all five are absent, the jobs explicitly disable
-certificate auto-discovery and produce unsigned inspection artifacts. A partial
-set fails before packaging with the missing secret names instead of passing an
-empty `CSC_LINK` that electron-builder could interpret as the repository path.
 
 ## Recommended repository settings
 
@@ -79,13 +80,18 @@ change has passed CI before the `CD` workflow packages it.
 
 ## Local packaging
 
-Use the command for the current host platform:
+Use this command on Windows:
 
 ```powershell
 pnpm package:win
-pnpm package:mac:arm64
-pnpm package:mac:x64
 ```
 
-The macOS commands must run on macOS. Generated installers are written to
-`release/`, which is ignored by Git.
+For an unsigned macOS package matching CD, use:
+
+```bash
+node scripts/package-macos.mjs package:mac:arm64 --unsigned
+node scripts/package-macos.mjs package:mac:x64 --unsigned
+```
+
+The macOS commands must run on the matching macOS architecture. Generated
+installers are written to `release/`, which is ignored by Git.
