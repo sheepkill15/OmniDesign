@@ -276,7 +276,7 @@ test('applies and persists the trusted application theme across primary screens'
 
     const secondRun = await launchWorkspace(userDataDirectory)
     activeApp = secondRun.app
-    await expect(secondRun.window.getByRole('heading', { name: 'Start with an idea.' })).toBeVisible()
+    await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(secondRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
     await continueWithoutDefinitions(secondRun.window, false)
     await secondRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
