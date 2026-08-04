@@ -389,6 +389,10 @@ Use Alpine for minimal prototype interactions such as:
 
 Prefer native accessible HTML behavior where it is sufficient. Keep Alpine expressions short and readable. Move complex state or logic into named modules rather than embedding large programs in attributes.
 
+Alpine directives placed on `<template>` elements, including `x-if` and `x-for`, must contain
+exactly one root element. Generated designs must wrap multiple siblings in one element instead of
+placing several roots directly inside the template.
+
 Bundle and pin Alpine with OmniDesign. Use Alpine's CSP-compatible build in the isolated preview so the application does not need to weaken its preview Content Security Policy for ordinary Alpine expressions.
 
 ### Stable Editing Metadata
