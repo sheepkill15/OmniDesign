@@ -1393,6 +1393,32 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
   })
 
+  it('does not carry a popped preview into the next design while its docked layout loads', async () => {
+    const secondDesign: OmniDesignDocument = {
+      ...design,
+      id: 'design-2',
+      projectId: 'project-2',
+      projectName: 'Second project',
+      title: 'Second design',
+    }
+    const bridge = installBridge([design, secondDesign])
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
+    await screen.findByRole('region', { name: 'Generated design preview' })
+    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
+    await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith(expect.objectContaining({ designId: 'design-1' })))
+
+    vi.mocked(bridge.preview.popOut).mockClear()
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Second project' }))
+
+    expect(await screen.findByDisplayValue('Second design')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
+    expect(bridge.preview.popOut).not.toHaveBeenCalled()
+  })
+
   it('offers canvas and focused preview modes in the preview toolbar', async () => {
     installBridge()
     render(<App />)

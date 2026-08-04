@@ -43,6 +43,8 @@ describe('agent reply', () => {
     expect(instructions).toContain(workspacePath)
     expect(instructions).toContain('Do not claim which files changed')
     expect(instructions).toContain('x-collapse')
+    expect(instructions).toContain('requires exactly one root element inside the <template>')
+    expect(instructions).toContain('Multiple sibling roots do not work')
     expect(() => createDesignAgentInstructions('relative/design')).toThrow('must be absolute')
   })
 
