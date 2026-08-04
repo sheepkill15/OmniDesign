@@ -163,7 +163,7 @@ jobs:
           path: downloaded-artifacts
 
       - name: Prepare architecture-aware update metadata
-        run: pnpm release:prepare -- downloaded-artifacts release-assets
+        run: pnpm release:prepare downloaded-artifacts release-assets
 
       - name: Publish GitHub Release
         env:

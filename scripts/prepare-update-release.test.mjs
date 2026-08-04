@@ -31,6 +31,13 @@ async function createArtifacts(versions = { windows: '0.0.8', arm64: '0.0.8', x6
 }
 
 describe('prepareUpdateRelease', () => {
+  it('forwards the downloaded and prepared directories from the publish workflow', async () => {
+    const workflow = parse(await readFile(path.resolve('.github/workflows/cd.yml'), 'utf8'))
+    const prepareStep = workflow.jobs.release.steps.find((step) => step.name === 'Prepare architecture-aware update metadata')
+
+    expect(prepareStep.run).toBe('pnpm release:prepare downloaded-artifacts release-assets')
+  })
+
   it('combines native macOS metadata and preserves every release payload', async () => {
     const { root, output } = await createArtifacts()
     const result = await prepareUpdateRelease(root, output)
