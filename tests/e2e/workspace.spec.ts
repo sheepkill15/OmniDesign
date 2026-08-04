@@ -21,6 +21,15 @@ async function launchWorkspace(userDataDirectory: string) {
   return { app, window: await app.firstWindow() }
 }
 
+async function previewPopOutWindowId(app: ElectronApplication): Promise<number | null> {
+  return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => {
+    const [minimumWidth, minimumHeight] = window.getMinimumSize()
+    return minimumWidth === 320
+      && minimumHeight === 240
+      && window.webContents.getURL().startsWith('omnidesign-preview://revision/')
+  })?.id ?? null)
+}
+
 async function continueWithoutDefinitions(window: Page, required = true): Promise<void> {
   const prompt = window.getByRole('dialog', { name: /Set up design definitions for/ })
   if (required) await expect(prompt).toBeVisible()
@@ -421,17 +430,22 @@ test('pops the preview into its own window and docks it back', async () => {
     await prompt.press('Enter')
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
     await expectFirstResultUnobstructed(run.window)
-    const dockedWindowCount = run.app.windows().length
 
     await run.window.getByRole('button', { name: /Layout/ }).click()
     await run.window.getByRole('menuitem', { name: 'Pop out preview' }).click()
 
-    await expect.poll(() => run.app.windows().length).toBeGreaterThan(dockedWindowCount)
+    await expect.poll(() => previewPopOutWindowId(run.app)).not.toBeNull()
+    const popOutWindowId = await previewPopOutWindowId(run.app)
+    if (popOutWindowId === null) throw new Error('The preview pop-out window disappeared before docking.')
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toHaveCount(0)
 
     await run.window.getByRole('button', { name: 'Dock preview' }).click()
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
     await expect(run.window.getByRole('button', { name: 'Dock preview' })).toHaveCount(0)
+    await expect.poll(() => run.app.evaluate(
+      ({ BrowserWindow }, windowId) => BrowserWindow.fromId(windowId) === null,
+      popOutWindowId,
+    )).toBe(true)
 
     await run.app.close()
     activeApp = null
