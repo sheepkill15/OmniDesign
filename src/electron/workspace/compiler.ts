@@ -1,5 +1,4 @@
 import { compile } from '@tailwindcss/node'
-import path from 'node:path'
 import { discoverPages, isCandidateSource } from './pages.js'
 
 // Plain `class="..."` — the leading lookbehind keeps this from also matching `:class`/`x-bind:class`,
@@ -32,9 +31,14 @@ function documentIsWellFormed(html: string): boolean {
   return /<html[\s>]/i.test(html) && /<body[\s>]/i.test(html)
 }
 
+export const tailwindCompilerBase = __dirname
+
 function buildCompiler() {
   return compile('@import "tailwindcss";', {
-    base: path.resolve('.'),
+    // Finder-launched macOS applications commonly start with `/` as their working directory. Resolve
+    // Tailwind from this module's packaged location instead, which remains inside the app's dependency
+    // tree in development, tests, and the asar archive.
+    base: tailwindCompilerBase,
     onDependency: () => undefined,
   })
 }

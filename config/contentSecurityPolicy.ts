@@ -7,6 +7,9 @@ export function createContentSecurityPolicy(isDevelopment: boolean): string {
     "default-src 'self'",
     `script-src ${scriptSources}`,
     `style-src ${styleSources}`,
+    // React Aria's overlay positioning and OmniDesign's dynamic canvas/marker geometry use style
+    // attributes. Scope this exception to attributes so production still rejects inline <style> blocks.
+    "style-src-attr 'unsafe-inline'",
     "img-src 'self' data:",
     `connect-src ${connectSources}`,
     // The design preview renders in sandboxed iframes served over the privileged preview scheme; allow

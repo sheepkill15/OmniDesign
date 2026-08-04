@@ -1,7 +1,13 @@
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { collectTailwindCandidates, collectTailwindCandidatesForFiles, compileTailwindCss, compileTailwindCssForFiles, validateCompiledDesign, validateDesignFiles } from './compiler.js'
+import { collectTailwindCandidates, collectTailwindCandidatesForFiles, compileTailwindCss, compileTailwindCssForFiles, tailwindCompilerBase, validateCompiledDesign, validateDesignFiles } from './compiler.js'
 
 describe('design compiler', () => {
+  it('resolves Tailwind relative to the compiler module instead of the launch directory', () => {
+    expect(tailwindCompilerBase).not.toBe(path.parse(tailwindCompilerBase).root)
+    expect(tailwindCompilerBase.replaceAll('\\', '/')).toMatch(/electron\/workspace$/)
+  })
+
   it('collects complete Tailwind candidates and compiles a standalone stylesheet', async () => {
     const source = '<html><head></head><body class="bg-stone-950 text-white"><h1 class="text-5xl">Hello</h1></body></html>'
     expect(collectTailwindCandidates(source)).toEqual(['bg-stone-950', 'text-white', 'text-5xl'])

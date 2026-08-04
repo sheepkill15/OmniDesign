@@ -200,6 +200,19 @@ describe('parseClaudeModels', () => {
     ])
     expect(parseClaudeEfforts(help)).toEqual(effortLevels)
   })
+
+  it('accepts unquoted aliases and falls back to the CLI documented aliases when help wording changes', () => {
+    expect(parseClaudeModels('--model <model> alias for the latest model (e.g. sonnet or opus) or a model full name'))
+      .toEqual([
+        { id: 'sonnet', name: 'Claude Sonnet (latest)', effortLevels: [] },
+        { id: 'opus', name: 'Claude Opus (latest)', effortLevels: [] },
+      ])
+    expect(parseClaudeModels('--model <model> Select the model for this session.'))
+      .toEqual([
+        { id: 'sonnet', name: 'Claude Sonnet (latest)', effortLevels: [] },
+        { id: 'opus', name: 'Claude Opus (latest)', effortLevels: [] },
+      ])
+  })
 })
 
 describe('providerFailure', () => {

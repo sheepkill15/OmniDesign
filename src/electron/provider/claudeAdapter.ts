@@ -11,6 +11,11 @@ import type { ProviderEffortLevel, ProviderModel } from './types.js'
 import { formatTokenCount, friendlyToolAction, isObject, providerFailure, readFiniteNumber, titleCase } from './providerUtils.js'
 
 const COMMAND_TIMEOUT_MS = 12_000
+const DOCUMENTED_MODEL_ALIASES = ['sonnet', 'opus'] as const
+
+function uniqueAliases(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.toLowerCase()).filter((value) => !['e', 'g', 'eg', 'or', 'and'].includes(value)))]
+}
 
 export function parseClaudeEfforts(help: string): ProviderEffortLevel[] {
   const effortHelp = help.match(/--effort\s+<level>[\s\S]*?\(([a-z,\s]+)\)/i)?.[1] ?? ''
@@ -22,10 +27,12 @@ export function parseClaudeEfforts(help: string): ProviderEffortLevel[] {
 }
 
 export function parseClaudeModels(help: string): ProviderModel[] {
-  const modelHelp = help.match(/alias for the latest model\s*\(e\.g\.\s*([\s\S]*?)\)\s*or\s+a\s+model's full name/i)?.[1] ?? ''
-  const aliases = [...modelHelp.matchAll(/'([a-zA-Z0-9._:-]+)'/g)].map((match) => match[1])
+  const plainHelp = help.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+  const modelHelp = plainHelp.match(/alias(?:es)? for the latest model\s*\(e\.g\.\s*([\s\S]*?)\)\s*or\s+a\s+model(?:'s)? full name/i)?.[1] ?? ''
+  const parsedAliases = uniqueAliases(modelHelp.match(/[a-zA-Z][a-zA-Z0-9._:-]*/g) ?? [])
+  const aliases = parsedAliases.length ? parsedAliases : [...DOCUMENTED_MODEL_ALIASES]
   const effortLevels = parseClaudeEfforts(help)
-  return [...new Set(aliases)].map((id) => ({ id, name: `Claude ${titleCase(id)} (latest)`, effortLevels }))
+  return aliases.map((id) => ({ id, name: `Claude ${titleCase(id)} (latest)`, effortLevels }))
 }
 
 export class ClaudeAdapter implements ProviderAdapter {

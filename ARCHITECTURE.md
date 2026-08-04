@@ -181,6 +181,13 @@ The trusted renderer must not receive Node.js or Electron APIs directly. A prelo
 - Keep IPC contracts in a dedicated shared package.
 - Test authorization, validation, error handling, and cancellation behavior.
 
+The packaged trusted renderer keeps script execution restricted to bundled `self` resources. Its
+`style-src-attr` policy permits inline style attributes because React Aria positions overlays at runtime and
+OmniDesign applies dynamic canvas, divider, and focused-marker geometry through React style
+attributes. CSP nonces and hashes do not authorize those style attributes. This exception applies
+only to style attributes in the trusted renderer; inline `<style>` blocks and inline scripts remain
+forbidden, and the separate generated-preview policy is unchanged.
+
 ### Trusted React Renderer
 
 The React renderer owns:
@@ -465,6 +472,11 @@ Self-contained HTML or portable static folder
 - Treat this as a convenience or development export, not the production-quality default.
 
 Tailwind's Play CDN is explicitly intended for development and must not be the default export. The normal exporter precompiles Tailwind into static CSS using a compiler bundled with OmniDesign.
+
+The bundled compiler resolves Tailwind relative to its own installed module directory, not the
+process working directory. Desktop launch directories are not stable across operating systems;
+Finder-launched macOS applications may start in `/`, which must never become a package-resolution
+root for generated-design compilation.
 
 ## Generation Validation Loop
 

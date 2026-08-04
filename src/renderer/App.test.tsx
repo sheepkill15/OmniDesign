@@ -375,6 +375,21 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(claudeDialog).toHaveTextContent('claude')
   })
 
+  it('does not report an authenticated provider as ready when it has no usable models', async () => {
+    const bridge = installBridge()
+    const modelUnavailable: ProviderStatus[] = [{
+      id: 'claude', name: 'Claude', installed: true, authenticated: true, detail: 'Installed and signed in.', models: [],
+    }]
+    vi.mocked(bridge.providers.getCached).mockResolvedValue(modelUnavailable)
+    vi.mocked(bridge.providers.refresh).mockResolvedValue(modelUnavailable)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
+
+    expect(await screen.findByText('Models unavailable')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sign in to Claude Code' })).not.toBeInTheDocument()
+  })
+
   it('checks Git quietly and offers setup only when the local tool is missing', async () => {
     const bridge = installBridge()
     vi.mocked(bridge.environment.discover).mockResolvedValue([{
