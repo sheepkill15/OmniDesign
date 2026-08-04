@@ -90,14 +90,15 @@ export function Providers({ providers, loading, error, dependencies, dependencie
           {error && <div className="workspace-feedback" data-tone="error" role="alert"><span><strong>Provider availability could not be refreshed.</strong><small>{error}</small></span></div>}
           <div className="provider-list">
             {providers.map((provider) => {
-              const ready = provider.installed && provider.authenticated
+              const ready = provider.installed && provider.authenticated && provider.models.length > 0
+              const state = ready ? 'Ready' : !provider.installed ? 'Unavailable' : !provider.authenticated ? 'Sign in required' : 'Models unavailable'
               const setupId = provider.id === 'codex' || provider.id === 'claude' ? provider.id : null
               return <article className="provider-row" key={provider.id}>
                 <span className="provider-status" data-ready={ready || undefined} aria-hidden="true" />
                 <span className="provider-row-copy"><strong>{provider.name}</strong><small>{provider.detail}</small>{provider.models.length > 0 && <em>{provider.models.length} model{provider.models.length === 1 ? '' : 's'} available</em>}</span>
                 <div className="provider-row-actions">
-                  <span className="provider-state">{ready ? 'Ready' : provider.installed ? 'Sign in required' : 'Unavailable'}</span>
-                  {!ready && setupId && <Button className="secondary-action provider-setup-action" onPress={() => beginSetup({ kind: 'provider', id: setupId })}>{provider.installed ? `Sign in to ${setupId === 'codex' ? 'Codex' : 'Claude Code'}` : `Set up ${setupId === 'codex' ? 'Codex CLI' : 'Claude Code'}`}</Button>}
+                  <span className="provider-state">{state}</span>
+                  {setupId && (!provider.installed || !provider.authenticated) && <Button className="secondary-action provider-setup-action" onPress={() => beginSetup({ kind: 'provider', id: setupId })}>{provider.installed ? `Sign in to ${setupId === 'codex' ? 'Codex' : 'Claude Code'}` : `Set up ${setupId === 'codex' ? 'Codex CLI' : 'Claude Code'}`}</Button>}
                 </div>
               </article>
             })}
