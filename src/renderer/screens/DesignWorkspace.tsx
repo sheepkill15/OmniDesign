@@ -223,6 +223,10 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [forkSelectionKeys, setForkSelectionKeys] = useState<readonly string[]>([])
   const [removeBranchTarget, setRemoveBranchTarget] = useState<DesignBranch | null>(null)
   const [forceBranchRemoval, setForceBranchRemoval] = useState(false)
+  const [lineageSelection, setLineageSelection] = useState<readonly string[]>([design.activeBranchId])
+  const [branchComparison, setBranchComparison] = useState<BranchComparison | null>(null)
+  const [branchComparisonTokens, setBranchComparisonTokens] = useState<{ readonly source: string; readonly destination: string } | null>(null)
+  const [branchComparisonPage, setBranchComparisonPage] = useState<string | null>(null)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -481,6 +485,17 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     setForkTarget(null)
     onChange(branched.at(-1)!)
   }
+  const compareBranches = async () => {
+    if (!api || lineageSelection.length !== 2) return
+    const destinationBranchId = lineageSelection.includes(design.activeBranchId) ? design.activeBranchId : lineageSelection[0]!
+    const sourceBranchId = lineageSelection.find((id) => id !== destinationBranchId)!
+    const compared = await runWorkspaceAction(() => api.compareBranches(design.id, sourceBranchId, destinationBranchId), 'The branches could not be compared.')
+    if (!compared) return
+    setManageBranchesOpen(false)
+    setBranchComparison(compared)
+    setBranchComparisonTokens(null)
+    setBranchComparisonPage(compared.destination.entryPagePath ?? compared.source.entryPagePath ?? compared.destination.pages[0]?.path ?? compared.source.pages[0]?.path ?? null)
+  }
   const removeBranch = async () => {
     if (!api || !removeBranchTarget) return
     setFeedback(null)
@@ -496,6 +511,18 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       setFeedback({ tone: 'error', message: 'The branch could not be removed.', detail })
     }
   }
+
+  useEffect(() => {
+    if (!branchComparison) return
+    let cancelled = false
+    void Promise.all([
+      window.omnidesign?.preview.register(design.id, branchComparison.source.revisionId),
+      window.omnidesign?.preview.register(design.id, branchComparison.destination.revisionId),
+    ]).then(([source, destination]) => {
+      if (!cancelled && source && destination) setBranchComparisonTokens({ source: source.token, destination: destination.token })
+    }).catch(() => { if (!cancelled) setBranchComparisonTokens(null) })
+    return () => { cancelled = true }
+  }, [branchComparison, design.id])
   const fixQualityIssues = async () => {
     if (!api || !qualityDiagnostics.length || busy || !selectedIsHead || !hasUsableSelection) return
     const findings = qualityDiagnostics.map((diagnostic) => `- [${diagnostic.level}] ${diagnostic.source ?? 'design'}: ${diagnostic.message}`).join('\n')
@@ -666,6 +693,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const comparisonBase = comparison ? design.revisions.find((revision) => revision.id === comparison.baseRevisionId) : null
   const comparisonTarget = comparison ? design.revisions.find((revision) => revision.id === comparison.targetRevisionId) : null
   const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
+  const comparedPagePaths = branchComparison ? [...new Set([...branchComparison.destination.pages.map((page) => page.path), ...branchComparison.source.pages.map((page) => page.path)])] : []
+  const comparisonPageUrl = (token: string, page: string) => `omnidesign-preview://revision/${token}/${page.split('/').map(encodeURIComponent).join('/')}`
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
@@ -808,7 +837,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         <ShareIcon aria-hidden="true" />
         <span className="branch-context-current"><strong>{activeBranch?.title ?? 'Main'}</strong><small>{activeBranch?.status === 'generating' ? 'Generating' : activeBranch?.status === 'queued' ? 'Queued' : activeBranch?.status === 'failed' ? 'Needs attention' : 'Ready'}</small></span>
         <DropdownButton label="Switch design branch" triggerClassName="branch-selector" popoverClassName="project-popover branch-selector-popover" placement="bottom" trigger={<span>Switch branch</span>}>
-          <Menu aria-label="Design branches" onAction={(key) => { const id = String(key); if (id === '__manage__') setManageBranchesOpen(true); else void switchBranch(id) }}>
+          <Menu aria-label="Design branches" onAction={(key) => { const id = String(key); if (id === '__manage__') { setLineageSelection([design.activeBranchId]); setManageBranchesOpen(true) } else void switchBranch(id) }}>
             <MenuSection className="project-popover-section">
               <Header className="project-popover-header">Directions</Header>
               {design.branches.map((branch) => <MenuItem id={branch.id} key={branch.id} textValue={branch.title}><span><strong>{branch.title}</strong><small>{branch.status === 'generating' ? 'Generating' : branch.status === 'queued' ? 'Queued' : branch.status === 'failed' ? 'Needs attention' : 'Ready'}</small></span>{branch.id === design.activeBranchId && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
@@ -820,7 +849,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       <AppModal isOpen={manageBranchesOpen} onOpenChange={setManageBranchesOpen} className="branch-manager-modal" title="Manage branches">
         {(close) => <>
           <p>Review the persistent directions in this design. Branch names describe the prompt that created them and cannot be edited.</p>
-          <div className="branch-manager-list">{design.branches.map((branch) => <article key={branch.id}><ShareIcon aria-hidden="true" /><span><strong>{branch.title}</strong><small>{branch.isMain ? 'Protected Main branch' : branch.status === 'failed' ? 'Needs attention' : branch.status}</small></span>{branch.id === design.activeBranchId ? <span className="branch-current-label">Current</span> : <span className="branch-manager-actions"><Button className="secondary-action" onPress={() => { close(); void switchBranch(branch.id) }}>Open</Button>{!branch.isMain && <Button className="secondary-action branch-remove-action" onPress={() => { setRemoveBranchTarget(branch); setForceBranchRemoval(false) }}>Remove</Button>}</span>}</article>)}</div>
+          <div className="branch-manager-list">{design.branches.map((branch) => <article key={branch.id} data-child={branch.parentBranchId ? true : undefined}><input type="checkbox" aria-label={`Select ${branch.title} for comparison`} checked={lineageSelection.includes(branch.id)} onChange={(event) => setLineageSelection((current) => event.target.checked ? current.length < 2 ? [...current, branch.id] : [current.at(-1)!, branch.id] : current.filter((id) => id !== branch.id))} /><ShareIcon aria-hidden="true" /><span><strong>{branch.title}</strong><small>{branch.isMain ? 'Protected Main branch' : `${branch.parentBranchId ? `Forked from ${design.branches.find((candidate) => candidate.id === branch.parentBranchId)?.title ?? 'removed branch'} · ` : ''}${branch.status === 'failed' ? 'Needs attention' : branch.status}`}</small></span>{branch.id === design.activeBranchId ? <span className="branch-current-label">Current</span> : <span className="branch-manager-actions"><Button className="secondary-action" onPress={() => { close(); void switchBranch(branch.id) }}>Open</Button>{!branch.isMain && <Button className="secondary-action branch-remove-action" onPress={() => { setRemoveBranchTarget(branch); setForceBranchRemoval(false) }}>Remove</Button>}</span>}</article>)}</div>
+          <div className="branch-manager-footer"><span>{lineageSelection.length === 2 ? 'Two branches selected' : 'Select two branches to compare'}</span><Button className="clone-confirm-action" isDisabled={lineageSelection.length !== 2} onPress={() => void compareBranches()}>Compare branches</Button></div>
         </>}
       </AppModal>
       <AppModal isOpen={removeBranchTarget !== null} onOpenChange={(open) => { if (!open) { setRemoveBranchTarget(null); setForceBranchRemoval(false) } }} className="branch-manager-modal" title="Remove branch permanently?">
@@ -836,6 +866,16 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           <blockquote className="fork-prompt-preview">{forkTarget.text}</blockquote>
           <div className="fork-selection-list" role="group" aria-label="Fork provider and model selections">{availableForkSelections.map((candidate) => <label key={candidate.key}><input type="checkbox" checked={forkSelectionKeys.includes(candidate.key)} onChange={(event) => setForkSelectionKeys((current) => event.target.checked ? [...current, candidate.key] : current.filter((key) => key !== candidate.key))} /><span>{candidate.label}</span></label>)}</div>
           <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" isDisabled={!forkSelectionKeys.length} onPress={() => void submitFork()}>Fork into {forkSelectionKeys.length} branch{forkSelectionKeys.length === 1 ? '' : 'es'}</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={branchComparison !== null} onOpenChange={(open) => { if (!open) { setBranchComparison(null); setBranchComparisonTokens(null) } }} className="branch-comparison-modal" title="Compare branches">
+        {(close) => branchComparison && <>
+          <div className="branch-comparison-page-tabs" role="tablist" aria-label="Pages to compare">{comparedPagePaths.map((page) => <button type="button" key={page} role="tab" aria-selected={branchComparisonPage === page} data-active={branchComparisonPage === page || undefined} onClick={() => setBranchComparisonPage(page)}>{branchComparison.destination.pages.find((candidate) => candidate.path === page)?.title ?? branchComparison.source.pages.find((candidate) => candidate.path === page)?.title ?? page}</button>)}</div>
+          <div className="branch-comparison-previews">
+            {(['destination', 'source'] as const).map((side) => { const branch = branchComparison[side]; const token = branchComparisonTokens?.[side]; const hasPage = !!branchComparisonPage && branch.pages.some((page) => page.path === branchComparisonPage); return <article key={side}><header><span>{side === 'destination' ? 'Destination' : 'Source'}</span><strong>{branch.title}</strong></header>{token && branchComparisonPage && hasPage ? <iframe title={`${branch.title} · ${branchComparisonPage}`} src={comparisonPageUrl(token, branchComparisonPage)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">{hasPage ? 'Preview unavailable' : 'This page exists only in the other branch'}</div>}</article> })}
+          </div>
+          <section className="revision-comparison-changes" aria-label="Branch authored file changes"><header><span><strong>{branchComparison.changes.files.length} authored file{branchComparison.changes.files.length === 1 ? '' : 's'} changed</strong><small>Destination compared with source. Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{branchComparison.changes.additions}</strong><strong>−{branchComparison.changes.deletions}</strong></span></header>{branchComparison.changes.files.length ? <ul>{branchComparison.changes.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files differ between these branch heads.</p>}</section>
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Close</Button></div>
         </>}
       </AppModal>
       <AppModal isOpen={comparison !== null} onOpenChange={(open) => { if (!open) setComparison(null) }} className="revision-comparison-modal" title="Compare revisions">

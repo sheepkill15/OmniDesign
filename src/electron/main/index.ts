@@ -15,6 +15,7 @@ import {
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
   compareRevisionsRequestSchema,
+  compareDesignBranchesRequestSchema,
   createDesignBranchRequestSchema,
   createFolderRequestSchema,
   createTagRequestSchema,
@@ -748,6 +749,11 @@ function registerIpc(): void {
     authorize(event)
     const request = compareRevisionsRequestSchema.parse(value)
     return requireWorkspace().compareRevisions(request.designId, request.baseRevisionId, request.targetRevisionId)
+  })
+  ipcMain.handle('workspace:compare-branches', (event, value: unknown) => {
+    authorize(event)
+    const request = compareDesignBranchesRequestSchema.parse(value)
+    return requireWorkspace().compareDesignBranches(request.designId, request.sourceBranchId, request.destinationBranchId)
   })
   ipcMain.handle('workspace:restore-revision', (event, value: unknown) => {
     authorize(event)

@@ -185,6 +185,12 @@ interface GenerationJob {
   readonly error: string | null
 }
 
+interface BranchComparison {
+  readonly source: { readonly branchId: string; readonly title: string; readonly revisionId: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null }
+  readonly destination: { readonly branchId: string; readonly title: string; readonly revisionId: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null }
+  readonly changes: RevisionComparison
+}
+
 interface DesignBranch {
   readonly id: string
   readonly designId: string
@@ -434,6 +440,7 @@ interface Window {
       resumeGenerationQueue(designId: string): Promise<OmniDesignDocument>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       compareRevisions(designId: string, baseRevisionId: string, targetRevisionId: string): Promise<RevisionComparison>
+      compareBranches(designId: string, sourceBranchId: string, destinationBranchId: string): Promise<BranchComparison>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
       saveLayout(designId: string, layout: Layout): Promise<void>

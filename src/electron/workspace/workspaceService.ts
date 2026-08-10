@@ -1,5 +1,5 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, BranchComparison, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
@@ -345,8 +345,7 @@ export class WorkspaceService {
 
   /** Read a revision's committed files (all pages + shared build assets) for preview and export. */
   public getRevisionFiles(designId: string, revisionId: string): RevisionFiles {
-    const design = this.store.getDesign(designId)
-    const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
+    const revision = this.findRevision(designId, revisionId)
     if (!revision) throw new Error('Revision not found.')
     if (!revision.gitCommit) throw new Error('Revision has no committed content.')
     return this.repositories.readRevisionFiles(designId, revision.gitCommit)
@@ -359,6 +358,35 @@ export class WorkspaceService {
     if (!base || !target) throw new Error('Revision not found.')
     if (!base.gitCommit || !target.gitCommit) throw new Error('Revision comparison is unavailable for legacy revisions.')
     return this.repositories.compareRevisions(designId, base.gitCommit, target.gitCommit, baseRevisionId, targetRevisionId)
+  }
+
+  private findRevision(designId: string, revisionId: string): Design['revisions'][number] | null {
+    const design = this.store.getDesign(designId)
+    if (!design) return null
+    for (const branch of design.branches) {
+      const revision = this.store.getDesignAtBranch(designId, branch.id)?.revisions.find((candidate) => candidate.id === revisionId)
+      if (revision) return revision
+    }
+    return null
+  }
+
+  public compareDesignBranches(designId: string, sourceBranchId: string, destinationBranchId: string): BranchComparison {
+    if (sourceBranchId === destinationBranchId) throw new Error('Choose two different branches.')
+    const branches = this.store.listDesignBranches(designId)
+    const sourceBranch = branches.find((branch) => branch.id === sourceBranchId)
+    const destinationBranch = branches.find((branch) => branch.id === destinationBranchId)
+    const sourceDesign = sourceBranch ? this.store.getDesignAtBranch(designId, sourceBranchId) : null
+    const destinationDesign = destinationBranch ? this.store.getDesignAtBranch(designId, destinationBranchId) : null
+    const sourceRevision = sourceDesign?.revisions.find((revision) => revision.id === sourceBranch?.activeRevisionId)
+    const destinationRevision = destinationDesign?.revisions.find((revision) => revision.id === destinationBranch?.activeRevisionId)
+    if (!sourceBranch || !destinationBranch || !sourceRevision?.gitCommit || !destinationRevision?.gitCommit) throw new Error('Both branches need a valid committed head before comparison.')
+    const sourcePages = this.getRevisionPages(designId, sourceRevision.id)
+    const destinationPages = this.getRevisionPages(designId, destinationRevision.id)
+    return {
+      source: { branchId: sourceBranch.id, title: sourceBranch.title, revisionId: sourceRevision.id, pages: sourcePages.pages, entryPagePath: sourcePages.entryPagePath },
+      destination: { branchId: destinationBranch.id, title: destinationBranch.title, revisionId: destinationRevision.id, pages: destinationPages.pages, entryPagePath: destinationPages.entryPagePath },
+      changes: this.repositories.compareRevisions(designId, destinationRevision.gitCommit, sourceRevision.gitCommit, destinationRevision.id, sourceRevision.id),
+    }
   }
 
   /**

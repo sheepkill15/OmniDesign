@@ -180,6 +180,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       resumeGenerationQueue: vi.fn().mockResolvedValue(design),
       selectRevision: vi.fn().mockResolvedValue(design),
       compareRevisions: vi.fn().mockResolvedValue({ baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [], additions: 0, deletions: 0 }),
+      compareBranches: vi.fn(),
       restoreRevision: vi.fn().mockResolvedValue(design),
       saveDraft: vi.fn().mockResolvedValue(undefined),
       saveLayout: vi.fn().mockResolvedValue(undefined),
@@ -1467,6 +1468,36 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('dialog', { name: 'Fork prompt' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Fork into 1 branch' }))
     await waitFor(() => expect(bridge.workspace.forkMessage).toHaveBeenCalledWith('design-1', 'message-1', [{ providerId: 'mock', modelId: 'mock-v1', effort: null }]))
+  })
+
+  it('compares two branch heads in isolated previews and identifies unmatched pages', async () => {
+    const alternativeId = 'branch-2'
+    const branchedDesign: OmniDesignDocument = {
+      ...design,
+      branches: [...design.branches, { id: alternativeId, designId: design.id, title: 'Editorial direction', gitRef: `refs/heads/od/${alternativeId}`, worktreePath: `branches/${alternativeId}/worktree`, isMain: false, parentBranchId: design.id, forkRevisionId: design.activeRevisionId, forkMessageId: null, activeRevisionId: 'revision-2', selectedRevisionId: 'revision-2', status: 'ready', createdAt: '2026-07-20T10:06:00.000Z' }],
+    }
+    const bridge = installBridge([], branchedDesign)
+    vi.mocked(bridge.workspace.compareBranches).mockResolvedValue({
+      source: { branchId: alternativeId, title: 'Editorial direction', revisionId: 'revision-2', pages: [{ path: 'index.html', title: 'Home', order: 0, isHome: true }, { path: 'about.html', title: 'About', order: 1, isHome: false }], entryPagePath: 'index.html' },
+      destination: { branchId: design.id, title: 'Main', revisionId: 'revision-1', pages: [{ path: 'index.html', title: 'Home', order: 0, isHome: true }], entryPagePath: 'index.html' },
+      changes: { baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [{ path: 'index.html', status: 'modified', additions: 4, deletions: 1 }], additions: 4, deletions: 1 },
+    })
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Switch design branch' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage branches' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Editorial direction for comparison' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Compare branches' }))
+    expect(await screen.findByRole('dialog', { name: 'Compare branches' })).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.compareBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1'))
+    expect(screen.getByTitle('Main · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
+    expect(screen.getByTitle('Editorial direction · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
+    fireEvent.click(screen.getByRole('tab', { name: 'About' }))
+    expect(screen.getByText('This page exists only in the other branch')).toBeInTheDocument()
+    expect(screen.getByTitle('Editorial direction · about.html')).toBeInTheDocument()
   })
 
   it('does not carry a popped preview into the next design while its docked layout loads', async () => {

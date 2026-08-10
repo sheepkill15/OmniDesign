@@ -520,6 +520,25 @@ export const revisionComparisonSchema = z.object({
   deletions: z.number().int().nonnegative(),
 })
 
+const branchComparisonSideSchema = z.object({
+  branchId: z.string().min(1).max(100),
+  title: z.string().min(1).max(200),
+  revisionId: z.string().min(1).max(100),
+  pages: z.array(designPageSchema),
+  entryPagePath: z.string().min(1).nullable(),
+})
+
+export const branchComparisonSchema = z.object({
+  source: branchComparisonSideSchema,
+  destination: branchComparisonSideSchema,
+  changes: revisionComparisonSchema,
+})
+
+export const compareDesignBranchesRequestSchema = designIdRequestSchema.extend({
+  sourceBranchId: z.string().min(1).max(100),
+  destinationBranchId: z.string().min(1).max(100),
+}).refine((request) => request.sourceBranchId !== request.destinationBranchId, 'Choose two different branches.')
+
 export const saveDraftRequestSchema = designIdRequestSchema.extend({
   draft: z.string().max(100_000),
   attachments: z.array(attachmentSchema).max(100).default([]),
@@ -638,6 +657,7 @@ export type SubmitFocusedFeedbackBatchRequest = z.infer<typeof submitFocusedFeed
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
 export type CompareRevisionsRequest = z.infer<typeof compareRevisionsRequestSchema>
 export type RevisionComparison = z.infer<typeof revisionComparisonSchema>
+export type BranchComparison = z.infer<typeof branchComparisonSchema>
 export type RenameDesignRequest = z.infer<typeof renameDesignRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>

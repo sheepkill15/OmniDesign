@@ -67,6 +67,27 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it('compares two committed branch heads without switching or mutating either branch', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const alternativeId = alternative.activeBranchId
+    await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+
+    const compared = service.compareDesignBranches(main.id, alternativeId, main.id)
+    expect(compared).toMatchObject({
+      source: { branchId: alternativeId, title: 'Warmer direction', pages: [{ path: 'index.html' }] },
+      destination: { branchId: main.id, title: 'Main', revisionId: main.activeRevisionId, pages: [{ path: 'index.html' }] },
+      changes: { baseRevisionId: main.activeRevisionId },
+    })
+    expect(service.getDesign(main.id)?.activeBranchId).toBe(main.id)
+    store.close()
+  })
+
   it('materializes the captured project definitions and exposes first-prompt AI Agent instructions', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)
