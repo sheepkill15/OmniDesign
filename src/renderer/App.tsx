@@ -99,6 +99,7 @@ export function App() {
   const [generationDetail, setGenerationDetail] = useState<'full' | 'concise'>('full')
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'disabled' })
   const providerState = useProviders()
   const localDependencyState = useLocalDependencies()
   const workspaceApi = window.omnidesign?.workspace
@@ -108,6 +109,15 @@ export function App() {
   const initStarted = useRef(false)
   const restoreDone = useRef(false)
   const definitionPromptsSeen = useRef(new Set<string>())
+
+  useEffect(() => {
+    const updates = window.omnidesign?.updates
+    if (!updates) return
+    let active = true
+    void updates.getState().then((state) => { if (active) setUpdateState(state) }).catch(() => undefined)
+    const unsubscribe = updates.onState((state) => { if (active) setUpdateState(state) })
+    return () => { active = false; unsubscribe() }
+  }, [])
 
   const updateDesign = useCallback((design: OmniDesignDocument) => {
     // Ignore a snapshot older than what we already hold. Async refreshes (e.g. a generation `get` that
@@ -416,7 +426,7 @@ export function App() {
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} designs={designs} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen && !libraryOpen && !definitionsProject} libraryOpen={libraryOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onLibrary={openLibrary} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
+      <Sidebar projects={projects} designs={designs} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} updateState={updateState} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen && !libraryOpen && !definitionsProject} libraryOpen={libraryOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onLibrary={openLibrary} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} onInstallUpdate={() => { void window.omnidesign?.updates.install().then(setUpdateState) }} onRetryUpdate={() => { void window.omnidesign?.updates.retry().then(setUpdateState) }} />
       {libraryOpen
         ? <Library projects={projects} designs={designs} folders={folders} tags={tags} onOpenProject={openProject} onOpenDesign={openDesign} onCreateFolder={createFolder} onRenameFolder={renameFolder} onDeleteFolder={deleteFolder} onMoveProjectToFolder={moveProjectToFolder} onCreateTag={createLibraryTag} onDeleteTag={deleteLibraryTag} onToggleTag={toggleLibraryTag} onDuplicateDesign={duplicateDesign} onMoveDesign={moveDesign} onTrashDesign={trashDesign} />
         : generationsOpen

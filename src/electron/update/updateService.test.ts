@@ -11,11 +11,12 @@ class FakeUpdater extends EventEmitter {
 
 function createHarness(enabled = true) {
   const updater = new FakeUpdater()
-  const promptForRestart = vi.fn(async () => false)
+  const canInstall = vi.fn((): string | null => null)
   const beforeInstall = vi.fn()
+  const onStateChange = vi.fn()
   const logger = { warn: vi.fn() }
-  const service = new UpdateService({ enabled, updater, promptForRestart, beforeInstall, logger })
-  return { updater, promptForRestart, beforeInstall, logger, service }
+  const service = new UpdateService({ enabled, updater, canInstall, beforeInstall, onStateChange, logger })
+  return { updater, canInstall, beforeInstall, onStateChange, logger, service }
 }
 
 describe('UpdateService', () => {
@@ -45,37 +46,54 @@ describe('UpdateService', () => {
     expect(disabled.updater.checkForUpdates).not.toHaveBeenCalled()
   })
 
-  it('offers a downloaded update and installs it after restart confirmation', async () => {
+  it('reports numeric download progress and installs a ready update from one explicit action', () => {
     const harness = createHarness()
-    harness.promptForRestart.mockResolvedValue(true)
     harness.service.start()
+    harness.updater.emit('update-available', {})
+    harness.updater.emit('download-progress', { percent: 47.6 })
+    expect(harness.service.getState()).toEqual({ kind: 'downloading', percent: 48 })
     harness.updater.emit('update-downloaded', { version: '0.0.42' })
-
-    await vi.waitFor(() => expect(harness.promptForRestart).toHaveBeenCalledWith('0.0.42'))
+    expect(harness.service.getState()).toEqual({ kind: 'ready', version: '0.0.42', blockedReason: null })
+    expect(harness.updater.quitAndInstall).not.toHaveBeenCalled()
+    harness.service.install()
     expect(harness.beforeInstall).toHaveBeenCalledTimes(1)
     expect(harness.updater.quitAndInstall).toHaveBeenCalledWith(false, true)
   })
 
-  it('keeps a downloaded update for the next ordinary quit when restart is deferred', async () => {
+  it('keeps a ready update blocked until active work is safe and requires another click', () => {
     const harness = createHarness()
+    harness.canInstall.mockReturnValue('A branch combination is still running.')
     harness.service.start()
     harness.updater.emit('update-downloaded', { version: '0.0.43' })
-
-    await vi.waitFor(() => expect(harness.promptForRestart).toHaveBeenCalled())
+    expect(harness.service.install()).toEqual({ kind: 'ready', version: '0.0.43', blockedReason: 'A branch combination is still running.' })
     expect(harness.beforeInstall).not.toHaveBeenCalled()
     expect(harness.updater.quitAndInstall).not.toHaveBeenCalled()
+    harness.canInstall.mockReturnValue(null)
+    expect(harness.updater.quitAndInstall).not.toHaveBeenCalled()
+    harness.service.install()
+    expect(harness.updater.quitAndInstall).toHaveBeenCalledTimes(1)
   })
 
-  it('contains update-check and prompt failures and removes listeners on stop', async () => {
+  it('exposes download failure and retries through the existing updater flow', async () => {
+    const harness = createHarness()
+    harness.service.start()
+    harness.updater.emit('error', new Error('offline'))
+    expect(harness.service.getState()).toEqual({ kind: 'failed', message: 'offline' })
+    harness.service.retry()
+    expect(harness.service.getState()).toEqual({ kind: 'checking' })
+    expect(harness.updater.checkForUpdates).toHaveBeenCalledTimes(2)
+  })
+
+  it('contains update-check failures and removes every listener on stop', async () => {
     const harness = createHarness()
     harness.updater.checkForUpdates.mockRejectedValue(new Error('offline'))
-    harness.promptForRestart.mockRejectedValue(new Error('window closed'))
     harness.service.start()
-    harness.updater.emit('update-downloaded', {})
 
-    await vi.waitFor(() => expect(harness.logger.warn).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(harness.logger.warn).toHaveBeenCalledTimes(1))
+    expect(harness.service.getState()).toEqual({ kind: 'failed', message: 'offline' })
     harness.service.stop()
     expect(harness.updater.listenerCount('error')).toBe(0)
+    expect(harness.updater.listenerCount('download-progress')).toBe(0)
     expect(harness.updater.listenerCount('update-downloaded')).toBe(0)
   })
 })

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Tooltip, TooltipTrigger } from 'react-aria-components'
-import { BellIcon, BoltIcon, ChevronRightIcon, Cog6ToothIcon, CommandLineIcon, DocumentDuplicateIcon, FolderIcon, HomeIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { ArrowDownTrayIcon, ArrowPathIcon, BellIcon, BoltIcon, ChevronRightIcon, Cog6ToothIcon, CommandLineIcon, DocumentDuplicateIcon, FolderIcon, HomeIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { IconButton, type Icon } from '../components/common'
 
 function NavigationItem({ icon: IconComponent, label, badge, active = false, onPress }: { readonly icon: Icon; readonly label: string; readonly badge?: string; readonly active?: boolean; readonly onPress?: () => void }) {
@@ -59,13 +59,14 @@ function ProjectNavItem({ project, designs, activeProjectId, activeDesignId, onO
   )
 }
 
-export function Sidebar({ projects, designs, activeProjectId, activeDesignId, activeGenerationCount, workspaceError, homeActive, libraryOpen, settingsOpen, providersOpen, generationsOpen, trashOpen, onHome, onLibrary, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onTrash, onRetryWorkspace }: {
+export function Sidebar({ projects, designs, activeProjectId, activeDesignId, activeGenerationCount, workspaceError, updateState, homeActive, libraryOpen, settingsOpen, providersOpen, generationsOpen, trashOpen, onHome, onLibrary, onOpen, onOpenDesign, onAddDesign, onSettings, onProviders, onGenerations, onTrash, onRetryWorkspace, onInstallUpdate, onRetryUpdate }: {
   readonly projects: readonly ProjectSummary[]
   readonly designs: readonly OmniDesignDocument[]
   readonly activeProjectId: string | null
   readonly activeDesignId: string | null
   readonly activeGenerationCount: number
   readonly workspaceError: string | null
+  readonly updateState: UpdateState
   readonly homeActive: boolean
   readonly libraryOpen: boolean
   readonly settingsOpen: boolean
@@ -82,6 +83,8 @@ export function Sidebar({ projects, designs, activeProjectId, activeDesignId, ac
   readonly onGenerations: () => void
   readonly onTrash: () => void
   readonly onRetryWorkspace: () => void
+  readonly onInstallUpdate: () => void
+  readonly onRetryUpdate: () => void
 }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
@@ -106,6 +109,9 @@ export function Sidebar({ projects, designs, activeProjectId, activeDesignId, ac
         </div>
       </div>
       <div className="sidebar-footer">
+        {updateState.kind === 'downloading' && <div className="sidebar-update" role="progressbar" aria-label="Downloading OmniDesign update" aria-valuemin={0} aria-valuemax={100} aria-valuenow={updateState.percent}><ArrowDownTrayIcon aria-hidden="true" /><span><strong>Downloading update</strong><small>{updateState.percent}%</small></span><span className="sidebar-update-track" aria-hidden="true"><span style={{ width: `${updateState.percent}%` }} /></span>{updateState.percent % 10 === 0 && <span className="visually-hidden" aria-live="polite">Update download {updateState.percent}% complete</span>}</div>}
+        {updateState.kind === 'ready' && <div className="sidebar-update" data-ready><ArrowDownTrayIcon aria-hidden="true" /><span><strong>Update ready</strong><small>{updateState.blockedReason ?? `Version ${updateState.version}`}</small></span><Button className="text-button" onPress={onInstallUpdate}>Update</Button></div>}
+        {updateState.kind === 'failed' && <div className="sidebar-update" data-failed><ArrowPathIcon aria-hidden="true" /><span><strong>Update paused</strong><small>Download failed</small></span><Button className="text-button" onPress={onRetryUpdate}>Retry</Button></div>}
         <NavigationItem icon={CommandLineIcon} label="Providers" active={providersOpen} onPress={onProviders} />
         <NavigationItem icon={TrashIcon} label="Trash" active={trashOpen} onPress={onTrash} />
         <NavigationItem icon={Cog6ToothIcon} label="Settings" active={settingsOpen} onPress={onSettings} />

@@ -305,6 +305,19 @@ function openPreviewPopOut(token: string, page: string): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('updates:get-state', (event) => {
+    authorize(event)
+    return updateService?.getState() ?? { kind: 'disabled' as const }
+  })
+  ipcMain.handle('updates:install', (event) => {
+    authorize(event)
+    return updateService?.install() ?? { kind: 'disabled' as const }
+  })
+  ipcMain.handle('updates:retry', (event) => {
+    authorize(event)
+    updateService?.retry()
+    return updateService?.getState() ?? { kind: 'disabled' as const }
+  })
   ipcMain.handle('providers:get-cached', (event) => {
     authorize(event)
     return cachedProviderStatuses()
@@ -1155,26 +1168,19 @@ void app.whenReady().then(() => {
   void refreshProviderStatuses().catch(() => undefined)
   updateService = new UpdateService({
     enabled: shouldEnableUpdates(app.isPackaged, process.platform),
-    async promptForRestart(version) {
-      if (!mainWindow || mainWindow.isDestroyed()) return false
-      const activeJobs = store.listGenerationJobs(['queued', 'running'])
-      const detail = activeJobs.length > 0
-        ? `${activeJobs.length} active generation${activeJobs.length === 1 ? '' : 's'} will be interrupted and can be continued after OmniDesign restarts.`
-        : 'Restart now to apply the update, or choose Later to install it when you next quit OmniDesign.'
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Update ready',
-        message: `OmniDesign ${version} is ready to install.`,
-        detail,
-        buttons: ['Restart and update', 'Later'],
-        defaultId: activeJobs.length > 0 ? 1 : 0,
-        cancelId: 1,
-      })
-      return result.response === 0
+    canInstall() {
+      const activeJobs = store.listGenerationJobs(['running'])
+      if (activeJobs.length) return `${activeJobs.length} generation${activeJobs.length === 1 ? ' is' : 's are'} still running.`
+      const activeCombinations = store.listActiveCombinationAttempts()
+      if (activeCombinations.length) return activeCombinations.some((attempt) => attempt.state === 'manual_resolution') ? 'Finish or abort manual combination resolution first.' : 'A branch combination is still running.'
+      return null
     },
     beforeInstall() {
       closingAfterGenerationConfirmation = true
       store.markGenerationJobsInterrupted()
+    },
+    onStateChange(state) {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updates:state', state)
     },
   })
   updateService.start()

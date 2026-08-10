@@ -129,6 +129,12 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       }]),
       openSetup: vi.fn().mockResolvedValue(undefined),
     },
+    updates: {
+      getState: vi.fn().mockResolvedValue({ kind: 'disabled' }),
+      install: vi.fn().mockResolvedValue({ kind: 'ready', version: '0.1.0', blockedReason: null }),
+      retry: vi.fn().mockResolvedValue({ kind: 'checking' }),
+      onState: vi.fn().mockReturnValue(() => undefined),
+    },
     workspace: {
       list: vi.fn().mockResolvedValue(initialDesigns),
       listProjects: vi.fn().mockResolvedValue(projects),
@@ -261,6 +267,24 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('region', { name: 'Create a design' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Continue designing' })).toBeInTheDocument()
     expect(screen.getByText('Your first design starts above')).toBeInTheDocument()
+  })
+
+  it('keeps update progress, blocked ready state, and retry actions compact in the sidebar', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.updates.getState).mockResolvedValue({ kind: 'downloading', percent: 42 })
+    render(<App />)
+
+    const sidebar = await screen.findByRole('complementary', { name: 'Primary navigation' })
+    expect(await within(sidebar).findByRole('progressbar', { name: 'Downloading OmniDesign update' })).toHaveAttribute('aria-valuenow', '42')
+    expect(within(sidebar).getByText('42%')).toBeInTheDocument()
+    const onState = vi.mocked(bridge.updates.onState).mock.calls[0]![0]
+    act(() => onState({ kind: 'ready', version: '0.1.0', blockedReason: 'A branch combination is still running.' }))
+    expect(within(sidebar).getByText('A branch combination is still running.')).toBeInTheDocument()
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Update' }))
+    await waitFor(() => expect(bridge.updates.install).toHaveBeenCalledTimes(1))
+    act(() => onState({ kind: 'failed', message: 'offline' }))
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(bridge.updates.retry).toHaveBeenCalledTimes(1))
   })
 
   it('keeps the development provider available when an installed provider has no selectable models', async () => {

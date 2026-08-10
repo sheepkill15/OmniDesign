@@ -419,6 +419,13 @@ interface GenerationActivity {
   readonly detail: string
 }
 
+type UpdateState =
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'idle' | 'checking' }
+  | { readonly kind: 'downloading'; readonly percent: number }
+  | { readonly kind: 'ready'; readonly version: string; readonly blockedReason: string | null }
+  | { readonly kind: 'failed'; readonly message: string }
+
 interface PreviewBounds {
   readonly x: number
   readonly y: number
@@ -441,6 +448,12 @@ interface Window {
       readonly platform: string
       discover(): Promise<LocalDependencyStatus[]>
       openSetup(dependencyId: 'git'): Promise<void>
+    }
+    readonly updates: {
+      getState(): Promise<UpdateState>
+      install(): Promise<UpdateState>
+      retry(): Promise<UpdateState>
+      onState(listener: (state: UpdateState) => void): () => void
     }
     readonly workspace: {
       list(): Promise<OmniDesignDocument[]>

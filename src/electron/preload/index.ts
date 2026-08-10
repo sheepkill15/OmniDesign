@@ -25,6 +25,16 @@ contextBridge.exposeInMainWorld('omnidesign', {
     discover: () => ipcRenderer.invoke('environment:discover'),
     openSetup: (dependencyId: 'git') => ipcRenderer.invoke('environment:open-setup', dependencyId),
   },
+  updates: {
+    getState: () => ipcRenderer.invoke('updates:get-state'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    retry: () => ipcRenderer.invoke('updates:retry'),
+    onState: (listener: (state: import('../update/updateService.js').UpdateState) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: import('../update/updateService.js').UpdateState) => listener(state)
+      ipcRenderer.on('updates:state', handler)
+      return () => ipcRenderer.removeListener('updates:state', handler)
+    },
+  },
   workspace: {
     list: () => ipcRenderer.invoke('workspace:list'),
     listProjects: () => ipcRenderer.invoke('workspace:list-projects'),
