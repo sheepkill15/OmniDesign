@@ -4,7 +4,7 @@ This is a working plan, not a finalized product specification. The project owner
 
 ## Immediate Objective
 
-Phase 2 project and design organization is complete and merged into `develop`. Phase 3 is implemented on `codex/feature/phase-3` and audited against `docs/PHASE_3_SPEC.md`; the evidence ledger is `docs/PHASE_3_RELEASE_AUDIT.md`. Post-Phase 3 product-trust integration is implemented on `codex/feature/product-trust-polish` against `docs/PRODUCT_TRUST_POLISH_SPEC.md`: the first result stays unobstructed, every revision receives a persisted deterministic quality report, and historical revisions can be compared with the current head using Git-derived authored-file evidence. API-key providers, direct provider APIs, an OmniDesign-owned harness, multiple provider configurations, and setup/testing remain outside Phase 3 in an unassigned provider-infrastructure milestone.
+Phase 2 project and design organization is complete and merged into `develop`. Phase 3 is implemented and audited against `docs/PHASE_3_SPEC.md`; the evidence ledger is `docs/PHASE_3_RELEASE_AUDIT.md`. Post-Phase 3 product-trust integration is implemented against `docs/PRODUCT_TRUST_POLISH_SPEC.md`: the first result stays unobstructed, every revision receives a persisted deterministic quality report, and historical revisions can be compared with the current head using Git-derived authored-file evidence. The ratified Phase 4 product contract is `docs/PHASE_4_SPEC.md`; implementation has not begun. API-key providers, direct provider APIs, an OmniDesign-owned harness, multiple provider configurations, and setup/testing remain outside Phase 4 in an unassigned provider-infrastructure milestone.
 
 The first complete user journey should be:
 
@@ -166,6 +166,20 @@ Use the working preview, validation, and export pipeline to compare:
 
 Use the benchmark definition and metrics in `ARCHITECTURE.md`. Do not promote Tailwind and Alpine from provisional to accepted until results support the choice.
 
+### 7. Implement Phase 4 Design Branching
+
+Use `docs/PHASE_4_SPEC.md` as the product and acceptance contract. Begin with the branch/worktree persistence foundation before adding production branch UI.
+
+Build in the specification's testable tracks:
+
+- Migrate every design to protected `Main`, add one persistent linked Git worktree per alternative direction, and resolve revisions, conversations, queues, and workspace state through branches.
+- Add explicit composer branching, automatic immutable titles, message Reply/Fork actions, multi-provider/model fan-out, and manually attached parallel-branch context.
+- Add the branch context strip, branch-focused lineage, multi-page rendered comparison, and explicit AI-generated summaries.
+- Add intelligent destination-only combination, validated two-parent commits, conventional Git merge plus agent fallback, and default-editor manual resolution with Check resolution and Abort.
+- Hide definition controls for standalone designs, adapt project-definition warnings to divergent branches, move automatic-update progress and actions into the sidebar footer, and finish Copy/Read aloud accessibility.
+
+Keep jobs sequential within one branch and concurrent across branches under the existing global limit. Preserve the accepted instruction-only source write boundary honestly until provider infrastructure can enforce read-only roots.
+
 ## First Implementation Milestone
 
 The first milestone is complete only when a user can perform this local flow end to end:
@@ -184,7 +198,7 @@ The milestone also requires automated coverage of its domain behavior, IPC contr
 
 ## Current Handoff State
 
-- Active work is on `codex/feature/phase-3`; `docs/PHASE_3_SPEC.md` is the Phase 3 product contract and `docs/PHASE_3_RELEASE_AUDIT.md` records the completed acceptance audit. `docs/PHASE_2_PLAN.md` remains the completed Phase 2 ledger.
+- Phase 4 is specified on `codex/feature/phase-4-spec`; `docs/PHASE_4_SPEC.md` is the ratified product contract. Implementation and its release audit have not begun. `docs/PHASE_3_SPEC.md` and `docs/PHASE_3_RELEASE_AUDIT.md` remain the completed Phase 3 contract and evidence ledger; `docs/PHASE_2_PLAN.md` remains the completed Phase 2 ledger.
 - Phase 2 now provides the complete project/design Library with nested folders, drag and accessible moves, tags, search, project-kind/provider/tag/folder filters, and shared sorting.
 - Multiple-design organization includes duplication, moves between any projects, project-grid multi-select, and bulk move/remove. App owns one shared design collection; Sidebar and ProjectPage no longer fetch their own copies.
 - Multiple-page designs are discovered from Git, compiled into one shared Tailwind stylesheet, previewed in Focused or Canvas mode, exported in full, and controlled through home/title/order metadata. Canvas persists preset or custom device dimensions and Artboard/Fixed fit; Focused intentionally fills the available pane.

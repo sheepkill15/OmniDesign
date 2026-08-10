@@ -27,6 +27,8 @@ The following decisions are accepted:
 - The generated-design preview uses `WebContentsView` in a non-persistent, dedicated session partition and a session-scoped `omnidesign-preview://` protocol handler.
 - Phase 1 offline ZIP assembly uses `fflate`, while Tailwind compilation uses the pinned `tailwindcss` and `@tailwindcss/node` packages.
 - Completed design history uses immutable file snapshots plus SQLite metadata and pointers; hidden per-design Git repositories are not used in the Phase 1 walking skeleton.
+- Phase 4 product branches use one Git branch and one persistent Git worktree per design direction while sharing one OmniDesign-managed repository.
+- Phase 4 intelligent combination edits only the destination worktree and records a validated two-parent commit without invoking Git merge; a conventional Git merge plus agent resolution is the fallback.
 
 The following generation decision is provisional and must be benchmarked before it becomes final:
 
@@ -324,6 +326,8 @@ Revision directories are append-only. Restoration copies the selected snapshot i
 
 Each agent-backed design has a self-contained Git repository in OmniDesign-managed storage. It is a normal working repository for the provider harness, not a repository the user is required to manage. Before an agent starts, OmniDesign creates the repository and prepares its `index.html` entry page.
 
+Phase 4 treats the original repository working tree as the protected `Main` product branch and creates every alternative direction as a linked Git worktree stored in a validated sibling directory under the same managed design root. Worktrees persist for the product branch's lifetime. Internal branch IDs, refs, and paths are privileged application data; AI-generated display titles never become filesystem or Git authority. OmniDesign uses Git worktree lifecycle and repair commands rather than repository copies or direct deletion of linked-worktree directories.
+
 The provider harness starts design generation in that design repository. The agent may inspect and edit the design as it would any other project. When the design is associated with an existing project, the original project is supplied directly rather than copied. OmniDesign tells design agents to treat it as reference material, but the current provider-owned harness may grant it read-write access. This is an accepted temporary limitation until provider-infrastructure work supplies stronger access control.
 
 Git, not an agent-authored file inventory, determines whether the working tree changed and records the resulting design revision. The prepared `index.html` is the fixed preview/export entry page, so the agent does not choose or report an entry point. Completed revisions continue to be represented by immutable application metadata and non-destructive restoration; implementation may create a new commit from a restored state rather than rewriting history.
@@ -340,7 +344,7 @@ History should be append-only or revision-based from the beginning:
 - Store immutable design snapshots or content-addressed artifacts where practical.
 - Maintain explicit pointers to the current revision rather than mutating away previous states.
 - Make restoration deterministic.
-- Keep the model compatible with Phase 4 design branching and merging.
+- Preserve explicit Phase 4 fork and successful combination ancestry across branch heads.
 
 ## Generated Design Architecture
 
@@ -797,6 +801,72 @@ When displaying a later revision, the privileged preview service re-anchors a hi
 target only to one unique source-map entry on the same page: first by stable `data-od-*`
 identity, then by an unchanged label and exact source excerpt. Deleted, changed, foreign,
 or ambiguous targets remain in ordinary history and are not assigned a visual marker.
+
+## Phase 4 Architecture Decisions
+
+### ADR 2026-08-10: Product branches use persistent Git worktrees (accepted, not implemented)
+
+One OmniDesign design remains one Git repository. Its protected `Main` product branch uses
+the main worktree, and every alternative product branch uses one linked worktree stored for
+the branch's lifetime under the same managed design root but outside the main working tree.
+Git objects and refs are shared; `HEAD`, the index, authored files, generation queues,
+conversation continuation, and workspace state are branch-specific. This provides real
+filesystem isolation for concurrent provider runs without copying repositories.
+
+OmniDesign owns stable internal branch IDs and maps them to validated refs and worktree
+paths. AI-generated immutable display titles are presentation only. Existing designs migrate
+their current history and pointers to `Main` without manufacturing revisions. Worktree
+creation, inspection, repair, and removal use `git worktree` commands and machine-readable
+output. The privileged application must resolve every path inside the exact managed design
+root before mutation and must never remove a linked worktree by recursively deleting an
+unverified computed path.
+
+Conversations form immutable shared ancestry through a fork point and branch-specific turns
+after divergence. Provider continuation must also diverge; concurrent branches cannot resume
+one mutable provider session. Revisions, drafts, attachments, reply references, generation
+settings, layouts, preview viewports, focused-feedback state, and queues resolve through a
+branch rather than one design-global head. Pending feedback and queued work are not copied
+when a branch is created.
+
+Official Git documentation confirms that one repository may have multiple linked worktrees,
+each with per-worktree state, and that clean linked worktrees should be removed through the
+worktree lifecycle command: https://git-scm.com/docs/git-worktree.
+
+### ADR 2026-08-10: Intelligent combination records two-parent destination commits (accepted, not implemented)
+
+Phase 4 combination is source-to-destination and prompt-led. The primary path does not invoke
+`git merge`: the provider reads the source branch folder and divergent conversation as
+reference, edits only the locked destination worktree, and returns an ordinary conversational
+response. OmniDesign independently validates the destination tree and, when changed and valid,
+constructs one commit with the pre-combination destination head as first parent and the captured
+source head as second parent. Git supports commits with multiple explicit parents through its
+commit-object plumbing: https://git-scm.com/docs/git-commit-tree. The provider never selects
+the parents or declares the tree authoritative.
+
+If intelligent combination fails, OmniDesign restores the exact destination head, starts a
+conventional Git merge, and asks the provider to resolve conflicts under the original prompt.
+If that also fails, the destination remains in a durable manual-resolution state with
+allow-listed default-editor opening, independent validation, a complete action, and a safe
+abort back to the captured destination head. Source and destination reject other generation
+until the attempt completes or aborts. The current provider-owned harness cannot make the
+source worktree enforceably read-only, so source immutability remains an honest instruction and
+application-orchestration boundary rather than a claimed filesystem sandbox.
+
+### ADR 2026-08-10: Phase 4 moves automatic-update state into the trusted sidebar (accepted, not implemented)
+
+On platforms where automatic updates are enabled, the trusted renderer receives bounded update
+progress from the main process and shows the numeric download percentage in the bottom-left
+sidebar. Completion replaces progress with one compact **Update** action. A safe click installs
+and restarts immediately without the current native restart-decision dialog. A failed download
+shows Retry in the same location.
+
+The application refuses immediate restart while generation, branch combination, or manual
+conflict resolution is active and explains the blocker. It does not schedule a surprise restart
+after the blocker clears; the user invokes Update again. This changes only presentation and safe
+restart policy on updater-enabled platforms. It does not enable development/E2E updates or
+automatic updates for the current unsigned macOS packages. When implemented, it supersedes the
+native restart-decision and active-generation interruption behavior in the 2026-07-30 delivery
+ADR without changing that ADR's packaging, provider, signing, or release-channel decisions.
 
 ## Rules for Changing This Architecture
 
