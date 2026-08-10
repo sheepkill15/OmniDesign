@@ -28,6 +28,7 @@ describe('WorkspaceStore', () => {
     const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
     database.exec(`
       PRAGMA foreign_keys = OFF;
+      DROP TABLE branch_comparisons;
       DROP TABLE branch_comparison_summaries;
       DROP TABLE design_branch_locks;
       DROP TABLE branch_combination_attempts;

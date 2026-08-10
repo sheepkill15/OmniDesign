@@ -171,6 +171,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       restoreTrash: vi.fn().mockResolvedValue(undefined),
       purgeTrash: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(createdDesign),
+      getBranch: vi.fn(async (_designId: string, branchId: string) => ({ ...createdDesign, activeBranchId: branchId })),
       createBranch: vi.fn().mockResolvedValue(createdDesign),
       switchBranch: vi.fn().mockResolvedValue(createdDesign),
       removeBranch: vi.fn().mockResolvedValue(createdDesign.branches),
@@ -1583,6 +1584,7 @@ describe('Phase 1 walking skeleton UI', () => {
     }
     const bridge = installBridge([], branchedDesign)
     vi.mocked(bridge.workspace.compareBranches).mockResolvedValue({
+      comparisonId: '00000000-0000-4000-8000-000000000010', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), stale: false,
       source: { branchId: alternativeId, title: 'Editorial direction', revisionId: 'revision-2', pages: [{ path: 'index.html', title: 'Home', order: 0, isHome: true }, { path: 'about.html', title: 'About', order: 1, isHome: false }], entryPagePath: 'index.html' },
       destination: { branchId: design.id, title: 'Main', revisionId: 'revision-1', pages: [{ path: 'index.html', title: 'Home', order: 0, isHome: true }], entryPagePath: 'index.html' },
       changes: { baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [{ path: 'index.html', status: 'modified', additions: 4, deletions: 1 }], additions: 4, deletions: 1 },
@@ -1596,6 +1598,10 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Switch design branch' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage branches' }))
+    const editorialBranch = screen.getByText('Editorial direction').closest('article')!
+    fireEvent.click(within(editorialBranch).getByRole('button', { name: 'Show revisions' }))
+    expect(await within(editorialBranch).findByRole('list', { name: 'Editorial direction revisions' })).toBeInTheDocument()
+    expect(bridge.workspace.getBranch).toHaveBeenCalledWith('design-1', alternativeId)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Editorial direction for comparison' }))
     fireEvent.click(screen.getByRole('button', { name: 'Compare branches' }))
     expect(await screen.findByRole('dialog', { name: 'Compare branches' })).toBeInTheDocument()
@@ -1611,7 +1617,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Combination prompt' }), { target: { value: 'Keep Main and adopt the editorial typography' } })
     fireEvent.click(screen.getByRole('button', { name: 'Combine into destination' }))
     expect(await screen.findByRole('dialog', { name: 'Combination needs review' })).toBeInTheDocument()
-    await waitFor(() => expect(bridge.workspace.combineBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1', 'Keep Main and adopt the editorial typography', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
+    await waitFor(() => expect(bridge.workspace.combineBranches).toHaveBeenCalledWith('design-1', '00000000-0000-4000-8000-000000000010', 'Keep Main and adopt the editorial typography', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
     expect(await screen.findByTitle('Unresolved destination preview')).toHaveAttribute('sandbox', 'allow-scripts')
   })
 

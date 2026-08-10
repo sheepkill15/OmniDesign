@@ -5,6 +5,7 @@ import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
 import { providerSetupUrl } from '../provider/providerSetup.js'
 import { discoverLocalDependencies, isLocalDependencyId, localDependencySetupUrl } from '../environment/localDependencies.js'
+import { openCodeEditor } from '../environment/codeEditor.js'
 import { buildConversationRecap, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
 import type { ProviderPrompt, ProviderStatus } from '../provider/types.js'
 import {
@@ -354,6 +355,13 @@ function registerIpc(): void {
   ipcMain.handle('workspace:get', (event, value: unknown) => {
     authorize(event)
     return requireWorkspace().getDesign(designIdRequestSchema.parse(value).designId)
+  })
+  ipcMain.handle('workspace:get-branch', (event, value: unknown) => {
+    authorize(event)
+    const request = branchIdRequestSchema.parse(value)
+    const branch = requireWorkspaceStore().getDesignAtBranch(request.designId, request.branchId)
+    if (!branch) throw new Error('Design branch not found.')
+    return branch
   })
   ipcMain.handle('workspace:create-branch', (event, value: unknown) => {
     authorize(event)
@@ -803,7 +811,7 @@ function registerIpc(): void {
   ipcMain.handle('workspace:combine-branches', async (event, value: unknown) => {
     authorize(event)
     const request = combineDesignBranchesRequestSchema.parse(value)
-    const prepared = requireWorkspace().startCombination(request.designId, request.sourceBranchId, request.destinationBranchId, request.prompt, { providerId: request.providerId, modelId: request.modelId, effort: request.effort })
+    const prepared = requireWorkspace().startCombination(request.designId, request.comparisonId, request.prompt, { providerId: request.providerId, modelId: request.modelId, effort: request.effort })
     if (request.providerId === 'mock') return requireWorkspace().beginCombinationFallback(prepared.attempt.id, 'The development provider uses the deterministic fallback merge for combination previews.')
     try {
       const reply = await providers.runAnalysisAgent({
@@ -850,8 +858,7 @@ function registerIpc(): void {
     const request = combinationAttemptRequestSchema.parse(value)
     const attempt = requireWorkspace().getCombinationAttempt(request.attemptId)
     if (!attempt?.destinationBranchId || attempt.designId !== request.designId || attempt.state !== 'manual_resolution') throw new Error('Combination attempt is not awaiting manual resolution.')
-    const error = await shell.openPath(requireWorkspace().getDesignRepositoryPath(request.designId, attempt.destinationBranchId))
-    if (error) throw new Error(error)
+    openCodeEditor(requireWorkspace().getDesignRepositoryPath(request.designId, attempt.destinationBranchId))
   })
   ipcMain.handle('workspace:list-combinations', (event, value: unknown) => {
     authorize(event)

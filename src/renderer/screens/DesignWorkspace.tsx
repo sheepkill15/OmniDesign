@@ -229,6 +229,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [removeBranchTarget, setRemoveBranchTarget] = useState<DesignBranch | null>(null)
   const [forceBranchRemoval, setForceBranchRemoval] = useState(false)
   const [lineageSelection, setLineageSelection] = useState<readonly string[]>([design.activeBranchId])
+  const [revealedBranchRevisions, setRevealedBranchRevisions] = useState<Readonly<Record<string, readonly DesignRevision[]>>>({})
   const [branchComparison, setBranchComparison] = useState<BranchComparison | null>(null)
   const [branchComparisonTokens, setBranchComparisonTokens] = useState<{ readonly source: string; readonly destination: string } | null>(null)
   const [branchComparisonPage, setBranchComparisonPage] = useState<string | null>(null)
@@ -535,6 +536,15 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     setBranchComparisonTokens(null)
     setBranchComparisonPage(compared.destination.entryPagePath ?? compared.source.entryPagePath ?? compared.destination.pages[0]?.path ?? compared.source.pages[0]?.path ?? null)
   }
+  const toggleBranchRevisions = async (branchId: string) => {
+    if (!api) return
+    if (revealedBranchRevisions[branchId]) {
+      setRevealedBranchRevisions((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== branchId)))
+      return
+    }
+    const branch = await runWorkspaceAction(() => api.getBranch(design.id, branchId), 'That branch history could not be loaded.')
+    if (branch) setRevealedBranchRevisions((current) => ({ ...current, [branchId]: [...branch.revisions].reverse() }))
+  }
   const removeBranch = async () => {
     if (!api || !removeBranchTarget) return
     setFeedback(null)
@@ -585,7 +595,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const beginCombination = async () => {
     if (!api || !branchComparison || !combinationPrompt.trim() || combiningBranches || !hasUsableSelection) return
     setCombiningBranches(true)
-    const attempt = await runWorkspaceAction(() => api.combineBranches(design.id, branchComparison.source.branchId, branchComparison.destination.branchId, combinationPrompt.trim(), selection), 'The branches could not be combined.')
+    const attempt = await runWorkspaceAction(() => api.combineBranches(design.id, branchComparison.comparisonId, combinationPrompt.trim(), selection), 'The branches could not be combined.')
     setCombiningBranches(false)
     if (!attempt) return
     setCombinationHistory((current) => [...current.filter((candidate) => candidate.id !== attempt.id), attempt])
@@ -624,7 +634,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     if (!aborted) return
     setCombinationAttempt(null)
     setCombiningBranches(true)
-    const attempt = await runWorkspaceAction(() => api.combineBranches(design.id, previous.sourceBranchId!, previous.destinationBranchId!, previous.prompt, selection), 'The branches could not be retried.')
+    const refreshed = await runWorkspaceAction(() => api.compareBranches(design.id, previous.sourceBranchId!, previous.destinationBranchId!), 'The branches could not be refreshed for retry.')
+    const attempt = refreshed ? await runWorkspaceAction(() => api.combineBranches(design.id, refreshed.comparisonId, previous.prompt, selection), 'The branches could not be retried.') : undefined
     setCombiningBranches(false)
     if (attempt) setCombinationAttempt(attempt.state === 'completed' ? null : attempt)
     if (attempt?.state === 'completed') setCompletedCombination(attempt)
@@ -961,7 +972,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       <AppModal isOpen={manageBranchesOpen} onOpenChange={setManageBranchesOpen} className="branch-manager-modal" title="Manage branches">
         {(close) => <>
           <p>Review the persistent directions in this design. Branch names describe the prompt that created them and cannot be edited.</p>
-          <div className="branch-manager-list">{design.branches.map((branch) => <article key={branch.id} data-child={branch.parentBranchId ? true : undefined}><input type="checkbox" aria-label={`Select ${branch.title} for comparison`} checked={lineageSelection.includes(branch.id)} onChange={(event) => setLineageSelection((current) => event.target.checked ? current.length < 2 ? [...current, branch.id] : [current.at(-1)!, branch.id] : current.filter((id) => id !== branch.id))} /><ShareIcon aria-hidden="true" /><span><strong>{branch.title}</strong><small>{branch.isMain ? 'Protected Main branch' : `${branch.parentBranchId ? `Forked from ${design.branches.find((candidate) => candidate.id === branch.parentBranchId)?.title ?? 'removed branch'} · ` : ''}${branch.status === 'failed' ? 'Needs attention' : branch.status}`}</small></span>{branch.id === design.activeBranchId ? <span className="branch-current-label">Current</span> : <span className="branch-manager-actions"><Button className="secondary-action" onPress={() => { close(); void switchBranch(branch.id) }}>Open</Button>{!branch.isMain && <Button className="secondary-action branch-remove-action" onPress={() => { setRemoveBranchTarget(branch); setForceBranchRemoval(false) }}>Remove</Button>}</span>}</article>)}</div>
+          <div className="branch-manager-list">{design.branches.map((branch) => <article key={branch.id} data-child={branch.parentBranchId ? true : undefined}><div className="branch-lineage-row"><input type="checkbox" aria-label={`Select ${branch.title} for comparison`} checked={lineageSelection.includes(branch.id)} onChange={(event) => setLineageSelection((current) => event.target.checked ? current.length < 2 ? [...current, branch.id] : [current.at(-1)!, branch.id] : current.filter((id) => id !== branch.id))} /><ShareIcon aria-hidden="true" /><span><strong>{branch.title}</strong><small>{branch.isMain ? 'Protected Main branch' : `${branch.parentBranchId ? `Forked from ${design.branches.find((candidate) => candidate.id === branch.parentBranchId)?.title ?? 'removed branch'} · ` : ''}${branch.status === 'failed' ? 'Needs attention' : branch.status}`}</small></span><span className="branch-manager-actions"><Button className="secondary-action" onPress={() => void toggleBranchRevisions(branch.id)}>{revealedBranchRevisions[branch.id] ? 'Hide revisions' : 'Show revisions'}</Button>{branch.id === design.activeBranchId ? <span className="branch-current-label">Current</span> : <><Button className="secondary-action" onPress={() => { close(); void switchBranch(branch.id) }}>Open</Button>{!branch.isMain && <Button className="secondary-action branch-remove-action" onPress={() => { setRemoveBranchTarget(branch); setForceBranchRemoval(false) }}>Remove</Button>}</>}</span></div>{revealedBranchRevisions[branch.id] && <ol className="branch-revision-list" aria-label={`${branch.title} revisions`}>{revealedBranchRevisions[branch.id]!.map((revision) => <li key={revision.id}><ClockIcon aria-hidden="true" /><span><strong>{revision.prompt}</strong><small>{new Date(revision.createdAt).toLocaleString()}</small></span>{revision.id === branch.activeRevisionId && <span>Head</span>}</li>)}</ol>}</article>)}</div>
           <div className="branch-manager-footer"><span>{lineageSelection.length === 2 ? 'Two branches selected' : 'Select two branches to compare'}</span><Button className="clone-confirm-action" isDisabled={lineageSelection.length !== 2} onPress={() => void compareBranches()}>Compare branches</Button></div>
           {combinationHistory.filter((attempt) => attempt.state === 'completed').length > 0 && <section className="combination-history" aria-label="Successful combinations"><strong>Successful combinations</strong>{combinationHistory.filter((attempt) => attempt.state === 'completed').map((attempt) => <span key={attempt.id}><ShareIcon aria-hidden="true" />{attempt.sourceBranchTitle} into {attempt.destinationBranchTitle}</span>)}</section>}
         </>}
@@ -997,7 +1008,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         {() => combinationAttempt && <>
           <div className="generation-recovery" role="status"><span><strong>{combinationAttempt.fallbackPath === 'automatic_merge' ? 'Fallback merge is ready to review.' : 'Manual conflict resolution is required.'}</strong>{combinationAttempt.diagnostic}</span></div>
           <div className="combination-recovery-preview">{combinationPreview?.token && combinationPreview.entryPagePath ? <iframe title="Unresolved destination preview" src={comparisonPageUrl(combinationPreview.token, combinationPreview.entryPagePath)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">The unresolved preview is unavailable. Open the destination in an editor to inspect it.</div>}</div>
-          <div className="combination-recovery-actions"><Button className="secondary-action" onPress={() => void api?.openCombinationEditor(design.id, combinationAttempt.id)}>Open in editor</Button><Button className="secondary-action" isDisabled={combiningBranches || !combinationAttempt.sourceBranchId || !combinationAttempt.destinationBranchId} onPress={() => void retryCombination()}>Retry intelligent combination</Button><Button className="secondary-action" onPress={() => void abortCombination()}>Abort combination</Button><Button className="clone-confirm-action" onPress={() => void finishCombination()}>Keep combination</Button></div>
+          <div className="combination-recovery-actions"><Button className="secondary-action" onPress={() => void runWorkspaceAction(() => api!.openCombinationEditor(design.id, combinationAttempt.id).then(() => true), 'A code editor could not be opened.')}>Open in editor</Button><Button className="secondary-action" isDisabled={combiningBranches || !combinationAttempt.sourceBranchId || !combinationAttempt.destinationBranchId} onPress={() => void retryCombination()}>Retry intelligent combination</Button><Button className="secondary-action" onPress={() => void abortCombination()}>Abort combination</Button><Button className="clone-confirm-action" onPress={() => void finishCombination()}>Check resolution</Button></div>
         </>}
       </AppModal>
       <AppModal isOpen={completedCombination !== null} onOpenChange={(open) => { if (!open) setCompletedCombination(null) }} className="branch-manager-modal" title="Combination complete">

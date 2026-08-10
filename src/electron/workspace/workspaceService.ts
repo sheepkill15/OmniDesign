@@ -392,7 +392,12 @@ export class WorkspaceService {
     if (!sourceBranch || !destinationBranch || !sourceRevision?.gitCommit || !destinationRevision?.gitCommit) throw new Error('Both branches need a valid committed head before comparison.')
     const sourcePages = this.getRevisionPages(designId, sourceRevision.id)
     const destinationPages = this.getRevisionPages(designId, destinationRevision.id)
+    const comparisonId = this.store.recordBranchComparison(designId, sourceBranchId, destinationBranchId, sourceRevision.gitCommit, destinationRevision.gitCommit)
     return {
+      comparisonId,
+      sourceCommit: sourceRevision.gitCommit,
+      destinationCommit: destinationRevision.gitCommit,
+      stale: false,
       source: { branchId: sourceBranch.id, title: sourceBranch.title, revisionId: sourceRevision.id, pages: sourcePages.pages, entryPagePath: sourcePages.entryPagePath },
       destination: { branchId: destinationBranch.id, title: destinationBranch.title, revisionId: destinationRevision.id, pages: destinationPages.pages, entryPagePath: destinationPages.entryPagePath },
       changes: this.repositories.compareRevisions(designId, destinationRevision.gitCommit, sourceRevision.gitCommit, destinationRevision.id, sourceRevision.id),
@@ -409,8 +414,8 @@ export class WorkspaceService {
     const formatConversation = (label: string, messages: readonly Design['messages'][number][]) => `${label}:\n${messages.map((message) => `${message.role}: ${message.text}`).join('\n')}`
     return {
       comparison,
-      sourceCommit: sourceRevision.gitCommit,
-      destinationCommit: destinationRevision.gitCommit,
+      sourceCommit: comparison.sourceCommit,
+      destinationCommit: comparison.destinationCommit,
       sourcePath: this.repositories.getWorkingPath(designId, sourceBranchId),
       destinationPath: this.repositories.getWorkingPath(designId, destinationBranchId),
       conversationContext: `${formatConversation('Source conversation', source?.messages ?? [])}\n\n${formatConversation('Destination conversation', destination?.messages ?? [])}`,
@@ -457,7 +462,9 @@ export class WorkspaceService {
     return { contexts, referencePaths }
   }
 
-  public startCombination(designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: GenerationSelection): { readonly attempt: CombinationAttempt; readonly sourcePath: string; readonly destinationPath: string; readonly conversationContext: string } {
+  public startCombination(designId: string, comparisonId: string, prompt: string, selection: GenerationSelection): { readonly attempt: CombinationAttempt; readonly sourcePath: string; readonly destinationPath: string; readonly conversationContext: string } {
+    const evidence = this.store.requireFreshBranchComparison(comparisonId, designId)
+    const { sourceBranchId, destinationBranchId } = evidence
     const source = this.store.getDesignAtBranch(designId, sourceBranchId)
     const destination = this.store.getDesignAtBranch(designId, destinationBranchId)
     const sourceBranch = source?.branches.find((branch) => branch.id === sourceBranchId)

@@ -189,6 +189,10 @@ interface GenerationJob {
 }
 
 interface BranchComparison {
+  readonly comparisonId: string
+  readonly sourceCommit: string
+  readonly destinationCommit: string
+  readonly stale: boolean
   readonly source: { readonly branchId: string; readonly title: string; readonly revisionId: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null }
   readonly destination: { readonly branchId: string; readonly title: string; readonly revisionId: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null }
   readonly changes: RevisionComparison
@@ -489,6 +493,7 @@ interface Window {
       restoreTrash(kind: 'project' | 'design', id: string): Promise<ProjectSummary | OmniDesignDocument>
       purgeTrash(kind: 'project' | 'design', id: string): Promise<void>
       get(designId: string): Promise<OmniDesignDocument | null>
+      getBranch(designId: string, branchId: string): Promise<OmniDesignDocument>
       createBranch(designId: string, title: string, baseRevisionId?: string | null, forkMessageId?: string | null): Promise<OmniDesignDocument>
       switchBranch(designId: string, branchId: string): Promise<OmniDesignDocument>
       removeBranch(designId: string, branchId: string, force?: boolean): Promise<readonly DesignBranch[]>
@@ -515,7 +520,7 @@ interface Window {
       compareBranches(designId: string, sourceBranchId: string, destinationBranchId: string): Promise<BranchComparison>
       summarizeBranches(designId: string, sourceBranchId: string, destinationBranchId: string, selection: GenerationSelection): Promise<BranchComparisonSummary>
       listBranchSummaries(designId: string): Promise<readonly BranchComparisonSummary[]>
-      combineBranches(designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: GenerationSelection): Promise<CombinationAttempt>
+      combineBranches(designId: string, comparisonId: string, prompt: string, selection: GenerationSelection): Promise<CombinationAttempt>
       finishCombination(designId: string, attemptId: string): Promise<CombinationAttempt>
       abortCombination(designId: string, attemptId: string): Promise<CombinationAttempt>
       openCombinationEditor(designId: string, attemptId: string): Promise<void>

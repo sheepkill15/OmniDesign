@@ -549,6 +549,10 @@ const branchComparisonSideSchema = z.object({
 })
 
 export const branchComparisonSchema = z.object({
+  comparisonId: z.string().uuid(),
+  sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  destinationCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  stale: z.boolean(),
   source: branchComparisonSideSchema,
   destination: branchComparisonSideSchema,
   changes: revisionComparisonSchema,
@@ -605,7 +609,8 @@ export const saveDraftRequestSchema = designIdRequestSchema.extend({
   branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
 })
 
-export const combineDesignBranchesRequestSchema = compareDesignBranchesRequestSchema.extend({
+export const combineDesignBranchesRequestSchema = designIdRequestSchema.extend({
+  comparisonId: z.string().uuid(),
   prompt: z.string().trim().min(1).max(100_000),
   providerId: z.enum(['mock', 'codex', 'claude']),
   modelId: z.string().trim().min(1).max(200),

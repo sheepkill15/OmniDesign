@@ -815,6 +815,35 @@ ALTER TABLE generation_jobs ADD COLUMN branch_contexts_json TEXT NOT NULL DEFAUL
 ALTER TABLE generation_jobs ADD COLUMN resolved_branch_contexts_json TEXT NOT NULL DEFAULT '[]';
 `
 
+const migrationFortySeven = `
+CREATE TABLE branch_comparisons (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  source_branch_id TEXT REFERENCES design_branches(id) ON DELETE SET NULL,
+  destination_branch_id TEXT REFERENCES design_branches(id) ON DELETE SET NULL,
+  source_commit TEXT NOT NULL,
+  destination_commit TEXT NOT NULL,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX branch_comparisons_by_design ON branch_comparisons(design_id, created_at);
+`
+
+const migrationFortyEight = `
+ALTER TABLE design_pages RENAME TO design_pages_legacy;
+CREATE TABLE design_pages (
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  branch_id TEXT NOT NULL REFERENCES design_branches(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  title TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (branch_id, path)
+) STRICT;
+INSERT INTO design_pages (design_id, branch_id, path, title, sort_order)
+SELECT design_id, design_id, path, title, sort_order FROM design_pages_legacy;
+DROP TABLE design_pages_legacy;
+CREATE INDEX design_pages_by_design_branch ON design_pages(design_id, branch_id, sort_order);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -953,6 +982,10 @@ export class WorkspaceStore {
           SELECT ?, message_id, ordinal FROM branch_messages WHERE branch_id = ? ORDER BY ordinal
         `).run(branchId, design.activeBranchId)
       }
+      this.database.prepare(`
+        INSERT INTO design_pages (design_id, branch_id, path, title, sort_order)
+        SELECT design_id, ?, path, title, sort_order FROM design_pages WHERE design_id = ? AND branch_id = ?
+      `).run(branchId, designId, design.activeBranchId)
     })
     return this.listDesignBranches(designId).find((branch) => branch.id === branchId)!
   }
@@ -1055,6 +1088,25 @@ export class WorkspaceStore {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, designId, sourceBranchId, source.title, destinationBranchId, destination.title, sourceCommit, destinationCommit, summary, selection.providerId, selection.modelId, selection.effort ?? null, createdAt)
     return this.listBranchComparisonSummaries(designId).find((candidate) => candidate.id === id)!
+  }
+
+  public recordBranchComparison(designId: string, sourceBranchId: string, destinationBranchId: string, sourceCommit: string, destinationCommit: string): string {
+    const branches = this.listDesignBranches(designId)
+    if (!branches.some((branch) => branch.id === sourceBranchId) || !branches.some((branch) => branch.id === destinationBranchId)) throw new Error('Design branch not found.')
+    const id = randomUUID()
+    this.database.prepare('INSERT INTO branch_comparisons (id, design_id, source_branch_id, destination_branch_id, source_commit, destination_commit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, designId, sourceBranchId, destinationBranchId, sourceCommit, destinationCommit, new Date().toISOString())
+    return id
+  }
+
+  public requireFreshBranchComparison(id: string, designId: string): { readonly sourceBranchId: string; readonly destinationBranchId: string; readonly sourceCommit: string; readonly destinationCommit: string } {
+    const row = this.database.prepare('SELECT design_id, source_branch_id, destination_branch_id, source_commit, destination_commit FROM branch_comparisons WHERE id = ?').get(id) as { design_id: string; source_branch_id: string | null; destination_branch_id: string | null; source_commit: string; destination_commit: string } | undefined
+    if (!row || row.design_id !== designId || !row.source_branch_id || !row.destination_branch_id) throw new Error('Branch comparison is unavailable. Compare the branches again.')
+    const source = this.getDesignAtBranch(designId, row.source_branch_id)
+    const destination = this.getDesignAtBranch(designId, row.destination_branch_id)
+    const sourceCommit = source?.revisions.find((revision) => revision.id === source.activeRevisionId)?.gitCommit
+    const destinationCommit = destination?.revisions.find((revision) => revision.id === destination.activeRevisionId)?.gitCommit
+    if (sourceCommit !== row.source_commit || destinationCommit !== row.destination_commit) throw new Error('This comparison is stale because a branch head changed. Refresh the comparison before combining.')
+    return { sourceBranchId: row.source_branch_id, destinationBranchId: row.destination_branch_id, sourceCommit: row.source_commit, destinationCommit: row.destination_commit }
   }
 
   public listBranchComparisonSummaries(designId: string): BranchComparisonSummary[] {
@@ -1792,9 +1844,9 @@ export class WorkspaceStore {
   }
 
   /** Persisted per-page metadata (display title, manual order); isHome is derived from the entry path. */
-  private listDesignPages(designId: string, entryPagePath: string | null): DesignPage[] {
-    const rows = this.database.prepare('SELECT path, title, sort_order FROM design_pages WHERE design_id = ? ORDER BY sort_order, path')
-      .all(designId) as unknown as DesignPageRow[]
+  private listDesignPages(designId: string, branchId: string, entryPagePath: string | null): DesignPage[] {
+    const rows = this.database.prepare('SELECT path, title, sort_order FROM design_pages WHERE design_id = ? AND branch_id = ? ORDER BY sort_order, path')
+      .all(designId, branchId) as unknown as DesignPageRow[]
     return rows.map((row) => ({ path: row.path, title: row.title, order: row.sort_order, isHome: row.path === entryPagePath }))
   }
 
@@ -1810,11 +1862,11 @@ export class WorkspaceStore {
 
   /** Upsert a page's display title and manual order. */
   public saveDesignPageMetadata(designId: string, path: string, title: string | null, order: number): Design {
-    this.requireDesign(designId)
+    const branchId = this.requireDesign(designId).activeBranchId
     this.database.prepare(`
-      INSERT INTO design_pages (design_id, path, title, sort_order) VALUES (?, ?, ?, ?)
-      ON CONFLICT(design_id, path) DO UPDATE SET title = excluded.title, sort_order = excluded.sort_order
-    `).run(designId, path, title, order)
+      INSERT INTO design_pages (design_id, branch_id, path, title, sort_order) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(branch_id, path) DO UPDATE SET title = excluded.title, sort_order = excluded.sort_order
+    `).run(designId, branchId, path, title, order)
     return this.requireDesign(designId)
   }
 
@@ -2315,7 +2367,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree, migrationFortyFour, migrationFortyFive, migrationFortySix]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree, migrationFortyFour, migrationFortyFive, migrationFortySix, migrationFortySeven, migrationFortyEight]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -2393,7 +2445,7 @@ export class WorkspaceStore {
       titlePending: row.title_pending === 1,
       adaptationPending: row.adaptation_pending === 1,
       entryPagePath: branch.entry_page_path,
-      pages: this.listDesignPages(row.id, branch.entry_page_path),
+      pages: this.listDesignPages(row.id, branchId, branch.entry_page_path),
       tags: this.listTagsForTarget('design', row.id),
       lastSelection: {
         providerId: branch.last_provider_id,

@@ -85,6 +85,10 @@ describe('WorkspaceService', () => {
       changes: { baseRevisionId: main.activeRevisionId },
     })
     expect(service.getDesign(main.id)?.activeBranchId).toBe(main.id)
+    service.switchDesignBranch(main.id, alternativeId)
+    await service.generate(main.id, 'Make the accent more vivid', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+    expect(() => service.startCombination(main.id, compared.comparisonId, 'Use the compared direction', { providerId: 'mock', modelId: 'mock-v1', effort: null })).toThrow('comparison is stale')
     store.close()
   })
 
@@ -136,6 +140,24 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it('forks page metadata and keeps later page preferences branch-local', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    service.saveDesignPageMetadata(main.id, 'index.html', 'Main home', 0)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    service.switchDesignBranch(main.id, alternative.activeBranchId)
+    expect(service.getDesign(main.id)?.pages).toEqual([expect.objectContaining({ path: 'index.html', title: 'Main home' })])
+    service.saveDesignPageMetadata(main.id, 'index.html', 'Warm home', 0)
+    service.switchDesignBranch(main.id, main.id)
+    expect(service.getDesign(main.id)?.pages).toEqual([expect.objectContaining({ path: 'index.html', title: 'Main home' })])
+    service.switchDesignBranch(main.id, alternative.activeBranchId)
+    expect(service.getDesign(main.id)?.pages).toEqual([expect.objectContaining({ path: 'index.html', title: 'Warm home' })])
+    store.close()
+  })
+
   it('locks two branches and records a validated two-parent destination combination', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)
@@ -146,7 +168,8 @@ describe('WorkspaceService', () => {
     const sourceBranchId = alternative.activeBranchId
     const source = await service.generate(main.id, 'Use a warmer accent', () => undefined)
     service.switchDesignBranch(main.id, main.id)
-    const prepared = service.startCombination(main.id, sourceBranchId, main.id, 'Bring the warmer accent into Main', { providerId: 'mock', modelId: 'mock-v1', effort: null })
+    const comparison = service.compareDesignBranches(main.id, sourceBranchId, main.id)
+    const prepared = service.startCombination(main.id, comparison.comparisonId, 'Bring the warmer accent into Main', { providerId: 'mock', modelId: 'mock-v1', effort: null })
     expect(store.isDesignBranchLocked(sourceBranchId)).toBe(true)
     expect(store.isDesignBranchLocked(main.id)).toBe(true)
     const destinationPath = service.getDesignRepositoryPath(main.id, main.id)
