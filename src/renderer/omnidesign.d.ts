@@ -210,6 +210,8 @@ interface OmniDesignDocument {
   readonly createdAt: string
   readonly updatedAt: string
   readonly activeBranchId: string
+  readonly separateBranchMode: boolean
+  readonly replyMessageId: string | null
   readonly branches: readonly DesignBranch[]
   readonly activeRevisionId: string | null
   readonly selectedRevisionId: string | null
@@ -412,10 +414,12 @@ interface Window {
       createBranch(designId: string, title: string, baseRevisionId?: string | null, forkMessageId?: string | null): Promise<OmniDesignDocument>
       switchBranch(designId: string, branchId: string): Promise<OmniDesignDocument>
       removeBranch(designId: string, branchId: string, force?: boolean): Promise<readonly DesignBranch[]>
+      forkMessage(designId: string, messageId: string, selections: readonly GenerationSelection[]): Promise<readonly OmniDesignDocument[]>
       renameDesign(designId: string, title: string): Promise<OmniDesignDocument>
       renameProject(projectId: string, name: string): Promise<ProjectSummary>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
-      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null): Promise<OmniDesignDocument>
+      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null, separateBranch?: boolean, replyMessageId?: string | null): Promise<OmniDesignDocument>
+      saveBranchComposerState(designId: string, separateBranchMode: boolean, replyMessageId: string | null): Promise<void>
       listFocusedFeedback(designId: string): Promise<FocusedFeedback[]>
       queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): Promise<FocusedFeedback[]>
       removeFocusedFeedback(designId: string, feedbackId: string): Promise<FocusedFeedback[]>

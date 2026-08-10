@@ -8,6 +8,7 @@ import {
   ArrowTopRightOnSquareIcon,
   ChatBubbleLeftRightIcon,
   CheckCircleIcon,
+  ClipboardDocumentIcon,
   ClockIcon,
   ComputerDesktopIcon,
   CursorArrowRaysIcon,
@@ -16,7 +17,9 @@ import {
   ExclamationTriangleIcon,
   FolderIcon,
   InformationCircleIcon,
+  ArrowUturnLeftIcon,
   QueueListIcon,
+  ShareIcon,
   SparklesIcon,
   Squares2X2Icon,
   StopIcon,
@@ -95,7 +98,7 @@ function buildConversationFeed(design: OmniDesignDocument, detail: 'full' | 'con
 // One conversational turn. The user's prompt reads as a trailing-aligned bubble; OmniDesign's reply
 // reads as an avatar-led narrative, so the two sides of the exchange are distinguishable at a glance
 // without wrapping every generation event in a card.
-function ConversationMessage({ message, onOpenAttachment }: { readonly message: DesignMessage; readonly onOpenAttachment: (attachment: DesignAttachment) => void }) {
+function ConversationMessage({ message, replySource, canReply, onOpenAttachment, onReply, onCopy, onFork }: { readonly message: DesignMessage; readonly replySource: DesignMessage | null; readonly canReply: boolean; readonly onOpenAttachment: (attachment: DesignAttachment) => void; readonly onReply: (message: DesignMessage) => void; readonly onCopy: (message: DesignMessage) => void; readonly onFork: (message: DesignMessage) => void }) {
   // System notices from OmniDesign itself read as a quiet inline note — visibly distinct from both the
   // user's prompt bubble and the design agent's reply, so it is clear the app is speaking, not the agent.
   if (message.role === 'system') {
@@ -113,11 +116,13 @@ function ConversationMessage({ message, onOpenAttachment }: { readonly message: 
       <div className="message-body">
         <span className="message-role">{isUser ? 'You' : 'OmniDesign'}</span>
         <div className="message-bubble">
+          {replySource && <div className="message-reply-reference"><ArrowUturnLeftIcon aria-hidden="true" /><span><strong>Reply to {replySource.role === 'user' ? 'You' : 'OmniDesign'}</strong>{replySource.text}</span></div>}
           {isUser ? <p>{message.text}</p> : <Markdown text={message.text} />}
           {message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => onOpenAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}
           {message.focusedTarget && <div className="focused-target-reference">Target · {message.focusedTarget.path}:{message.focusedTarget.startLine}-{message.focusedTarget.endLine} · {message.focusedTarget.label}</div>}
           {message.focusedFeedback?.length ? <div className="focused-feedback-history" aria-label="Submitted focused feedback">{message.focusedFeedback.map((item, index) => <div key={item.id}><strong>{index + 1}. {item.comment}</strong><small>{item.target.path}:{item.target.startLine}-{item.target.endLine} · {item.target.label}</small></div>)}</div> : null}
         </div>
+        <div className="message-quick-actions"><Button aria-label={`Reply to ${isUser ? 'your message' : 'OmniDesign message'}`} isDisabled={!canReply} onPress={() => onReply(message)}><ArrowUturnLeftIcon aria-hidden="true" />Reply</Button><Button aria-label={`Copy ${isUser ? 'your message' : 'OmniDesign message'}`} onPress={() => onCopy(message)}><ClipboardDocumentIcon aria-hidden="true" />Copy</Button>{isUser && <Button aria-label="Fork this prompt" onPress={() => onFork(message)}><ShareIcon aria-hidden="true" />Fork</Button>}</div>
       </div>
     </article>
   )
@@ -211,6 +216,13 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [pageRename, setPageRename] = useState<{ readonly path: string; readonly value: string } | null>(null)
   const [comparison, setComparison] = useState<RevisionComparison | null>(null)
   const [comparisonLoading, setComparisonLoading] = useState(false)
+  const [separateBranch, setSeparateBranch] = useState(design.separateBranchMode)
+  const [manageBranchesOpen, setManageBranchesOpen] = useState(false)
+  const [replyMessageId, setReplyMessageId] = useState<string | null>(design.replyMessageId)
+  const [forkTarget, setForkTarget] = useState<DesignMessage | null>(null)
+  const [forkSelectionKeys, setForkSelectionKeys] = useState<readonly string[]>([])
+  const [removeBranchTarget, setRemoveBranchTarget] = useState<DesignBranch | null>(null)
+  const [forceBranchRemoval, setForceBranchRemoval] = useState(false)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -232,6 +244,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     return () => observer.disconnect()
   }, [mode])
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
+  const activeBranch = design.branches.find((branch) => branch.id === design.activeBranchId) ?? design.branches[0]
+  const replyMessage = design.messages.find((message) => message.id === replyMessageId) ?? null
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const qualityCheckCurrent = selectedRevision?.qualityCheckVersion === REVISION_QUALITY_VERSION
   const qualityDiagnostics = qualityCheckCurrent ? selectedRevision?.diagnostics.filter((diagnostic) => diagnostic.kind === 'quality') ?? [] : []
@@ -411,17 +425,75 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
 
   const submit = async () => {
-    if (!api || !draft.trim() || busy || !selectedIsHead || !hasUsableSelection) return
+    if (!api || !draft.trim() || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection) return
     const prompt = draft.trim()
     const submittedAttachments = attachments
     setDraft('')
     setAttachments([])
     void api.saveDraft(design.id, '', [])
-    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments), 'The prompt could not be submitted. Your draft has been restored.')
-    if (updated) onChange(updated)
+    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, null, separateBranch, replyMessageId), separateBranch ? 'The separate branch could not be created. Your draft has been restored.' : 'The prompt could not be submitted. Your draft has been restored.')
+    if (updated) { setReplyMessageId(null); onChange(updated) }
     else {
       setDraft(prompt)
       setAttachments(submittedAttachments)
+    }
+  }
+  const toggleSeparateBranch = async () => {
+    if (!api || !selectedIsHead) return
+    const next = !separateBranch
+    setSeparateBranch(next)
+    const saved = await runWorkspaceAction(() => api.saveBranchComposerState(design.id, next, design.replyMessageId).then(() => true), 'The branch choice could not be saved.')
+    if (saved === undefined && next !== design.separateBranchMode) setSeparateBranch(!next)
+  }
+  const switchBranch = async (branchId: string) => {
+    if (!api || branchId === design.activeBranchId) return
+    const updated = await runWorkspaceAction(() => api.switchBranch(design.id, branchId), 'That branch could not be opened.')
+    if (updated) onChange(updated)
+  }
+  const chooseReply = async (message: DesignMessage) => {
+    if (!api || !selectedIsHead) return
+    setReplyMessageId(message.id)
+    await runWorkspaceAction(() => api.saveBranchComposerState(design.id, separateBranch, message.id).then(() => true), 'The reply reference could not be saved.')
+  }
+  const clearReply = async () => {
+    if (!api) return
+    setReplyMessageId(null)
+    await runWorkspaceAction(() => api.saveBranchComposerState(design.id, separateBranch, null).then(() => true), 'The reply reference could not be cleared.')
+  }
+  const copyMessage = async (message: DesignMessage) => {
+    const copied = await runWorkspaceAction(async () => { await navigator.clipboard.writeText(message.text); return true }, 'The message could not be copied.')
+    if (copied) setFeedback({ tone: 'success', message: 'Message copied.' })
+  }
+  const openFork = (message: DesignMessage) => {
+    setForkTarget(message)
+    setForkSelectionKeys([`${selection.providerId}:${selection.modelId}`])
+  }
+  const availableForkSelections = readyProviders.flatMap((provider) => provider.models.map((model) => ({
+    key: `${provider.id}:${model.id}`,
+    label: `${provider.name} · ${model.name}`,
+    selection: { providerId: provider.id, modelId: model.id, effort: provider.id === selection.providerId && model.id === selection.modelId ? selection.effort : model.effortLevels.find((level) => level.isDefault)?.id ?? model.effortLevels[0]?.id ?? null },
+  })))
+  const submitFork = async () => {
+    if (!api || !forkTarget || !forkSelectionKeys.length) return
+    const selections = availableForkSelections.filter((candidate) => forkSelectionKeys.includes(candidate.key)).map((candidate) => candidate.selection)
+    const branched = await runWorkspaceAction(() => api.forkMessage(design.id, forkTarget.id, selections), 'The prompt could not be forked.')
+    if (!branched?.length) return
+    setForkTarget(null)
+    onChange(branched.at(-1)!)
+  }
+  const removeBranch = async () => {
+    if (!api || !removeBranchTarget) return
+    setFeedback(null)
+    try {
+      await api.removeBranch(design.id, removeBranchTarget.id, forceBranchRemoval)
+      const updated = await api.get(design.id)
+      setRemoveBranchTarget(null)
+      setForceBranchRemoval(false)
+      if (updated) onChange(updated)
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : 'The branch could not be removed.'
+      if (/unresolved|uncommitted|discard/i.test(detail)) setForceBranchRemoval(true)
+      setFeedback({ tone: 'error', message: 'The branch could not be removed.', detail })
     }
   }
   const fixQualityIssues = async () => {
@@ -598,7 +670,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
         {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
-          ? <ConversationMessage key={item.message.id} message={item.message} onOpenAttachment={(attachment) => void openAttachment(attachment)} />
+          ? <ConversationMessage key={item.message.id} message={item.message} replySource={item.message.replyToMessageId ? design.messages.find((candidate) => candidate.id === item.message.replyToMessageId) ?? null : null} canReply={selectedIsHead} onOpenAttachment={(attachment) => void openAttachment(attachment)} onReply={(message) => void chooseReply(message)} onCopy={(message) => void copyMessage(message)} onFork={openFork} />
           : item.kind === 'activity'
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
@@ -625,11 +697,13 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       </section>}
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Compare it with the current head or restore it before prompting.</span><span className="historical-actions"><Button className="secondary-action" isDisabled={comparisonLoading} onPress={() => void compareToCurrent()}>{comparisonLoading ? 'Comparing…' : 'Compare to current'}</Button><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></span></div>}
       <div className="workspace-composer">
+        {replyMessage && <div className="composer-reply-reference"><ArrowUturnLeftIcon aria-hidden="true" /><span><strong>Replying to {replyMessage.role === 'user' ? 'your message' : 'OmniDesign'}</strong><small>{replyMessage.text}</small></span><Button aria-label="Clear reply" onPress={() => void clearReply()}>×</Button></div>}
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        {separateBranch && <div className="separate-branch-notice" role="status"><ShareIcon aria-hidden="true" /><span>This change will happen in a separate branch</span><button type="button" className="branch-info-button" aria-label="About separate branches" title="A branch is a separate design direction. Your current branch stays unchanged while OmniDesign explores this prompt in a new one."><InformationCircleIcon aria-hidden="true" /></button></div>}
+        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><Button className="separate-branch-toggle" aria-pressed={separateBranch} isDisabled={!selectedIsHead} onPress={() => void toggleSeparateBranch()}><ShareIcon aria-hidden="true" />Separate branch</Button><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="submit-prompt" aria-label={separateBranch ? 'Send change in a separate branch' : 'Send change'} isDisabled={!draft.trim() || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
         {!hasUsableSelection && providersLoading && !readyProviders.length && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Your draft and design history remain available while provider status refreshes.</small></span></div>}
         {!hasUsableSelection && (!providersLoading || readyProviders.length > 0) && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
@@ -730,6 +804,40 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
+      <section className="branch-context-strip" aria-label="Design branch">
+        <ShareIcon aria-hidden="true" />
+        <span className="branch-context-current"><strong>{activeBranch?.title ?? 'Main'}</strong><small>{activeBranch?.status === 'generating' ? 'Generating' : activeBranch?.status === 'queued' ? 'Queued' : activeBranch?.status === 'failed' ? 'Needs attention' : 'Ready'}</small></span>
+        <DropdownButton label="Switch design branch" triggerClassName="branch-selector" popoverClassName="project-popover branch-selector-popover" placement="bottom" trigger={<span>Switch branch</span>}>
+          <Menu aria-label="Design branches" onAction={(key) => { const id = String(key); if (id === '__manage__') setManageBranchesOpen(true); else void switchBranch(id) }}>
+            <MenuSection className="project-popover-section">
+              <Header className="project-popover-header">Directions</Header>
+              {design.branches.map((branch) => <MenuItem id={branch.id} key={branch.id} textValue={branch.title}><span><strong>{branch.title}</strong><small>{branch.status === 'generating' ? 'Generating' : branch.status === 'queued' ? 'Queued' : branch.status === 'failed' ? 'Needs attention' : 'Ready'}</small></span>{branch.id === design.activeBranchId && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+            </MenuSection>
+            <MenuItem id="__manage__" textValue="Manage branches"><span>Manage branches</span></MenuItem>
+          </Menu>
+        </DropdownButton>
+      </section>
+      <AppModal isOpen={manageBranchesOpen} onOpenChange={setManageBranchesOpen} className="branch-manager-modal" title="Manage branches">
+        {(close) => <>
+          <p>Review the persistent directions in this design. Branch names describe the prompt that created them and cannot be edited.</p>
+          <div className="branch-manager-list">{design.branches.map((branch) => <article key={branch.id}><ShareIcon aria-hidden="true" /><span><strong>{branch.title}</strong><small>{branch.isMain ? 'Protected Main branch' : branch.status === 'failed' ? 'Needs attention' : branch.status}</small></span>{branch.id === design.activeBranchId ? <span className="branch-current-label">Current</span> : <span className="branch-manager-actions"><Button className="secondary-action" onPress={() => { close(); void switchBranch(branch.id) }}>Open</Button>{!branch.isMain && <Button className="secondary-action branch-remove-action" onPress={() => { setRemoveBranchTarget(branch); setForceBranchRemoval(false) }}>Remove</Button>}</span>}</article>)}</div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={removeBranchTarget !== null} onOpenChange={(open) => { if (!open) { setRemoveBranchTarget(null); setForceBranchRemoval(false) } }} className="branch-manager-modal" title="Remove branch permanently?">
+        {(close) => removeBranchTarget && <>
+          <p><strong>{removeBranchTarget.title}</strong> and its branch-only conversation, queued state, and worktree will be removed permanently. Completed shared history remains immutable.</p>
+          {forceBranchRemoval && <div className="generation-recovery" role="alert"><span><strong>This branch has unresolved files.</strong>Continuing will discard its uncommitted or conflicted files. This cannot be undone.</span></div>}
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action danger-action" onPress={() => void removeBranch()}>{forceBranchRemoval ? 'Discard files and remove' : 'Remove branch permanently'}</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={forkTarget !== null} onOpenChange={(open) => { if (!open) setForkTarget(null) }} className="branch-manager-modal" title="Fork prompt">
+        {(close) => forkTarget && <>
+          <p>Replay this prompt in one or more independent branches. Each selected provider and model receives the same original context.</p>
+          <blockquote className="fork-prompt-preview">{forkTarget.text}</blockquote>
+          <div className="fork-selection-list" role="group" aria-label="Fork provider and model selections">{availableForkSelections.map((candidate) => <label key={candidate.key}><input type="checkbox" checked={forkSelectionKeys.includes(candidate.key)} onChange={(event) => setForkSelectionKeys((current) => event.target.checked ? [...current, candidate.key] : current.filter((key) => key !== candidate.key))} /><span>{candidate.label}</span></label>)}</div>
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" isDisabled={!forkSelectionKeys.length} onPress={() => void submitFork()}>Fork into {forkSelectionKeys.length} branch{forkSelectionKeys.length === 1 ? '' : 'es'}</Button></div>
+        </>}
+      </AppModal>
       <AppModal isOpen={comparison !== null} onOpenChange={(open) => { if (!open) setComparison(null) }} className="revision-comparison-modal" title="Compare revisions">
         {(close) => comparison && <>
           <div className="revision-comparison-snapshots">

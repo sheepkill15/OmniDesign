@@ -387,6 +387,8 @@ export const designSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   activeBranchId: z.string().min(1).max(100),
+  separateBranchMode: z.boolean().default(false),
+  replyMessageId: z.string().min(1).max(100).nullable().default(null),
   branches: z.array(designBranchSchema).min(1),
   activeRevisionId: z.string().nullable(),
   selectedRevisionId: z.string().nullable(),
@@ -447,6 +449,15 @@ export const removeDesignBranchRequestSchema = branchIdRequestSchema.extend({
   force: z.boolean().default(false),
 })
 
+export const forkDesignMessageRequestSchema = designIdRequestSchema.extend({
+  messageId: z.string().min(1).max(100),
+  selections: z.array(z.object({
+    providerId: z.enum(['mock', 'codex', 'claude']),
+    modelId: z.string().trim().min(1).max(200),
+    effort: z.string().trim().min(1).max(100).nullable(),
+  })).min(1).max(12),
+})
+
 export const renameDesignRequestSchema = designIdRequestSchema.extend({
   title: z.string().trim().min(1).max(200),
 })
@@ -462,6 +473,13 @@ export const generateRequestSchema = designIdRequestSchema.extend({
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   attachments: z.array(attachmentSchema).max(100).default([]),
   focusedTarget: focusedTargetSchema.nullable().optional(),
+  separateBranch: z.boolean().default(false),
+  replyMessageId: z.string().min(1).max(100).nullable().default(null),
+})
+
+export const saveBranchComposerStateRequestSchema = designIdRequestSchema.extend({
+  separateBranchMode: z.boolean(),
+  replyMessageId: z.string().min(1).max(100).nullable(),
 })
 
 export const queueFocusedFeedbackRequestSchema = designIdRequestSchema.extend({

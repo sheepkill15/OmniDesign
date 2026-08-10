@@ -23,6 +23,8 @@ const design: OmniDesignDocument = {
   createdAt: '2026-07-20T10:00:00.000Z',
   updatedAt: '2026-07-20T10:00:00.000Z',
   activeBranchId: 'design-1',
+  separateBranchMode: false,
+  replyMessageId: null,
   branches: [{
     id: 'design-1', designId: 'design-1', title: 'Main', gitRef: 'refs/heads/main', worktreePath: 'repository',
     isMain: true, parentBranchId: null, forkRevisionId: null, forkMessageId: null,
@@ -152,6 +154,10 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       restoreTrash: vi.fn().mockResolvedValue(undefined),
       purgeTrash: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(createdDesign),
+      createBranch: vi.fn().mockResolvedValue(createdDesign),
+      switchBranch: vi.fn().mockResolvedValue(createdDesign),
+      removeBranch: vi.fn().mockResolvedValue(createdDesign.branches),
+      forkMessage: vi.fn().mockResolvedValue([createdDesign]),
       renameDesign: vi.fn(async (designId: string, title: string) => {
         const candidate = initialDesigns.find((item) => item.id === designId) ?? createdDesign
         return { ...candidate, title, ...(candidate.sourceProjectPath ? {} : { projectName: title }) }
@@ -159,6 +165,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       renameProject: vi.fn(async (projectId: string, name: string) => ({ ...(projects.find((project) => project.id === projectId) ?? projectFromDesign(createdDesign)), name })),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
+      saveBranchComposerState: vi.fn().mockResolvedValue(undefined),
       listFocusedFeedback: vi.fn().mockResolvedValue([]),
       queueFocusedFeedback: vi.fn().mockResolvedValue([]),
       removeFocusedFeedback: vi.fn().mockResolvedValue([]),
@@ -1397,6 +1404,69 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dock preview' }))
     expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
+  })
+
+  it('creates a prompt-led separate branch and restores its branch context', async () => {
+    const branchId = 'branch-2'
+    const branchedDesign: OmniDesignDocument = {
+      ...design,
+      activeBranchId: branchId,
+      separateBranchMode: false,
+      branches: [
+        ...design.branches,
+        { id: branchId, designId: design.id, title: 'Warmer hierarchy', gitRef: `refs/heads/od/${branchId}`, worktreePath: `branches/${branchId}/worktree`, isMain: false, parentBranchId: design.id, forkRevisionId: design.activeRevisionId, forkMessageId: null, activeRevisionId: design.activeRevisionId, selectedRevisionId: design.selectedRevisionId, status: 'queued', createdAt: '2026-07-20T10:06:00.000Z' },
+      ],
+    }
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.generate).mockResolvedValueOnce(branchedDesign)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    const followUp = await screen.findByRole('textbox', { name: 'Request a design change' })
+    fireEvent.click(screen.getByRole('button', { name: 'Separate branch' }))
+    expect(screen.getByText('This change will happen in a separate branch')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.saveBranchComposerState).toHaveBeenCalledWith('design-1', true, null))
+
+    fireEvent.change(followUp, { target: { value: 'Try a warmer hierarchy' } })
+    fireEvent.keyDown(followUp, { key: 'Enter' })
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith('design-1', 'Try a warmer hierarchy', 'mock', 'mock-v1', undefined, [], null, true, null))
+    expect(await screen.findByText('Warmer hierarchy')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Design branch' })).toHaveTextContent('Queued')
+  })
+
+  it('replies to a precise message and carries the reference into generation', async () => {
+    const bridge = installBridge()
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reply to your message' }))
+    expect(screen.getByText('Replying to your message')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.saveBranchComposerState).toHaveBeenCalledWith('design-1', false, 'message-1'))
+    const followUp = screen.getByRole('textbox', { name: 'Request a design change' })
+    fireEvent.change(followUp, { target: { value: 'Keep this idea but simplify it' } })
+    fireEvent.keyDown(followUp, { key: 'Enter' })
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith('design-1', 'Keep this idea but simplify it', 'mock', 'mock-v1', undefined, [], null, false, 'message-1'))
+  })
+
+  it('copies messages and forks a user prompt with selected provider configurations', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const bridge = installBridge()
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy your message' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('A calm dashboard'))
+    fireEvent.click(screen.getByRole('button', { name: 'Fork this prompt' }))
+    expect(await screen.findByRole('dialog', { name: 'Fork prompt' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Fork into 1 branch' }))
+    await waitFor(() => expect(bridge.workspace.forkMessage).toHaveBeenCalledWith('design-1', 'message-1', [{ providerId: 'mock', modelId: 'mock-v1', effort: null }]))
   })
 
   it('does not carry a popped preview into the next design while its docked layout loads', async () => {

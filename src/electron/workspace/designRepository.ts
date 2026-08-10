@@ -142,6 +142,12 @@ export class DesignRepositoryManager {
     return this.requireRegisteredBranchWorktree(designId, branchId)
   }
 
+  public getInitialCommit(designId: string): string {
+    const commit = this.run(this.initialize(designId), ['rev-list', '--max-parents=0', 'main']).trim().split(/\s+/)[0] ?? ''
+    if (!commitPattern.test(commit)) throw new Error('The design repository has no valid initial commit.')
+    return commit
+  }
+
   public repairBranchWorktree(designId: string, branchId: string): DesignWorktree {
     const repositoryPath = this.initialize(designId)
     const worktreePath = this.getBranchPath(designId, branchId)

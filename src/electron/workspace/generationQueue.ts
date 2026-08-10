@@ -21,8 +21,8 @@ export class GenerationQueue {
     if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Generation queue concurrency must be at least one.')
   }
 
-  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = []): GenerationJob {
-    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments, 'fresh', definitionTargetVersion, focusedTarget, focusedFeedback)
+  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = [], replyToMessageId: string | null = null): GenerationJob {
+    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments, 'fresh', definitionTargetVersion, focusedTarget, focusedFeedback, replyToMessageId)
     this.store.setDesignBranchStatus(designId, job.branchId, 'queued')
     this.onActivity({ designId, branchId: job.branchId, stage: 'queued', detail: 'Waiting to start…' })
     void this.drain()
@@ -149,7 +149,7 @@ export class GenerationQueue {
         try {
           await this.runJob(job, signal, (activity) => {
             failed ||= activity.stage === 'failed'
-            this.onActivity(activity)
+            this.onActivity({ ...activity, branchId: job.branchId })
           })
           break
         } catch (error) {

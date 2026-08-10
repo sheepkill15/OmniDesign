@@ -20,6 +20,7 @@ import {
   createTagRequestSchema,
   designIdRequestSchema,
   folderIdRequestSchema,
+  forkDesignMessageRequestSchema,
   moveProjectToFolderRequestSchema,
   previewCaptureRequestSchema,
   previewDiagnosticReportSchema,
@@ -50,6 +51,7 @@ import {
   savePageMetadataRequestSchema,
   saveProjectDesignDefinitionsRequestSchema,
   saveDesignSelectionRequestSchema,
+  saveBranchComposerStateRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
@@ -231,10 +233,11 @@ function sendWorkspaceChanged(designId: string): void {
 // single milestone so the history stays readable.
 function recordActivity(activity: GenerationActivity): void {
   const activityKey = `${activity.stage}\u0000${activity.detail}`
-  if (workspaceStore && lastPersistedStageByDesign.get(activity.designId) !== activityKey) {
-    lastPersistedStageByDesign.set(activity.designId, activityKey)
+  const branchKey = `${activity.designId}:${activity.branchId ?? activity.designId}`
+  if (workspaceStore && lastPersistedStageByDesign.get(branchKey) !== activityKey) {
+    lastPersistedStageByDesign.set(branchKey, activityKey)
     try {
-      workspaceStore.addGenerationStep(activity.designId, activity.stage, generationStageLabel(activity.stage), activity.detail || null)
+      workspaceStore.addGenerationStep(activity.designId, activity.stage, generationStageLabel(activity.stage), activity.detail || null, null, activity.branchId)
     } catch {
       // The design may have been removed while a late activity arrived; the live event below is enough.
     }
@@ -349,6 +352,26 @@ function registerIpc(): void {
     authorize(event)
     const request = removeDesignBranchRequestSchema.parse(value)
     return requireWorkspace().removeDesignBranch(request.designId, request.branchId, request.force)
+  })
+  ipcMain.handle('workspace:fork-message', async (event, value: unknown) => {
+    authorize(event)
+    const request = forkDesignMessageRequestSchema.parse(value)
+    const source = requireWorkspace().getDesign(request.designId)
+    const message = source?.messages.find((candidate) => candidate.id === request.messageId)
+    if (!source || !message || message.role !== 'user') throw new Error('Only a user prompt in the selected branch can be forked.')
+    const baseRevision = [...source.revisions].reverse().find((revision) => revision.createdAt < message.createdAt) ?? null
+    const titles = await Promise.all(request.selections.map((selection) => selection.providerId === 'mock'
+      ? Promise.resolve(fallbackDesignTitle(message.text))
+      : generateDesignTitle(message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [])))
+    const results: import('../workspace/contracts.js').Design[] = []
+    for (const [index, selection] of request.selections.entries()) {
+      if (requireWorkspace().getDesign(request.designId)?.activeBranchId !== source.activeBranchId) requireWorkspace().switchDesignBranch(request.designId, source.activeBranchId)
+      const branched = requireWorkspace().createDesignBranch(request.designId, titles[index]!, baseRevision?.id ?? null, message.id)
+      requireWorkspace().rememberSelection(request.designId, selection)
+      requireGenerationQueue().enqueue(request.designId, message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [], null, message.focusedTarget ?? null, message.focusedFeedback ?? [], message.replyToMessageId ?? null)
+      results.push(requireWorkspace().getDesign(request.designId) ?? branched)
+    }
+    return results
   })
   ipcMain.handle('workspace:rename-design', (event, value: unknown) => {
     authorize(event)
@@ -615,13 +638,32 @@ function registerIpc(): void {
       throw new Error('The selected element is stale or does not belong to the current design revision.')
     }
   }
-  ipcMain.handle('workspace:generate', (event, value: unknown) => {
+  ipcMain.handle('workspace:generate', async (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
+    if (request.separateBranch && request.focusedTarget) throw new Error('Focused edits continue the selected branch.')
     if (request.focusedTarget) validateCurrentFocusedTarget(request.designId, request.focusedTarget)
+    if (request.separateBranch) {
+      const source = requireWorkspace().getDesign(request.designId)
+      if (!source || source.selectedRevisionId !== source.activeRevisionId) throw new Error('Return to the branch head before creating a separate branch.')
+      const title = request.providerId === 'mock'
+        ? fallbackDesignTitle(request.prompt)
+        : await generateDesignTitle(request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments)
+      const branched = requireWorkspace().createDesignBranch(request.designId, title)
+      requireWorkspaceStore().saveBranchComposerState(request.designId, false, null, source.activeBranchId)
+      requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
+      requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, null, [], request.replyMessageId)
+      return requireWorkspace().getDesign(request.designId) ?? branched
+    }
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
-    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null, [], request.replyMessageId)
+    requireWorkspaceStore().saveBranchComposerState(request.designId, false, null)
     return requireWorkspace().getDesign(request.designId)
+  })
+  ipcMain.handle('workspace:save-branch-composer-state', (event, value: unknown) => {
+    authorize(event)
+    const request = saveBranchComposerStateRequestSchema.parse(value)
+    requireWorkspaceStore().saveBranchComposerState(request.designId, request.separateBranchMode, request.replyMessageId)
   })
   ipcMain.handle('workspace:list-focused-feedback', (event, value: unknown) => {
     authorize(event)

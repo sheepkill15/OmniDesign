@@ -30,21 +30,41 @@ describe('WorkspaceService', () => {
     const revisedBranch = await service.generate(main.id, 'Use a warmer accent', () => undefined)
     expect(revisedBranch.activeRevisionId).not.toBe(mainHead)
     service.saveDraft(main.id, 'Branch-only draft')
+    store.saveBranchComposerState(main.id, true, null)
 
     const restoredMain = service.switchDesignBranch(main.id, main.id)
     expect(restoredMain).toMatchObject({ activeBranchId: main.id, activeRevisionId: mainHead, draft: '' })
-    expect(service.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft' })
+    expect(service.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft', separateBranchMode: true })
     service.switchDesignBranch(main.id, main.id)
     store.close()
 
     const reopenedStore = new WorkspaceStore(directory)
     const reopenedService = new WorkspaceService(reopenedStore)
-    expect(reopenedService.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft' })
+    expect(reopenedService.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft', separateBranchMode: true })
     reopenedService.switchDesignBranch(main.id, main.id)
     expect(reopenedService.removeDesignBranch(main.id, branchId)).toHaveLength(1)
     expect(existsSync(branchPath)).toBe(false)
     expect(() => reopenedService.removeDesignBranch(main.id, main.id)).toThrow('Main cannot be removed.')
     reopenedStore.close()
+  })
+
+  it('forks a historical prompt from the revision and conversation immediately before it', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const firstRevisionId = first.activeRevisionId!
+    const second = await service.generate(first.id, 'Use a warmer accent', () => undefined)
+    const forkMessage = second.messages.find((message) => message.role === 'user' && message.text === 'Use a warmer accent')!
+
+    const fork = service.createDesignBranch(first.id, 'Warmer alternative', firstRevisionId, forkMessage.id)
+    expect(fork).toMatchObject({ activeRevisionId: firstRevisionId, selectedRevisionId: firstRevisionId })
+    expect(fork.messages.map((message) => message.text)).not.toContain('Use a warmer accent')
+    const replay = store.enqueueGenerationJob(first.id, forkMessage.text, 'mock', 'mock-v1', null, forkMessage.attachments ?? [], 'fresh', null, forkMessage.focusedTarget ?? null, forkMessage.focusedFeedback ?? [], forkMessage.replyToMessageId ?? null)
+    expect(store.getDesign(first.id)?.messages.at(-1)).toMatchObject({ text: 'Use a warmer accent' })
+    store.cancelQueuedGenerationJob(replay.id)
+    store.close()
   })
 
   it('materializes the captured project definitions and exposes first-prompt AI Agent instructions', async () => {

@@ -71,6 +71,8 @@ interface DesignBranchStateRow {
   selected_revision_id: string | null
   draft: string
   draft_attachments_json: string
+  reply_message_id: string | null
+  separate_branch_mode: number
   last_provider_id: string
   last_model_id: string
   last_effort: string | null
@@ -875,10 +877,18 @@ export class WorkspaceStore {
                kept_definition_version, definition_application_state, definition_application_error
         FROM design_branches WHERE id = ? AND design_id = ?
       `).run(branchId, title, `refs/heads/od/${branchId}`, `branches/${branchId}/worktree`, baseRevisionId, forkMessageId, baseRevisionId, baseRevisionId, now, design.activeBranchId, designId)
-      this.database.prepare(`
-        INSERT INTO branch_messages (branch_id, message_id, ordinal)
-        SELECT ?, message_id, ordinal FROM branch_messages WHERE branch_id = ? ORDER BY ordinal
-      `).run(branchId, design.activeBranchId)
+      if (forkMessageId) {
+        const fork = this.database.prepare('SELECT ordinal FROM branch_messages WHERE branch_id = ? AND message_id = ?').get(design.activeBranchId, forkMessageId) as { ordinal: number }
+        this.database.prepare(`
+          INSERT INTO branch_messages (branch_id, message_id, ordinal)
+          SELECT ?, message_id, ordinal FROM branch_messages WHERE branch_id = ? AND ordinal < ? ORDER BY ordinal
+        `).run(branchId, design.activeBranchId, fork.ordinal)
+      } else {
+        this.database.prepare(`
+          INSERT INTO branch_messages (branch_id, message_id, ordinal)
+          SELECT ?, message_id, ordinal FROM branch_messages WHERE branch_id = ? ORDER BY ordinal
+        `).run(branchId, design.activeBranchId)
+      }
     })
     return this.listDesignBranches(designId).find((branch) => branch.id === branchId)!
   }
@@ -886,6 +896,7 @@ export class WorkspaceStore {
   public switchDesignBranch(designId: string, branchId: string): Design {
     const branch = this.database.prepare(`
       SELECT id, active_revision_id, selected_revision_id, draft, draft_attachments_json,
+             reply_message_id, separate_branch_mode,
              last_provider_id, last_model_id, last_effort, layout_json, queue_paused,
              provider_session_id, provider_session_provider, entry_page_path, definition_version,
              pending_definition_version, kept_definition_version, definition_application_state, definition_application_error
@@ -1560,6 +1571,17 @@ export class WorkspaceStore {
     })
   }
 
+  public saveBranchComposerState(designId: string, separateBranchMode: boolean, replyMessageId: string | null, branchId = this.requireDesign(designId).activeBranchId): void {
+    this.requireDesign(designId)
+    if (!this.getDesignAtBranch(designId, branchId)) throw new Error('Design branch not found.')
+    if (replyMessageId && !this.database.prepare('SELECT 1 FROM branch_messages WHERE branch_id = ? AND message_id = ?').get(branchId, replyMessageId)) {
+      throw new Error('The reply message is not part of the selected branch conversation.')
+    }
+    this.database.prepare(`
+      UPDATE design_branches SET separate_branch_mode = ?, reply_message_id = ? WHERE id = ? AND design_id = ?
+    `).run(separateBranchMode ? 1 : 0, replyMessageId, branchId, designId)
+  }
+
   public saveLayout(designId: string, layout: Layout): void {
     const parsed = layoutSchema.parse(layout)
     const branchId = this.requireDesign(designId).activeBranchId
@@ -1748,15 +1770,15 @@ export class WorkspaceStore {
     })
   }
 
-  public addGenerationStep(designId: string, stage: string, label: string, detail: string | null = null, jobId: string | null = null): void {
-    const branchId = jobId ? this.requireGenerationJob(jobId).branchId : this.requireDesign(designId).activeBranchId
+  public addGenerationStep(designId: string, stage: string, label: string, detail: string | null = null, jobId: string | null = null, requestedBranchId?: string): void {
+    const branchId = jobId ? this.requireGenerationJob(jobId).branchId : requestedBranchId ?? this.requireDesign(designId).activeBranchId
     this.database.prepare(`
       INSERT INTO generation_steps (id, design_id, branch_id, job_id, stage, label, detail, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(randomUUID(), designId, branchId, jobId, stage, label, detail, new Date().toISOString())
   }
 
-  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = []): GenerationJob {
+  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = [], replyToMessageId: string | null = null): GenerationJob {
     const design = this.requireDesign(designId)
     const parsedFocusedFeedback = focusedFeedback.map((item) => focusedFeedbackSchema.parse(item))
     if (parsedFocusedFeedback.length > 50) throw new Error('A focused feedback batch can contain at most 50 items.')
@@ -1779,6 +1801,7 @@ export class WorkspaceStore {
         focusedTarget,
         focusedFeedback: parsedFocusedFeedback,
         generationJobId: id,
+        replyToMessageId,
         branchId: design.activeBranchId,
       })
       if (parsedFocusedFeedback.length) {
@@ -2104,6 +2127,7 @@ export class WorkspaceStore {
   private hydrateDesign(row: DesignRow, branchId = row.active_branch_id): Design {
     const branch = this.database.prepare(`
       SELECT active_revision_id, selected_revision_id, draft, draft_attachments_json,
+             reply_message_id, separate_branch_mode,
              last_provider_id, last_model_id, last_effort, layout_json, queue_paused,
              provider_session_id, provider_session_provider, entry_page_path, definition_version,
              pending_definition_version, kept_definition_version, definition_application_state, definition_application_error
@@ -2140,6 +2164,8 @@ export class WorkspaceStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       activeBranchId: branchId,
+      separateBranchMode: branch.separate_branch_mode === 1,
+      replyMessageId: branch.reply_message_id,
       branches: this.listDesignBranches(row.id),
       activeRevisionId: branch.active_revision_id,
       selectedRevisionId: branch.selected_revision_id,

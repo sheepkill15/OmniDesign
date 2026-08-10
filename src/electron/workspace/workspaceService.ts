@@ -56,10 +56,11 @@ export class WorkspaceService {
     if (!source) throw new Error('Design not found.')
     const resolvedBaseRevisionId = baseRevisionId === undefined ? source.activeRevisionId : baseRevisionId
     const baseRevision = resolvedBaseRevisionId ? source.revisions.find((revision) => revision.id === resolvedBaseRevisionId) : null
-    if (!baseRevision?.gitCommit) throw new Error('A branch requires a committed design revision as its starting point.')
+    const baseCommit = baseRevision?.gitCommit ?? (resolvedBaseRevisionId === null ? this.repositories.getInitialCommit(designId) : null)
+    if (!baseCommit) throw new Error('A branch requires a committed design revision as its starting point.')
     const branch = this.store.createDesignBranch(designId, title, resolvedBaseRevisionId, forkMessageId ?? null)
     try {
-      this.repositories.createBranchWorktree(designId, branch.id, baseRevision.gitCommit)
+      this.repositories.createBranchWorktree(designId, branch.id, baseCommit)
       return this.switchDesignBranch(designId, branch.id)
     } catch (error) {
       try { this.store.removeDesignBranchRecord(designId, branch.id) } catch { /* preserve the original lifecycle error */ }
@@ -79,7 +80,11 @@ export class WorkspaceService {
       const selectedRevision = branch.selectedRevisionId
         ? this.store.getDesignAtBranch(designId, branchId)?.revisions.find((revision) => revision.id === branch.selectedRevisionId)
         : null
-      if (selectedRevision && selectedRevision.id !== branch.activeRevisionId && selectedRevision.gitCommit) {
+      const hasActiveGeneration = this.store.getDesignAtBranch(designId, branchId)?.generationJobs.some((job) => job.state === 'running') ?? false
+      if (hasActiveGeneration) {
+        // The provider owns the branch worktree until its job completes. Switching the visible branch
+        // must never check out over in-progress files.
+      } else if (selectedRevision && selectedRevision.id !== branch.activeRevisionId && selectedRevision.gitCommit) {
         this.repositories.checkoutRevision(designId, selectedRevision.gitCommit, branchId)
       } else {
         this.repositories.checkoutBranchHead(designId, branchId)
