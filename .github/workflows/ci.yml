@@ -75,3 +75,32 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  branch-platform:
+    name: Branch worktrees (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test branch worktree lifecycle and recovery
+        run: pnpm test -- src/electron/workspace/designRepository.test.ts src/electron/workspace/workspaceService.test.ts

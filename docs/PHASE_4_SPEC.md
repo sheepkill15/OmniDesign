@@ -481,6 +481,8 @@ Each track lands in small, testable commits. Track A precedes production branch 
 
 ## Acceptance Criteria
 
+Implementation status: complete on `codex/feature/phase-4-foundation`. Requirement-to-evidence mapping and verification results are recorded in `docs/PHASE_4_RELEASE_AUDIT.md`.
+
 ### Branch Foundation
 
 - Every existing and new design has one protected `Main` branch after migration.

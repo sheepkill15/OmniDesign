@@ -804,7 +804,7 @@ or ambiguous targets remain in ordinary history and are not assigned a visual ma
 
 ## Phase 4 Architecture Decisions
 
-### ADR 2026-08-10: Product branches use persistent Git worktrees (accepted, foundation in progress)
+### ADR 2026-08-10: Product branches use persistent Git worktrees (accepted, implemented)
 
 One OmniDesign design remains one Git repository. Its protected `Main` product branch uses
 the main worktree, and every alternative product branch uses one linked worktree stored for
@@ -838,10 +838,12 @@ a revision, and retains the main repository worktree as `repository`. The reposi
 parses `git worktree list --porcelain -z`, validates managed identifiers, paths, refs, and base
 commits, and owns linked-worktree creation, repair, dirty-state confirmation, and Git lifecycle
 removal. Workspace startup validates the registered Main worktree for every active design. Branch-
-specific conversations, queues, worktree routing, and production branch creation remain subsequent
-Track A work; the design-level fields remain the compatibility projection until that routing lands.
+specific conversations, queues, worktree routing, and production branch creation now use the branch
+record as authority; design-level fields remain only the active-branch compatibility projection.
+Migrations through 48 add durable combination state, comparison summaries and opaque evidence,
+execution-time branch context, and branch-local page metadata.
 
-### ADR 2026-08-10: Intelligent combination records two-parent destination commits (accepted, not implemented)
+### ADR 2026-08-10: Intelligent combination records two-parent destination commits (accepted, implemented)
 
 Phase 4 combination is source-to-destination and prompt-led. The primary path does not invoke
 `git merge`: the provider reads the source branch folder and divergent conversation as
@@ -861,7 +863,7 @@ until the attempt completes or aborts. The current provider-owned harness cannot
 source worktree enforceably read-only, so source immutability remains an honest instruction and
 application-orchestration boundary rather than a claimed filesystem sandbox.
 
-### ADR 2026-08-10: Phase 4 moves automatic-update state into the trusted sidebar (accepted, not implemented)
+### ADR 2026-08-10: Phase 4 moves automatic-update state into the trusted sidebar (accepted, implemented)
 
 On platforms where automatic updates are enabled, the trusted renderer receives bounded update
 progress from the main process and shows the numeric download percentage in the bottom-left
