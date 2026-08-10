@@ -191,6 +191,8 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       selectRevision: vi.fn().mockResolvedValue(design),
       compareRevisions: vi.fn().mockResolvedValue({ baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [], additions: 0, deletions: 0 }),
       compareBranches: vi.fn(),
+      summarizeBranches: vi.fn(),
+      listBranchSummaries: vi.fn().mockResolvedValue([]),
       combineBranches: vi.fn(),
       finishCombination: vi.fn(),
       abortCombination: vi.fn(),
@@ -1529,6 +1531,7 @@ describe('Phase 1 walking skeleton UI', () => {
       changes: { baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [{ path: 'index.html', status: 'modified', additions: 4, deletions: 1 }], additions: 4, deletions: 1 },
     })
     vi.mocked(bridge.workspace.combineBranches).mockResolvedValue({ id: '00000000-0000-4000-8000-000000000001', designId: design.id, sourceBranchId: alternativeId, sourceBranchTitle: 'Editorial direction', destinationBranchId: design.id, destinationBranchTitle: 'Main', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), prompt: 'Keep Main and adopt the editorial typography', providerId: 'mock', modelId: 'mock-v1', effort: null, state: 'manual_resolution', response: null, fallbackPath: 'automatic_merge', diagnostic: 'Fallback merge is ready.', resultingRevisionId: null, mergeCommit: null, createdAt: '2026-07-20T10:08:00.000Z', completedAt: null })
+    vi.mocked(bridge.workspace.summarizeBranches).mockResolvedValue({ id: '00000000-0000-4000-8000-000000000002', designId: design.id, sourceBranchId: alternativeId, sourceBranchTitle: 'Editorial direction', destinationBranchId: design.id, destinationBranchTitle: 'Main', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), summary: 'Editorial direction adds a denser typographic hierarchy while Main stays quieter.', providerId: 'mock', modelId: 'mock-v1', effort: null, stale: false, createdAt: '2026-07-20T10:07:00.000Z' })
     render(<App />)
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
@@ -1545,6 +1548,9 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'About' }))
     expect(screen.getByText('This page exists only in the other branch')).toBeInTheDocument()
     expect(screen.getByTitle('Editorial direction · about.html')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Summarize differences' }))
+    expect(await screen.findByText(/Editorial direction adds a denser typographic hierarchy/)).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.summarizeBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Combination prompt' }), { target: { value: 'Keep Main and adopt the editorial typography' } })
     fireEvent.click(screen.getByRole('button', { name: 'Combine into destination' }))
     expect(await screen.findByRole('dialog', { name: 'Combination needs review' })).toBeInTheDocument()

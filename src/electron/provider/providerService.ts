@@ -25,6 +25,7 @@ export interface DesignAgentReply extends Omit<ProviderReply, 'text'> {
 export interface AnalysisAgentRequest extends ProviderPrompt {
   readonly workspacePath: string
   readonly instructions: string
+  readonly readOnly?: boolean
 }
 
 export class ProviderService {
@@ -96,6 +97,7 @@ export class ProviderService {
       prompt: request.prompt,
       workspacePath: request.workspacePath,
       instructions: request.instructions,
+      ...(request.readOnly ? { readOnly: true } : {}),
       ...(request.referencePaths?.length ? { referencePaths: request.referencePaths } : {}),
       ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),

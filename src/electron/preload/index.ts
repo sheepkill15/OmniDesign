@@ -83,6 +83,8 @@ contextBridge.exposeInMainWorld('omnidesign', {
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),
     compareRevisions: (designId: string, baseRevisionId: string, targetRevisionId: string) => ipcRenderer.invoke('workspace:compare-revisions', { designId, baseRevisionId, targetRevisionId }),
     compareBranches: (designId: string, sourceBranchId: string, destinationBranchId: string) => ipcRenderer.invoke('workspace:compare-branches', { designId, sourceBranchId, destinationBranchId }),
+    summarizeBranches: (designId: string, sourceBranchId: string, destinationBranchId: string, selection: import('../workspace/contracts.js').GenerationSelection) => ipcRenderer.invoke('workspace:summarize-branches', { designId, sourceBranchId, destinationBranchId, ...selection }),
+    listBranchSummaries: (designId: string) => ipcRenderer.invoke('workspace:list-branch-summaries', { designId }),
     combineBranches: (designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: import('../workspace/contracts.js').GenerationSelection) => ipcRenderer.invoke('workspace:combine-branches', { designId, sourceBranchId, destinationBranchId, prompt, ...selection }),
     finishCombination: (designId: string, attemptId: string) => ipcRenderer.invoke('workspace:finish-combination', { designId, attemptId }),
     abortCombination: (designId: string, attemptId: string) => ipcRenderer.invoke('workspace:abort-combination', { designId, attemptId }),

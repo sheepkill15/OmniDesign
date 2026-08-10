@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, combinationAttemptSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import { attachmentSchema, branchComparisonSummarySchema, combinationAttemptSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
 import { providerStatusesSchema, type ProviderStatus } from '../provider/types.js'
-import type { Attachment, CombinationAttempt, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, BranchComparisonSummary, CombinationAttempt, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { REVISION_QUALITY_VERSION } from './revisionQuality.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
@@ -785,6 +785,25 @@ CREATE INDEX branch_combination_attempts_by_design ON branch_combination_attempt
 CREATE INDEX design_branch_locks_by_operation ON design_branch_locks(operation_id);
 `
 
+const migrationFortyFive = `
+CREATE TABLE branch_comparison_summaries (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  source_branch_id TEXT REFERENCES design_branches(id) ON DELETE SET NULL,
+  source_branch_title TEXT NOT NULL,
+  destination_branch_id TEXT REFERENCES design_branches(id) ON DELETE SET NULL,
+  destination_branch_title TEXT NOT NULL,
+  source_commit TEXT NOT NULL,
+  destination_commit TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  provider_id TEXT NOT NULL CHECK (provider_id IN ('mock', 'codex', 'claude')),
+  model_id TEXT NOT NULL,
+  effort TEXT,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX branch_comparison_summaries_by_design ON branch_comparison_summaries(design_id, created_at);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -1010,6 +1029,32 @@ export class WorkspaceStore {
       this.database.prepare("UPDATE design_branches SET status = 'combining' WHERE id IN (?, ?)").run(sourceBranchId, destinationBranchId)
     })
     return this.requireCombinationAttempt(id)
+  }
+
+  public saveBranchComparisonSummary(designId: string, sourceBranchId: string, destinationBranchId: string, sourceCommit: string, destinationCommit: string, summary: string, selection: GenerationSelection): BranchComparisonSummary {
+    const source = this.listDesignBranches(designId).find((branch) => branch.id === sourceBranchId)
+    const destination = this.listDesignBranches(designId).find((branch) => branch.id === destinationBranchId)
+    if (!source || !destination) throw new Error('Design branch not found.')
+    const id = randomUUID()
+    const createdAt = new Date().toISOString()
+    this.database.prepare(`
+      INSERT INTO branch_comparison_summaries (
+        id, design_id, source_branch_id, source_branch_title, destination_branch_id, destination_branch_title,
+        source_commit, destination_commit, summary, provider_id, model_id, effort, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, designId, sourceBranchId, source.title, destinationBranchId, destination.title, sourceCommit, destinationCommit, summary, selection.providerId, selection.modelId, selection.effort ?? null, createdAt)
+    return this.listBranchComparisonSummaries(designId).find((candidate) => candidate.id === id)!
+  }
+
+  public listBranchComparisonSummaries(designId: string): BranchComparisonSummary[] {
+    return (this.database.prepare('SELECT * FROM branch_comparison_summaries WHERE design_id = ? ORDER BY created_at DESC, rowid DESC').all(designId) as Record<string, unknown>[]).map((row) => branchComparisonSummarySchema.parse({
+      id: row.id, designId: row.design_id,
+      sourceBranchId: row.source_branch_id, sourceBranchTitle: row.source_branch_title,
+      destinationBranchId: row.destination_branch_id, destinationBranchTitle: row.destination_branch_title,
+      sourceCommit: row.source_commit, destinationCommit: row.destination_commit,
+      summary: row.summary, providerId: row.provider_id, modelId: row.model_id, effort: row.effort,
+      stale: false, createdAt: row.created_at,
+    }))
   }
 
   public setCombinationManualResolution(id: string, diagnostic: string, response: string | null, fallbackPath: 'automatic_merge' | 'manual_resolution'): CombinationAttempt {
@@ -2247,7 +2292,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree, migrationFortyFour]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree, migrationFortyFour, migrationFortyFive]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.

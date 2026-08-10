@@ -16,6 +16,7 @@ import {
   cloneProjectRequestSchema,
   compareRevisionsRequestSchema,
   compareDesignBranchesRequestSchema,
+  summarizeDesignBranchesRequestSchema,
   combineDesignBranchesRequestSchema,
   combinationAttemptRequestSchema,
   createDesignBranchRequestSchema,
@@ -756,6 +757,35 @@ function registerIpc(): void {
     authorize(event)
     const request = compareDesignBranchesRequestSchema.parse(value)
     return requireWorkspace().compareDesignBranches(request.designId, request.sourceBranchId, request.destinationBranchId)
+  })
+  ipcMain.handle('workspace:summarize-branches', async (event, value: unknown) => {
+    authorize(event)
+    const request = summarizeDesignBranchesRequestSchema.parse(value)
+    const prepared = requireWorkspace().prepareBranchComparisonSummary(request.designId, request.sourceBranchId, request.destinationBranchId)
+    const selection = { providerId: request.providerId, modelId: request.modelId, effort: request.effort }
+    if (request.providerId === 'mock') {
+      const changes = prepared.comparison.changes
+      const summary = changes.files.length
+        ? `${prepared.comparison.source.title} differs from ${prepared.comparison.destination.title} across ${changes.files.length} authored file${changes.files.length === 1 ? '' : 's'} (+${changes.additions}, -${changes.deletions}). Review ${changes.files.slice(0, 5).map((file) => file.path).join(', ')} when choosing which direction to keep.`
+        : `${prepared.comparison.source.title} and ${prepared.comparison.destination.title} have no authored file differences at their captured heads.`
+      return requireWorkspace().saveBranchComparisonSummary(request.designId, request.sourceBranchId, request.destinationBranchId, prepared.sourceCommit, prepared.destinationCommit, summary, selection)
+    }
+    const reply = await providers.runAnalysisAgent({
+      requestId: randomUUID(), providerId: request.providerId, modelId: request.modelId,
+      ...(request.effort ? { effort: request.effort } : {}),
+      workspacePath: prepared.destinationPath,
+      referencePaths: [prepared.sourcePath],
+      readOnly: true,
+      prompt: 'Summarize the meaningful visual, structural, and interaction differences between these two design branches. Highlight strengths and tradeoffs without recommending a combination unless the evidence clearly supports it.',
+      instructions: `This is strictly read-only analysis. Do not create, edit, delete, or commit files. Compare the captured destination head ${prepared.destinationCommit} at ${prepared.destinationPath} with source head ${prepared.sourceCommit} at ${prepared.sourcePath}. Return a concise plain-text summary suitable for a designer.\n\nAuthored diff evidence:\n${JSON.stringify(prepared.comparison.changes)}\n\n${prepared.conversationContext}`,
+    }, (activity) => {
+      if (!event.sender.isDestroyed()) event.sender.send('providers:activity', activity)
+    })
+    return requireWorkspace().saveBranchComparisonSummary(request.designId, request.sourceBranchId, request.destinationBranchId, prepared.sourceCommit, prepared.destinationCommit, reply.text.trim(), selection)
+  })
+  ipcMain.handle('workspace:list-branch-summaries', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().listBranchComparisonSummaries(designIdRequestSchema.parse(value).designId)
   })
   ipcMain.handle('workspace:combine-branches', async (event, value: unknown) => {
     authorize(event)

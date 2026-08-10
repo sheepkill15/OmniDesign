@@ -2004,6 +2004,15 @@ button:not(:disabled):active {
 .branch-comparison-previews header strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .branch-comparison-previews iframe { width: 100%; height: 100%; border: 0; background: white; }
 .branch-comparison-unavailable { display: grid; place-items: center; padding: 20px; color: var(--text-faint); font-size: 12px; text-align: center; }
+.branch-ai-summary { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: color-mix(in srgb, var(--accent) 5%, var(--surface-2)); }
+.branch-ai-summary > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.branch-ai-summary > header > span { display: grid; gap: 2px; }
+.branch-ai-summary strong { color: var(--text); font-size: 12px; }
+.branch-ai-summary small, .branch-ai-summary > p, .branch-summary-meta { color: var(--text-faint); font-size: 10px; }
+.branch-ai-summary > div { display: grid; gap: 7px; color: var(--text-muted); font-size: 12px; line-height: 1.55; }
+.branch-ai-summary .markdown > :first-child { margin-top: 0; }
+.branch-ai-summary .markdown > :last-child { margin-bottom: 0; }
+.branch-summary-stale { margin: 0; padding: 8px 9px; border-radius: var(--radius-control); background: var(--surface-selected); color: var(--text-muted); }
 .combine-branches-composer { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--surface-2); }
 .combine-branches-composer header > span { display: grid; gap: 2px; }
 .combine-branches-composer header strong { color: var(--text); font-size: 12px; }

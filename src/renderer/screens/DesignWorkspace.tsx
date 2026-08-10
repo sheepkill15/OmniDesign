@@ -232,6 +232,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [combinationPrompt, setCombinationPrompt] = useState('')
   const [combinationAttempt, setCombinationAttempt] = useState<CombinationAttempt | null>(null)
   const [combinationHistory, setCombinationHistory] = useState<readonly CombinationAttempt[]>([])
+  const [branchSummaries, setBranchSummaries] = useState<readonly BranchComparisonSummary[]>([])
+  const [summarizingBranches, setSummarizingBranches] = useState(false)
   const [combinationPreview, setCombinationPreview] = useState<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>(null)
   const [combiningBranches, setCombiningBranches] = useState(false)
   const [completedCombination, setCompletedCombination] = useState<CombinationAttempt | null>(null)
@@ -561,6 +563,11 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     return () => { cancelled = true }
   }, [api, design.id])
   useEffect(() => {
+    let cancelled = false
+    void api?.listBranchSummaries(design.id).then((summaries) => { if (!cancelled) setBranchSummaries(summaries) }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [api, design.id, design.branches])
+  useEffect(() => {
     if (!combinationAttempt || combinationAttempt.state !== 'manual_resolution') { setCombinationPreview(null); return }
     let cancelled = false
     void window.omnidesign?.preview.registerCombination(design.id, combinationAttempt.id).then((preview) => { if (!cancelled) setCombinationPreview(preview) }).catch(() => { if (!cancelled) setCombinationPreview(null) })
@@ -579,6 +586,13 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       const updated = await api.switchBranch(design.id, attempt.destinationBranchId!)
       onChange(updated)
     } else setCombinationAttempt(attempt)
+  }
+  const summarizeBranches = async () => {
+    if (!api || !branchComparison || summarizingBranches || !hasUsableSelection) return
+    setSummarizingBranches(true)
+    const summary = await runWorkspaceAction(() => api.summarizeBranches(design.id, branchComparison.source.branchId, branchComparison.destination.branchId, selection), 'The branch summary could not be generated.')
+    setSummarizingBranches(false)
+    if (summary) setBranchSummaries((current) => [summary, ...current.filter((candidate) => candidate.id !== summary.id)])
   }
   const finishCombination = async () => {
     if (!api || !combinationAttempt) return
@@ -778,6 +792,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
   const comparedPagePaths = branchComparison ? [...new Set([...branchComparison.destination.pages.map((page) => page.path), ...branchComparison.source.pages.map((page) => page.path)])] : []
   const comparisonPageUrl = (token: string, page: string) => `omnidesign-preview://revision/${token}/${page.split('/').map(encodeURIComponent).join('/')}`
+  const visibleBranchSummary = branchComparison ? branchSummaries.find((summary) => summary.sourceBranchId === branchComparison.source.branchId && summary.destinationBranchId === branchComparison.destination.branchId) ?? null : null
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
@@ -959,6 +974,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
             {(['destination', 'source'] as const).map((side) => { const branch = branchComparison[side]; const token = branchComparisonTokens?.[side]; const hasPage = !!branchComparisonPage && branch.pages.some((page) => page.path === branchComparisonPage); return <article key={side}><header><span>{side === 'destination' ? 'Destination' : 'Source'}</span><strong>{branch.title}</strong></header>{token && branchComparisonPage && hasPage ? <iframe title={`${branch.title} · ${branchComparisonPage}`} src={comparisonPageUrl(token, branchComparisonPage)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">{hasPage ? 'Preview unavailable' : 'This page exists only in the other branch'}</div>}</article> })}
           </div>
           <section className="revision-comparison-changes" aria-label="Branch authored file changes"><header><span><strong>{branchComparison.changes.files.length} authored file{branchComparison.changes.files.length === 1 ? '' : 's'} changed</strong><small>Destination compared with source. Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{branchComparison.changes.additions}</strong><strong>−{branchComparison.changes.deletions}</strong></span></header>{branchComparison.changes.files.length ? <ul>{branchComparison.changes.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files differ between these branch heads.</p>}</section>
+          <section className="branch-ai-summary" aria-label="AI branch summary"><header><span><strong>AI summary</strong><small>Generated only when requested and kept with the captured branch heads.</small></span><Button className="secondary-action" isDisabled={summarizingBranches || !hasUsableSelection} onPress={() => void summarizeBranches()}>{summarizingBranches ? 'Summarizing…' : visibleBranchSummary ? 'Generate a new summary' : 'Summarize differences'}</Button></header>{visibleBranchSummary ? <div><span className="branch-summary-meta">{visibleBranchSummary.providerId} · {new Date(visibleBranchSummary.createdAt).toLocaleString()}{visibleBranchSummary.stale ? ' · Stale' : ''}</span><Markdown text={visibleBranchSummary.summary} />{visibleBranchSummary.stale && <p className="branch-summary-stale" role="status">This summary describes older branch heads. It remains available as history and will not regenerate automatically.</p>}</div> : <p>No AI summary has been generated for these branch heads.</p>}</section>
           <section className="combine-branches-composer" aria-label="Combine branches"><header><span><strong>Best of both directions</strong><small>Describe what the destination should keep and what it should adopt from the source.</small></span></header><TextField aria-label="Combination prompt"><TextArea value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Bring the best of ${branchComparison.source.title} into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" isDisabled={!combinationPrompt.trim() || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches ? 'Combining…' : 'Combine into destination'}</Button></div></section>
           <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Close</Button></div>
         </>}

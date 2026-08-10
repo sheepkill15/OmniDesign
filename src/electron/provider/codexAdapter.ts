@@ -64,7 +64,7 @@ export class CodexAdapter implements ProviderAdapter {
       const startParams = {
         cwd: request.workspacePath ?? process.cwd(),
         model: request.modelId,
-        sandbox: request.workspacePath ? 'workspace-write' : 'read-only',
+        sandbox: request.readOnly || !request.workspacePath ? 'read-only' : 'workspace-write',
         approvalPolicy: 'never',
         ...(runtimeWorkspaceRoots.length ? { runtimeWorkspaceRoots } : {}),
         ...(request.instructions ? { developerInstructions: request.instructions } : {}),

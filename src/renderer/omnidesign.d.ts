@@ -191,6 +191,23 @@ interface BranchComparison {
   readonly changes: RevisionComparison
 }
 
+interface BranchComparisonSummary {
+  readonly id: string
+  readonly designId: string
+  readonly sourceBranchId: string | null
+  readonly sourceBranchTitle: string
+  readonly destinationBranchId: string | null
+  readonly destinationBranchTitle: string
+  readonly sourceCommit: string
+  readonly destinationCommit: string
+  readonly summary: string
+  readonly providerId: 'mock' | 'codex' | 'claude'
+  readonly modelId: string
+  readonly effort: string | null
+  readonly stale: boolean
+  readonly createdAt: string
+}
+
 interface CombinationAttempt {
   readonly id: string
   readonly designId: string
@@ -464,6 +481,8 @@ interface Window {
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       compareRevisions(designId: string, baseRevisionId: string, targetRevisionId: string): Promise<RevisionComparison>
       compareBranches(designId: string, sourceBranchId: string, destinationBranchId: string): Promise<BranchComparison>
+      summarizeBranches(designId: string, sourceBranchId: string, destinationBranchId: string, selection: GenerationSelection): Promise<BranchComparisonSummary>
+      listBranchSummaries(designId: string): Promise<readonly BranchComparisonSummary[]>
       combineBranches(designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: GenerationSelection): Promise<CombinationAttempt>
       finishCombination(designId: string, attemptId: string): Promise<CombinationAttempt>
       abortCombination(designId: string, attemptId: string): Promise<CombinationAttempt>

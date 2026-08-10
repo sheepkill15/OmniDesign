@@ -534,6 +534,23 @@ export const branchComparisonSchema = z.object({
   changes: revisionComparisonSchema,
 })
 
+export const branchComparisonSummarySchema = z.object({
+  id: z.string().uuid(),
+  designId: z.string().min(1).max(100),
+  sourceBranchId: z.string().min(1).max(100).nullable(),
+  sourceBranchTitle: z.string().min(1).max(200),
+  destinationBranchId: z.string().min(1).max(100).nullable(),
+  destinationBranchTitle: z.string().min(1).max(200),
+  sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  destinationCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  summary: z.string().min(1),
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().min(1).max(200),
+  effort: z.string().min(1).max(100).nullable(),
+  stale: z.boolean(),
+  createdAt: z.string().datetime(),
+})
+
 export const combinationAttemptSchema = z.object({
   id: z.string().uuid(),
   designId: z.string().min(1).max(100),
@@ -569,6 +586,12 @@ export const saveDraftRequestSchema = designIdRequestSchema.extend({
 
 export const combineDesignBranchesRequestSchema = compareDesignBranchesRequestSchema.extend({
   prompt: z.string().trim().min(1).max(100_000),
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().trim().min(1).max(200),
+  effort: z.string().trim().min(1).max(100).nullable(),
+})
+
+export const summarizeDesignBranchesRequestSchema = compareDesignBranchesRequestSchema.extend({
   providerId: z.enum(['mock', 'codex', 'claude']),
   modelId: z.string().trim().min(1).max(200),
   effort: z.string().trim().min(1).max(100).nullable(),
@@ -690,6 +713,7 @@ export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
 export type CompareRevisionsRequest = z.infer<typeof compareRevisionsRequestSchema>
 export type RevisionComparison = z.infer<typeof revisionComparisonSchema>
 export type BranchComparison = z.infer<typeof branchComparisonSchema>
+export type BranchComparisonSummary = z.infer<typeof branchComparisonSummarySchema>
 export type CombinationAttempt = z.infer<typeof combinationAttemptSchema>
 export type RenameDesignRequest = z.infer<typeof renameDesignRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>

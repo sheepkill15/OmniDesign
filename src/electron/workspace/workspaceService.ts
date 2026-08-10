@@ -1,5 +1,5 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, BranchComparison, CombinationAttempt, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, BranchComparison, BranchComparisonSummary, CombinationAttempt, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
@@ -397,6 +397,38 @@ export class WorkspaceService {
       destination: { branchId: destinationBranch.id, title: destinationBranch.title, revisionId: destinationRevision.id, pages: destinationPages.pages, entryPagePath: destinationPages.entryPagePath },
       changes: this.repositories.compareRevisions(designId, destinationRevision.gitCommit, sourceRevision.gitCommit, destinationRevision.id, sourceRevision.id),
     }
+  }
+
+  public prepareBranchComparisonSummary(designId: string, sourceBranchId: string, destinationBranchId: string): { readonly comparison: BranchComparison; readonly sourceCommit: string; readonly destinationCommit: string; readonly sourcePath: string; readonly destinationPath: string; readonly conversationContext: string } {
+    const comparison = this.compareDesignBranches(designId, sourceBranchId, destinationBranchId)
+    const source = this.store.getDesignAtBranch(designId, sourceBranchId)
+    const destination = this.store.getDesignAtBranch(designId, destinationBranchId)
+    const sourceRevision = source?.revisions.find((revision) => revision.id === comparison.source.revisionId)
+    const destinationRevision = destination?.revisions.find((revision) => revision.id === comparison.destination.revisionId)
+    if (!sourceRevision?.gitCommit || !destinationRevision?.gitCommit) throw new Error('Both branches need a valid committed head before comparison.')
+    const formatConversation = (label: string, messages: readonly Design['messages'][number][]) => `${label}:\n${messages.map((message) => `${message.role}: ${message.text}`).join('\n')}`
+    return {
+      comparison,
+      sourceCommit: sourceRevision.gitCommit,
+      destinationCommit: destinationRevision.gitCommit,
+      sourcePath: this.repositories.getWorkingPath(designId, sourceBranchId),
+      destinationPath: this.repositories.getWorkingPath(designId, destinationBranchId),
+      conversationContext: `${formatConversation('Source conversation', source?.messages ?? [])}\n\n${formatConversation('Destination conversation', destination?.messages ?? [])}`,
+    }
+  }
+
+  public saveBranchComparisonSummary(designId: string, sourceBranchId: string, destinationBranchId: string, sourceCommit: string, destinationCommit: string, summary: string, selection: GenerationSelection): BranchComparisonSummary {
+    return this.store.saveBranchComparisonSummary(designId, sourceBranchId, destinationBranchId, sourceCommit, destinationCommit, summary, selection)
+  }
+
+  public listBranchComparisonSummaries(designId: string): BranchComparisonSummary[] {
+    return this.store.listBranchComparisonSummaries(designId).map((summary) => {
+      const source = summary.sourceBranchId ? this.store.getDesignAtBranch(designId, summary.sourceBranchId) : null
+      const destination = summary.destinationBranchId ? this.store.getDesignAtBranch(designId, summary.destinationBranchId) : null
+      const sourceCommit = source?.revisions.find((revision) => revision.id === source.activeRevisionId)?.gitCommit
+      const destinationCommit = destination?.revisions.find((revision) => revision.id === destination.activeRevisionId)?.gitCommit
+      return { ...summary, stale: sourceCommit !== summary.sourceCommit || destinationCommit !== summary.destinationCommit }
+    })
   }
 
   public startCombination(designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: GenerationSelection): { readonly attempt: CombinationAttempt; readonly sourcePath: string; readonly destinationPath: string; readonly conversationContext: string } {

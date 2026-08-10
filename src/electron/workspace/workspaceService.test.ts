@@ -88,6 +88,29 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it('keeps requested branch summaries durable and marks captured heads stale without regenerating them', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const alternativeId = alternative.activeBranchId
+    await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+    const prepared = service.prepareBranchComparisonSummary(main.id, alternativeId, main.id)
+    const saved = service.saveBranchComparisonSummary(main.id, alternativeId, main.id, prepared.sourceCommit, prepared.destinationCommit, 'The alternative introduces a warmer visual direction.', { providerId: 'mock', modelId: 'mock-v1', effort: null })
+
+    expect(service.listBranchComparisonSummaries(main.id)).toEqual([expect.objectContaining({ id: saved.id, stale: false, summary: 'The alternative introduces a warmer visual direction.' })])
+    service.switchDesignBranch(main.id, alternativeId)
+    await service.generate(main.id, 'Increase the visual warmth', () => undefined)
+    expect(service.listBranchComparisonSummaries(main.id)[0]).toMatchObject({ id: saved.id, stale: true, sourceBranchId: alternativeId })
+    service.switchDesignBranch(main.id, main.id)
+    service.removeDesignBranch(main.id, alternativeId)
+    expect(service.listBranchComparisonSummaries(main.id)[0]).toMatchObject({ id: saved.id, stale: true, sourceBranchId: null, sourceBranchTitle: 'Warmer direction' })
+    store.close()
+  })
+
   it('locks two branches and records a validated two-parent destination combination', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)
