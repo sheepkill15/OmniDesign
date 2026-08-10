@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, branchComparisonSummarySchema, combinationAttemptSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import { attachmentSchema, branchComparisonSummarySchema, branchContextReferenceSchema, combinationAttemptSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, resolvedBranchContextSchema, tagSchema, themeSchema } from './contracts.js'
 import { providerStatusesSchema, type ProviderStatus } from '../provider/types.js'
-import type { Attachment, BranchComparisonSummary, CombinationAttempt, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, BranchComparisonSummary, BranchContextReference, CombinationAttempt, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, ResolvedBranchContext, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { REVISION_QUALITY_VERSION } from './revisionQuality.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
@@ -71,6 +71,7 @@ interface DesignBranchStateRow {
   selected_revision_id: string | null
   draft: string
   draft_attachments_json: string
+  draft_branch_contexts_json: string
   reply_message_id: string | null
   separate_branch_mode: number
   last_provider_id: string
@@ -202,6 +203,7 @@ interface MessageRow {
   role: Message['role']
   text: string
   attachments_json: string
+  branch_contexts_json: string
   focused_target_json: string | null
   focused_feedback_json: string
   reply_to_message_id: string | null
@@ -235,6 +237,8 @@ interface GenerationJobRow {
   model_id: string
   effort: string | null
   attachments_json: string
+  branch_contexts_json: string
+  resolved_branch_contexts_json: string
   mode: 'fresh' | 'continue'
   provider_session_id: string | null
   definition_target_version: number | null
@@ -802,6 +806,13 @@ CREATE TABLE branch_comparison_summaries (
   created_at TEXT NOT NULL
 ) STRICT;
 CREATE INDEX branch_comparison_summaries_by_design ON branch_comparison_summaries(design_id, created_at);
+`
+
+const migrationFortySix = `
+ALTER TABLE design_branches ADD COLUMN draft_branch_contexts_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE messages ADD COLUMN branch_contexts_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE generation_jobs ADD COLUMN branch_contexts_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE generation_jobs ADD COLUMN resolved_branch_contexts_json TEXT NOT NULL DEFAULT '[]';
 `
 
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
@@ -1750,12 +1761,13 @@ export class WorkspaceStore {
     return restored
   }
 
-  public saveDraft(designId: string, draft: string, attachments: readonly Attachment[] = []): void {
+  public saveDraft(designId: string, draft: string, attachments: readonly Attachment[] = [], branchContexts: readonly BranchContextReference[] = []): void {
     const parsed = attachments.map((attachment) => attachmentSchema.parse(attachment))
+    const parsedBranchContexts = this.validateBranchContextReferences(designId, branchContexts)
     const branchId = this.requireDesign(designId).activeBranchId
     this.transaction(() => {
       this.database.prepare('UPDATE designs SET draft = ?, draft_attachments_json = ? WHERE id = ?').run(draft, JSON.stringify(parsed), designId)
-      this.database.prepare('UPDATE design_branches SET draft = ?, draft_attachments_json = ? WHERE id = ? AND design_id = ?').run(draft, JSON.stringify(parsed), branchId, designId)
+      this.database.prepare('UPDATE design_branches SET draft = ?, draft_attachments_json = ?, draft_branch_contexts_json = ? WHERE id = ? AND design_id = ?').run(draft, JSON.stringify(parsed), JSON.stringify(parsedBranchContexts), branchId, designId)
     })
   }
 
@@ -1966,8 +1978,9 @@ export class WorkspaceStore {
     `).run(randomUUID(), designId, branchId, jobId, stage, label, detail, new Date().toISOString())
   }
 
-  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = [], replyToMessageId: string | null = null): GenerationJob {
+  public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = [], replyToMessageId: string | null = null, branchContexts: readonly BranchContextReference[] = []): GenerationJob {
     const design = this.requireDesign(designId)
+    const parsedBranchContexts = this.validateBranchContextReferences(designId, branchContexts, design.activeBranchId)
     const parsedFocusedFeedback = focusedFeedback.map((item) => focusedFeedbackSchema.parse(item))
     if (parsedFocusedFeedback.length > 50) throw new Error('A focused feedback batch can contain at most 50 items.')
     if (parsedFocusedFeedback.some((item) => item.target.designId !== designId || item.target.revisionId !== design.activeRevisionId || design.activeRevisionId !== design.selectedRevisionId)) {
@@ -1981,11 +1994,12 @@ export class WorkspaceStore {
     const now = new Date().toISOString()
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-      `).run(id, designId, design.activeBranchId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), now)
+        INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, branch_contexts_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, design.activeBranchId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), JSON.stringify(parsedBranchContexts), mode, definitionTargetVersion, focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), now)
       this.insertMessage(designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, now, {
         attachments,
+        branchContexts: parsedBranchContexts,
         focusedTarget,
         focusedFeedback: parsedFocusedFeedback,
         generationJobId: id,
@@ -2006,7 +2020,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, branch_contexts_json, resolved_branch_contexts_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -2014,7 +2028,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, branch_contexts_json, resolved_branch_contexts_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -2053,6 +2067,13 @@ export class WorkspaceStore {
     })
   }
 
+  public saveResolvedBranchContexts(id: string, contexts: readonly ResolvedBranchContext[]): GenerationJob {
+    const parsed = contexts.map((context) => resolvedBranchContextSchema.parse(context))
+    const result = this.database.prepare("UPDATE generation_jobs SET resolved_branch_contexts_json = ? WHERE id = ? AND state = 'running'").run(JSON.stringify(parsed), id)
+    if (result.changes !== 1) throw new Error('Generation job is not running.')
+    return this.requireGenerationJob(id)
+  }
+
   /** The design's resumable provider session, or null when none exists yet. */
   public getDesignProviderSession(designId: string, branchId = this.requireDesign(designId).activeBranchId): { readonly providerId: string; readonly sessionId: string } | null {
     const row = this.database.prepare('SELECT provider_session_id, provider_session_provider FROM design_branches WHERE id = ? AND design_id = ?').get(branchId, designId) as { provider_session_id: string | null; provider_session_provider: string | null } | undefined
@@ -2076,9 +2097,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.branchId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, branch_contexts_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.branchId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), JSON.stringify(previous.branchContexts), previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -2108,9 +2129,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
     const continueId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(continueId, previous.designId, previous.branchId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, branch_contexts_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(continueId, previous.designId, previous.branchId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), JSON.stringify(previous.branchContexts), previous.providerSessionId, previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
     return this.requireGenerationJob(continueId)
   }
 
@@ -2263,6 +2284,7 @@ export class WorkspaceStore {
 
   private insertMessage(designId: string, role: Message['role'], text: string, createdAt: string, options: {
     readonly attachments?: readonly Attachment[]
+    readonly branchContexts?: readonly BranchContextReference[]
     readonly focusedTarget?: FocusedTarget | null
     readonly focusedFeedback?: readonly FocusedFeedback[]
     readonly generationJobId?: string | null
@@ -2277,14 +2299,15 @@ export class WorkspaceStore {
     }
     const id = randomUUID()
     const attachments = (options.attachments ?? []).map((attachment) => attachmentSchema.parse(attachment))
+    const branchContexts = this.validateBranchContextReferences(designId, options.branchContexts ?? [])
     const focusedTarget = options.focusedTarget ? focusedTargetSchema.parse(options.focusedTarget) : null
     const focusedFeedback = (options.focusedFeedback ?? []).map((item) => focusedFeedbackSchema.parse(item))
     this.database.prepare(`
       INSERT INTO messages (
-        id, design_id, owner_branch_id, role, text, attachments_json, focused_target_json,
+        id, design_id, owner_branch_id, role, text, attachments_json, branch_contexts_json, focused_target_json,
         focused_feedback_json, generation_job_id, reply_to_message_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, designId, branchId, role, text, JSON.stringify(attachments), focusedTarget ? JSON.stringify(focusedTarget) : null, JSON.stringify(focusedFeedback), options.generationJobId ?? null, options.replyToMessageId ?? null, createdAt)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, designId, branchId, role, text, JSON.stringify(attachments), JSON.stringify(branchContexts), focusedTarget ? JSON.stringify(focusedTarget) : null, JSON.stringify(focusedFeedback), options.generationJobId ?? null, options.replyToMessageId ?? null, createdAt)
     const ordinal = this.database.prepare('SELECT COALESCE(MAX(ordinal), -1) + 1 AS ordinal FROM branch_messages WHERE branch_id = ?').get(branchId) as { ordinal: number }
     this.database.prepare('INSERT INTO branch_messages (branch_id, message_id, ordinal) VALUES (?, ?, ?)').run(branchId, id, ordinal.ordinal)
     return id
@@ -2292,7 +2315,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree, migrationFortyFour, migrationFortyFive]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree, migrationFortyFour, migrationFortyFive, migrationFortySix]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -2314,7 +2337,7 @@ export class WorkspaceStore {
 
   private hydrateDesign(row: DesignRow, branchId = row.active_branch_id): Design {
     const branch = this.database.prepare(`
-      SELECT active_revision_id, selected_revision_id, draft, draft_attachments_json,
+      SELECT active_revision_id, selected_revision_id, draft, draft_attachments_json, draft_branch_contexts_json,
              reply_message_id, separate_branch_mode,
              last_provider_id, last_model_id, last_effort, layout_json, queue_paused,
              provider_session_id, provider_session_provider, entry_page_path, definition_version,
@@ -2323,7 +2346,7 @@ export class WorkspaceStore {
     `).get(branchId, row.id) as unknown as DesignBranchStateRow | undefined
     if (!branch) throw new Error('Design branch not found.')
     const messageRows = this.database.prepare(`
-      SELECT m.id, m.owner_branch_id, m.role, m.text, m.attachments_json, m.focused_target_json,
+      SELECT m.id, m.owner_branch_id, m.role, m.text, m.attachments_json, m.branch_contexts_json, m.focused_target_json,
              m.focused_feedback_json, m.reply_to_message_id, m.created_at
       FROM branch_messages bm JOIN messages m ON m.id = bm.message_id
       WHERE bm.branch_id = ? ORDER BY bm.ordinal
@@ -2364,6 +2387,7 @@ export class WorkspaceStore {
       definitionApplicationError: branch.definition_application_error,
       draft: branch.draft,
       draftAttachments: this.hydrateAttachments(branch.draft_attachments_json),
+      draftBranchContexts: this.hydrateBranchContexts(branch.draft_branch_contexts_json, row.id),
       thumbnailDataUrl: this.readThumbnailDataUrl(branch.active_revision_id ? this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(branch.active_revision_id) as { thumbnail_path: string } | undefined : undefined),
       queuePaused: branch.queue_paused === 1,
       titlePending: row.title_pending === 1,
@@ -2378,7 +2402,7 @@ export class WorkspaceStore {
       },
       generationSteps: this.listGenerationStepsForBranch(branchId),
       layout: layoutSchema.parse(JSON.parse(branch.layout_json)),
-      messages: messageRows.map((message) => ({ id: message.id, ownerBranchId: message.owner_branch_id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), focusedFeedback: this.hydrateFocusedFeedback(message.focused_feedback_json), replyToMessageId: message.reply_to_message_id, createdAt: message.created_at })),
+      messages: messageRows.map((message) => ({ id: message.id, ownerBranchId: message.owner_branch_id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), branchContexts: this.hydrateBranchContexts(message.branch_contexts_json, row.id), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), focusedFeedback: this.hydrateFocusedFeedback(message.focused_feedback_json), replyToMessageId: message.reply_to_message_id, createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
         id: candidate.id,
         prompt: candidate.prompt,
@@ -2551,7 +2575,7 @@ export class WorkspaceStore {
 
   private listGenerationJobsForBranch(branchId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, branch_contexts_json, resolved_branch_contexts_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE branch_id = ? ORDER BY created_at, rowid
     `).all(branchId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -2567,6 +2591,8 @@ export class WorkspaceStore {
       modelId: row.model_id,
       effort: row.effort,
       attachments: this.hydrateAttachments(row.attachments_json),
+      branchContexts: this.hydrateBranchContexts(row.branch_contexts_json, row.design_id),
+      resolvedBranchContexts: this.hydrateResolvedBranchContexts(row.resolved_branch_contexts_json, row.design_id),
       mode: row.mode,
       providerSessionId: row.provider_session_id,
       definitionTargetVersion: row.definition_target_version,
@@ -2597,6 +2623,41 @@ export class WorkspaceStore {
       } catch { attachments.push({ ...attachment, status: 'missing' }) }
     }
     return attachments
+  }
+
+  private hydrateBranchContexts(value: string, designId: string): BranchContextReference[] {
+    const parsed = safeParseJson(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((candidate): BranchContextReference[] => {
+      const result = branchContextReferenceSchema.safeParse(candidate)
+      if (!result.success || result.data.designId !== designId) return []
+      const available = Boolean(this.database.prepare('SELECT 1 FROM design_branches WHERE id = ? AND design_id = ?').get(result.data.branchId, designId))
+      return [{ ...result.data, status: available ? 'available' : 'unavailable' }]
+    })
+  }
+
+  private hydrateResolvedBranchContexts(value: string, designId: string): ResolvedBranchContext[] {
+    const parsed = safeParseJson(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((candidate): ResolvedBranchContext[] => {
+      const result = resolvedBranchContextSchema.safeParse(candidate)
+      if (!result.success || result.data.designId !== designId) return []
+      const available = Boolean(this.database.prepare('SELECT 1 FROM design_branches WHERE id = ? AND design_id = ?').get(result.data.branchId, designId))
+      return [{ ...result.data, status: available ? 'available' : 'unavailable' }]
+    })
+  }
+
+  private validateBranchContextReferences(designId: string, contexts: readonly BranchContextReference[], destinationBranchId?: string): BranchContextReference[] {
+    const seen = new Set<string>()
+    return contexts.map((context) => branchContextReferenceSchema.parse(context)).map((context) => {
+      if (context.designId !== designId) throw new Error('Attached branch does not belong to this design.')
+      if (context.branchId === destinationBranchId) throw new Error('The current branch cannot be attached to itself.')
+      const branch = this.listDesignBranches(designId).find((candidate) => candidate.id === context.branchId)
+      if (!branch) throw new Error(`Attached branch "${context.title}" is unavailable. Remove it before submitting.`)
+      if (seen.has(branch.id)) throw new Error('A branch can be attached only once.')
+      seen.add(branch.id)
+      return { designId, branchId: branch.id, title: branch.title, status: 'available' as const }
+    })
   }
 
   private hydrateFocusedTarget(value: string | null): FocusedTarget | null {

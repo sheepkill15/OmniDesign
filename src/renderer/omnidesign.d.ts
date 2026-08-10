@@ -64,6 +64,7 @@ interface DesignMessage {
   readonly role: 'user' | 'assistant' | 'system'
   readonly text: string
   readonly attachments?: readonly DesignAttachment[]
+  readonly branchContexts?: readonly BranchContextReference[]
   readonly focusedTarget?: FocusedTarget | null
   readonly focusedFeedback?: readonly FocusedFeedback[]
   readonly replyToMessageId?: string | null
@@ -173,6 +174,8 @@ interface GenerationJob {
   readonly modelId: string
   readonly effort?: string | null
   readonly attachments: readonly DesignAttachment[]
+  readonly branchContexts?: readonly BranchContextReference[]
+  readonly resolvedBranchContexts?: readonly ResolvedBranchContext[]
   readonly mode?: 'fresh' | 'continue'
   readonly providerSessionId?: string | null
   readonly definitionTargetVersion?: number | null
@@ -268,6 +271,7 @@ interface OmniDesignDocument {
   readonly definitionApplicationError?: string | null
   readonly draft: string
   readonly draftAttachments: readonly DesignAttachment[]
+  readonly draftBranchContexts: readonly BranchContextReference[]
   readonly thumbnailDataUrl: string | null
   readonly queuePaused: boolean
   readonly titlePending: boolean
@@ -387,6 +391,21 @@ interface DesignAttachment {
   readonly status: 'available' | 'changed' | 'missing'
 }
 
+interface BranchContextReference {
+  readonly designId: string
+  readonly branchId: string
+  readonly title: string
+  readonly status: 'available' | 'unavailable'
+}
+
+interface ResolvedBranchContext extends BranchContextReference {
+  readonly commit: string
+  readonly conversationCutoffMessageId: string | null
+  readonly conversation: string
+  readonly summarized: boolean
+  readonly disclosure: string | null
+}
+
 interface CreateDesignTarget {
   readonly sourceProjectPath?: string | null
   readonly projectId?: string | null
@@ -464,7 +483,7 @@ interface Window {
       renameDesign(designId: string, title: string): Promise<OmniDesignDocument>
       renameProject(projectId: string, name: string): Promise<ProjectSummary>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
-      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null, separateBranch?: boolean, replyMessageId?: string | null): Promise<OmniDesignDocument>
+      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null, separateBranch?: boolean, replyMessageId?: string | null, branchContexts?: readonly BranchContextReference[]): Promise<OmniDesignDocument>
       saveBranchComposerState(designId: string, separateBranchMode: boolean, replyMessageId: string | null): Promise<void>
       listFocusedFeedback(designId: string): Promise<FocusedFeedback[]>
       queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): Promise<FocusedFeedback[]>
@@ -489,7 +508,7 @@ interface Window {
       openCombinationEditor(designId: string, attemptId: string): Promise<void>
       listCombinations(designId: string): Promise<readonly CombinationAttempt[]>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
-      saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
+      saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[], branchContexts?: readonly BranchContextReference[]): Promise<void>
       saveLayout(designId: string, layout: Layout): Promise<void>
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>

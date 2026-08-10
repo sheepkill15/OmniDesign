@@ -58,7 +58,7 @@ export function createFocusedFeedbackBatchPrompt(feedback: readonly FocusedFeedb
 
 const MAX_RESPONSE_LENGTH = 100_000
 
-export function createDesignAgentInstructions(workspacePath: string, attachments: readonly Attachment[] = [], sourceProjectPath: string | null = null, conversationRecap = ''): string {
+export function createDesignAgentInstructions(workspacePath: string, attachments: readonly Attachment[] = [], sourceProjectPath: string | null = null, conversationRecap = '', branchContextInstructions = ''): string {
   if (!path.isAbsolute(workspacePath)) throw new Error('The design workspace path must be absolute.')
   return [
     'You are OmniDesign’s design agent.',
@@ -82,6 +82,7 @@ export function createDesignAgentInstructions(workspacePath: string, attachments
     'Do not claim which files changed or whether a revision was created; OmniDesign determines that from Git and validation.',
     ...(sourceProjectPath ? [`A linked source project is available for READ-ONLY reference at ${sourceProjectPath}. Inspect its relevant source, styles, assets, and configuration before implementing the design so the result adopts its existing design language. Never edit, delete, rename, or create files there.`] : []),
     ...(attachments.length ? ['User-provided references are READ-ONLY. Use them only when relevant; never modify, delete, rename, or copy them into the design repository:', ...attachments.map((attachment) => `- ${attachment.path}${attachment.status === 'available' ? '' : ` (${attachment.status}; ask the user before relying on it)`}`)] : []),
+    ...(branchContextInstructions ? [branchContextInstructions] : []),
     'Everything you write is shown directly to the person you are designing for, who may not be technical. Talk about the design the way a designer would to a client: what it looks like, what changed, how it will feel to use. Use plain, everyday language and keep it short. Do NOT mention code, file names, HTML, CSS, frameworks, Git, commits, tools, or any other technical detail, and do NOT walk through how you built it.',
     'The notes you write while working appear in the conversation as you go, so the user can follow along. When you finish, just end with a brief, friendly closing message. There is no required format — write plain text or Markdown, not JSON or any wrapper — and do not repeat what you already said, or it will appear twice.',
   ].join('\n')

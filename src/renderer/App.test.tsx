@@ -34,6 +34,7 @@ const design: OmniDesignDocument = {
   selectedRevisionId: 'revision-1',
   draft: '',
   draftAttachments: [],
+  draftBranchContexts: [],
   thumbnailDataUrl: null,
   queuePaused: false,
   titlePending: false,
@@ -1516,6 +1517,38 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Read aloud OmniDesign message' }))
     expect(speak).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'The calmer dashboard is ready.' }))
     expect(cancel).toHaveBeenCalledTimes(3)
+  })
+
+  it('attaches several branch contexts, removes one, and submits the remaining product reference', async () => {
+    const firstBranchId = 'branch-2'
+    const secondBranchId = 'branch-3'
+    const branchedDesign: OmniDesignDocument = {
+      ...design,
+      branches: [
+        ...design.branches,
+        { id: firstBranchId, designId: design.id, title: 'Editorial direction', gitRef: `refs/heads/od/${firstBranchId}`, worktreePath: `branches/${firstBranchId}/worktree`, isMain: false, parentBranchId: design.id, forkRevisionId: design.activeRevisionId, forkMessageId: null, activeRevisionId: 'revision-2', selectedRevisionId: 'revision-2', status: 'ready', createdAt: '2026-07-20T10:06:00.000Z' },
+        { id: secondBranchId, designId: design.id, title: 'Compact direction', gitRef: `refs/heads/od/${secondBranchId}`, worktreePath: `branches/${secondBranchId}/worktree`, isMain: false, parentBranchId: design.id, forkRevisionId: design.activeRevisionId, forkMessageId: null, activeRevisionId: 'revision-3', selectedRevisionId: 'revision-3', status: 'ready', createdAt: '2026-07-20T10:07:00.000Z' },
+      ],
+    }
+    const bridge = installBridge([], branchedDesign)
+    render(<App />)
+    const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(initialPrompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(initialPrompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files or folders' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Attach branches…' }))
+    const picker = await screen.findByRole('dialog', { name: 'Attach branch context' })
+    fireEvent.click(within(picker).getByRole('checkbox', { name: /Editorial direction/ }))
+    fireEvent.click(within(picker).getByRole('checkbox', { name: /Compact direction/ }))
+    fireEvent.click(within(picker).getByRole('button', { name: 'Done' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Compact direction branch context' }))
+
+    const prompt = screen.getByRole('textbox', { name: 'Request a design change' })
+    fireEvent.change(prompt, { target: { value: 'Borrow the strongest typography' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith('design-1', 'Borrow the strongest typography', 'mock', 'mock-v1', undefined, [], null, false, null, [{ designId: 'design-1', branchId: firstBranchId, title: 'Editorial direction', status: 'available' }]))
   })
 
   it('compares two branch heads in isolated previews and identifies unmatched pages', async () => {

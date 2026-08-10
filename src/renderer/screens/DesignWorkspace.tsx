@@ -120,6 +120,7 @@ function ConversationMessage({ message, replySource, canReply, speaking, onOpenA
           {replySource && <div className="message-reply-reference"><ArrowUturnLeftIcon aria-hidden="true" /><span><strong>Reply to {replySource.role === 'user' ? 'You' : 'OmniDesign'}</strong>{replySource.text}</span></div>}
           {isUser ? <p>{message.text}</p> : <Markdown text={message.text} />}
           {message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => onOpenAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}
+          {message.branchContexts?.length ? <div className="message-attachments" aria-label="Branch context supplied with this prompt">{message.branchContexts.map((context) => <span className="attachment-chip" data-status={context.status} key={context.branchId}><ShareIcon aria-hidden="true" />{context.title}{context.status === 'unavailable' ? ' (unavailable)' : ''}</span>)}</div> : null}
           {message.focusedTarget && <div className="focused-target-reference">Target · {message.focusedTarget.path}:{message.focusedTarget.startLine}-{message.focusedTarget.endLine} · {message.focusedTarget.label}</div>}
           {message.focusedFeedback?.length ? <div className="focused-feedback-history" aria-label="Submitted focused feedback">{message.focusedFeedback.map((item, index) => <div key={item.id}><strong>{index + 1}. {item.comment}</strong><small>{item.target.path}:{item.target.startLine}-{item.target.endLine} · {item.target.label}</small></div>)}</div> : null}
         </div>
@@ -189,6 +190,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const definitionsVisible = projects.find((project) => project.id === design.projectId)?.kind === 'linked'
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
+  const [branchContexts, setBranchContexts] = useState<readonly BranchContextReference[]>(design.draftBranchContexts)
+  const [branchPickerOpen, setBranchPickerOpen] = useState(false)
   const [associateCloneOpen, setAssociateCloneOpen] = useState(false)
   const [associateCloneUrl, setAssociateCloneUrl] = useState('')
   const [associateCloneDestination, setAssociateCloneDestination] = useState('')
@@ -326,6 +329,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
   }, [design.id])
   useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
+  useEffect(() => setBranchContexts(design.draftBranchContexts), [design.id, design.draftBranchContexts])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
   useEffect(() => setSelection(design.lastSelection), [design.id, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort])
@@ -412,9 +416,9 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
   useEffect(() => {
     if (!api) return
-    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft, attachments).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Your draft could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 300)
+    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft, attachments, branchContexts).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Your draft could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 300)
     return () => window.clearTimeout(timer)
-  }, [api, design.id, draft, attachments])
+  }, [api, design.id, draft, attachments, branchContexts])
   useEffect(() => {
     if (!api) return
     const layout: Layout = { conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage, previewZoom: canvasViewport.zoom, previewPanX: canvasViewport.panX, previewPanY: canvasViewport.panY }
@@ -446,14 +450,19 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     if (!api || !draft.trim() || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection) return
     const prompt = draft.trim()
     const submittedAttachments = attachments
+    const submittedBranchContexts = branchContexts
     setDraft('')
     setAttachments([])
-    void api.saveDraft(design.id, '', [])
-    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, null, separateBranch, replyMessageId), separateBranch ? 'The separate branch could not be created. Your draft has been restored.' : 'The prompt could not be submitted. Your draft has been restored.')
+    setBranchContexts([])
+    void api.saveDraft(design.id, '', [], [])
+    const updated = await runWorkspaceAction(() => submittedBranchContexts.length
+      ? api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, null, separateBranch, replyMessageId, submittedBranchContexts)
+      : api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, null, separateBranch, replyMessageId), separateBranch ? 'The separate branch could not be created. Your draft has been restored.' : 'The prompt could not be submitted. Your draft has been restored.')
     if (updated) { setReplyMessageId(null); onChange(updated) }
     else {
       setDraft(prompt)
       setAttachments(submittedAttachments)
+      setBranchContexts(submittedBranchContexts)
     }
   }
   const toggleSeparateBranch = async () => {
@@ -716,6 +725,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
   const chooseAttachments = async (kind: AttachmentPickerKind) => {
     if (!api) return
+    if (kind === 'branches') { setBranchPickerOpen(true); return }
     const selected = await runWorkspaceAction(() => api.chooseAttachments(kind), 'References could not be attached.')
     if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
   }
@@ -829,8 +839,9 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
+        {branchContexts.length > 0 && <div className="attachment-list" aria-label="Attached branch context">{branchContexts.map((context) => <span className="attachment-chip" data-status={context.status} key={context.branchId}><ShareIcon aria-hidden="true" />{context.title}{context.status === 'unavailable' ? ' (unavailable)' : ''}<Button aria-label={`Remove ${context.title} branch context`} onPress={() => setBranchContexts((current) => current.filter((candidate) => candidate.branchId !== context.branchId))}>×</Button></span>)}</div>}
         {separateBranch && <div className="separate-branch-notice" role="status"><ShareIcon aria-hidden="true" /><span>This change will happen in a separate branch</span><button type="button" className="branch-info-button" aria-label="About separate branches" title="A branch is a separate design direction. Your current branch stays unchanged while OmniDesign explores this prompt in a new one."><InformationCircleIcon aria-hidden="true" /></button></div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><Button className="separate-branch-toggle" aria-pressed={separateBranch} isDisabled={!selectedIsHead} onPress={() => void toggleSeparateBranch()}><ShareIcon aria-hidden="true" />Separate branch</Button><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="submit-prompt" aria-label={separateBranch ? 'Send change in a separate branch' : 'Send change'} isDisabled={!draft.trim() || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        <div className="workspace-composer-footer"><AttachmentPicker placement="top" includeBranches={design.branches.length > 1} onChoose={(kind) => void chooseAttachments(kind)} /><Button className="separate-branch-toggle" aria-pressed={separateBranch} isDisabled={!selectedIsHead} onPress={() => void toggleSeparateBranch()}><ShareIcon aria-hidden="true" />Separate branch</Button><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="submit-prompt" aria-label={separateBranch ? 'Send change in a separate branch' : 'Send change'} isDisabled={!draft.trim() || branchContexts.some((context) => context.status === 'unavailable') || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
         {!hasUsableSelection && providersLoading && !readyProviders.length && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Your draft and design history remain available while provider status refreshes.</small></span></div>}
         {!hasUsableSelection && (!providersLoading || readyProviders.length > 0) && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
@@ -944,6 +955,9 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           </Menu>
         </DropdownButton>
       </section>
+      <AppModal isOpen={branchPickerOpen} onOpenChange={setBranchPickerOpen} className="branch-manager-modal" title="Attach branch context">
+        {(close) => <><p>Select one or more parallel directions. Their latest worktree and conversation will be resolved when this prompt starts.</p><div className="fork-selection-list" role="group" aria-label="Branches to attach">{design.branches.filter((branch) => branch.id !== design.activeBranchId).map((branch) => <label key={branch.id}><input type="checkbox" checked={branchContexts.some((context) => context.branchId === branch.id)} onChange={(event) => setBranchContexts((current) => event.target.checked ? [...current.filter((context) => context.branchId !== branch.id), { designId: design.id, branchId: branch.id, title: branch.title, status: 'available' }] : current.filter((context) => context.branchId !== branch.id))} /><span>{branch.title}<small>{branch.status === 'ready' ? 'Latest state will be used at execution time' : `Currently ${branch.status}`}</small></span></label>)}</div><p className="clone-modal-note">Attached branch worktrees are given to provider-owned tools as instructed reference-only context; the current harness cannot enforce that boundary at the filesystem level.</p><div className="clone-modal-actions"><Button className="clone-confirm-action" onPress={close}>Done</Button></div></>}
+      </AppModal>
       <AppModal isOpen={manageBranchesOpen} onOpenChange={setManageBranchesOpen} className="branch-manager-modal" title="Manage branches">
         {(close) => <>
           <p>Review the persistent directions in this design. Branch names describe the prompt that created them and cannot be edited.</p>

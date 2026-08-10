@@ -16,6 +16,8 @@ export interface DesignAgentRequest extends ProviderPrompt {
   // A recap of the prior conversation, injected into the agent instructions for a fresh session (when
   // the provider's own thread cannot be resumed). Omitted when resuming, since the provider has context.
   readonly conversationRecap?: string
+  readonly referencePaths?: readonly string[]
+  readonly branchContextInstructions?: string
 }
 
 export interface DesignAgentReply extends Omit<ProviderReply, 'text'> {
@@ -80,9 +82,9 @@ export class ProviderService {
       ...(request.signal ? { signal: request.signal } : {}),
       ...(request.effort ? { effort: request.effort } : {}),
       workspacePath: request.workspacePath,
-      ...(request.sourceProjectPath ? { referencePaths: [request.sourceProjectPath] } : {}),
+      ...((request.sourceProjectPath || request.referencePaths?.length) ? { referencePaths: [...(request.sourceProjectPath ? [request.sourceProjectPath] : []), ...(request.referencePaths ?? [])] } : {}),
       ...(request.resumeSessionId ? { resumeSessionId: request.resumeSessionId } : {}),
-      instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath, request.conversationRecap),
+      instructions: createDesignAgentInstructions(request.workspacePath, request.attachments, request.sourceProjectPath, request.conversationRecap, request.branchContextInstructions),
     }, (activity) => onActivity({ requestId: request.requestId, providerId: adapter.id, ...activity }))
     return { providerId: adapter.id, modelId: reply.modelId, response: normalizeAgentReply(reply.text), ...(reply.sessionId ? { sessionId: reply.sessionId } : {}) }
   }

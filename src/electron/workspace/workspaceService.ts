@@ -1,5 +1,5 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, BranchComparison, BranchComparisonSummary, CombinationAttempt, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, BranchComparison, BranchComparisonSummary, BranchContextReference, CombinationAttempt, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, ResolvedBranchContext, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
@@ -431,6 +431,32 @@ export class WorkspaceService {
     })
   }
 
+  public resolveBranchContextsForGeneration(designId: string, destinationBranchId: string, references: readonly BranchContextReference[]): { readonly contexts: ResolvedBranchContext[]; readonly referencePaths: string[] } {
+    const contexts: ResolvedBranchContext[] = []
+    const referencePaths: string[] = []
+    for (const reference of references) {
+      if (reference.designId !== designId || reference.branchId === destinationBranchId) throw new Error('An attached branch reference is invalid for this prompt.')
+      const branch = this.store.listDesignBranches(designId).find((candidate) => candidate.id === reference.branchId)
+      const branchDesign = branch ? this.store.getDesignAtBranch(designId, branch.id) : null
+      const head = branchDesign?.revisions.find((revision) => revision.id === branch?.activeRevisionId)
+      if (!branch || !branchDesign || !head?.gitCommit) throw new Error(`Attached branch "${reference.title}" is unavailable. Remove the reference or cancel this prompt.`)
+      const messages = branchDesign.messages.filter((message) => message.ownerBranchId === branch.id)
+      contexts.push({
+        designId,
+        branchId: branch.id,
+        title: branch.title,
+        status: 'available',
+        commit: head.gitCommit,
+        conversationCutoffMessageId: messages.at(-1)?.id ?? null,
+        conversation: messages.map((message) => `${message.role}: ${message.text}`).join('\n'),
+        summarized: false,
+        disclosure: null,
+      })
+      referencePaths.push(this.repositories.getWorkingPath(designId, branch.id))
+    }
+    return { contexts, referencePaths }
+  }
+
   public startCombination(designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: GenerationSelection): { readonly attempt: CombinationAttempt; readonly sourcePath: string; readonly destinationPath: string; readonly conversationContext: string } {
     const source = this.store.getDesignAtBranch(designId, sourceBranchId)
     const destination = this.store.getDesignAtBranch(designId, destinationBranchId)
@@ -580,8 +606,8 @@ export class WorkspaceService {
     }
   }
 
-  public saveDraft(designId: string, draft: string, attachments: readonly import('./contracts.js').Attachment[] = []): void {
-    this.store.saveDraft(designId, draft, attachments)
+  public saveDraft(designId: string, draft: string, attachments: readonly import('./contracts.js').Attachment[] = [], branchContexts: readonly import('./contracts.js').BranchContextReference[] = []): void {
+    this.store.saveDraft(designId, draft, attachments, branchContexts)
   }
 
   public recordAgentResponse(designId: string, response: string): Design {

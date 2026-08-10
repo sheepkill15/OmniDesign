@@ -194,6 +194,21 @@ export const attachmentSchema = z.object({
   status: z.enum(['available', 'changed', 'missing']),
 })
 
+export const branchContextReferenceSchema = z.object({
+  designId: z.string().min(1).max(100),
+  branchId: z.string().min(1).max(100),
+  title: z.string().min(1).max(200),
+  status: z.enum(['available', 'unavailable']).default('available'),
+})
+
+export const resolvedBranchContextSchema = branchContextReferenceSchema.extend({
+  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  conversationCutoffMessageId: z.string().min(1).max(100).nullable(),
+  conversation: z.string(),
+  summarized: z.boolean(),
+  disclosure: z.string().nullable(),
+})
+
 const repositoryRelativeHtmlPathSchema = z.string().min(1).max(2_000).refine((value) => !value.startsWith('/') && !value.includes('\\') && !value.split('/').includes('..') && /\.html?$/i.test(value), 'Use a repository-relative HTML path.')
 
 export const focusedTargetSchema = z.object({
@@ -242,6 +257,7 @@ export const messageSchema = z.object({
   role: z.enum(['user', 'assistant', 'system']),
   text: z.string(),
   attachments: z.array(attachmentSchema).default([]),
+  branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
   focusedTarget: focusedTargetSchema.nullable().default(null),
   focusedFeedback: z.array(focusedFeedbackSchema).max(50).optional(),
   replyToMessageId: z.string().min(1).max(100).nullable().default(null),
@@ -366,6 +382,8 @@ export const generationJobSchema = z.object({
   modelId: z.string().min(1),
   effort: z.string().min(1).nullable().optional(),
   attachments: z.array(attachmentSchema).default([]),
+  branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
+  resolvedBranchContexts: z.array(resolvedBranchContextSchema).max(20).default([]),
   mode: generationJobModeSchema.default('fresh'),
   providerSessionId: z.string().min(1).nullable().default(null),
   definitionTargetVersion: z.number().int().positive().nullable().default(null),
@@ -399,6 +417,7 @@ export const designSchema = z.object({
   definitionApplicationError: z.string().nullable().optional(),
   draft: z.string(),
   draftAttachments: z.array(attachmentSchema),
+  draftBranchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
   thumbnailDataUrl: z.string().nullable(),
   queuePaused: z.boolean(),
   titlePending: z.boolean().default(false),
@@ -472,6 +491,7 @@ export const generateRequestSchema = designIdRequestSchema.extend({
   modelId: z.string().trim().min(1).max(200).default('mock-v1'),
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   attachments: z.array(attachmentSchema).max(100).default([]),
+  branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
   focusedTarget: focusedTargetSchema.nullable().optional(),
   separateBranch: z.boolean().default(false),
   replyMessageId: z.string().min(1).max(100).nullable().default(null),
@@ -582,6 +602,7 @@ export const compareDesignBranchesRequestSchema = designIdRequestSchema.extend({
 export const saveDraftRequestSchema = designIdRequestSchema.extend({
   draft: z.string().max(100_000),
   attachments: z.array(attachmentSchema).max(100).default([]),
+  branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
 })
 
 export const combineDesignBranchesRequestSchema = compareDesignBranchesRequestSchema.extend({
@@ -698,6 +719,8 @@ export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>
 export type DesignBranch = z.infer<typeof designBranchSchema>
 export type Attachment = z.infer<typeof attachmentSchema>
+export type BranchContextReference = z.infer<typeof branchContextReferenceSchema>
+export type ResolvedBranchContext = z.infer<typeof resolvedBranchContextSchema>
 export type FocusedTarget = z.infer<typeof focusedTargetSchema>
 export type FocusedFeedback = z.infer<typeof focusedFeedbackSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }

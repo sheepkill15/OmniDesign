@@ -372,7 +372,7 @@ function registerIpc(): void {
       if (requireWorkspace().getDesign(request.designId)?.activeBranchId !== source.activeBranchId) requireWorkspace().switchDesignBranch(request.designId, source.activeBranchId)
       const branched = requireWorkspace().createDesignBranch(request.designId, titles[index]!, baseRevision?.id ?? null, message.id)
       requireWorkspace().rememberSelection(request.designId, selection)
-      requireGenerationQueue().enqueue(request.designId, message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [], null, message.focusedTarget ?? null, message.focusedFeedback ?? [], message.replyToMessageId ?? null)
+      requireGenerationQueue().enqueue(request.designId, message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [], null, message.focusedTarget ?? null, message.focusedFeedback ?? [], message.replyToMessageId ?? null, message.branchContexts ?? [])
       results.push(requireWorkspace().getDesign(request.designId) ?? branched)
     }
     return results
@@ -656,11 +656,11 @@ function registerIpc(): void {
       const branched = requireWorkspace().createDesignBranch(request.designId, title)
       requireWorkspaceStore().saveBranchComposerState(request.designId, false, null, source.activeBranchId)
       requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
-      requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, null, [], request.replyMessageId)
+      requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, null, [], request.replyMessageId, request.branchContexts)
       return requireWorkspace().getDesign(request.designId) ?? branched
     }
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
-    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null, [], request.replyMessageId)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null, [], request.replyMessageId, request.branchContexts)
     requireWorkspaceStore().saveBranchComposerState(request.designId, false, null)
     return requireWorkspace().getDesign(request.designId)
   })
@@ -859,7 +859,7 @@ function registerIpc(): void {
   ipcMain.handle('workspace:save-draft', (event, value: unknown) => {
     authorize(event)
     const request = saveDraftRequestSchema.parse(value)
-    requireWorkspace().saveDraft(request.designId, request.draft, request.attachments)
+    requireWorkspace().saveDraft(request.designId, request.draft, request.attachments, request.branchContexts)
   })
   ipcMain.handle('workspace:save-layout', (event, value: unknown) => {
     authorize(event)
@@ -1016,6 +1016,37 @@ void app.whenReady().then(() => {
       // Make sure the repository is at the head of the main timeline before generating, in case the
       // user was viewing (and had checked out) an earlier revision.
       if (job.mode === 'fresh') requireWorkspace().prepareGenerationWorkspace(job.designId, job.branchId)
+      const branchContextResolution = requireWorkspace().resolveBranchContextsForGeneration(job.designId, job.branchId, job.branchContexts)
+      const resolvedBranchContexts = [] as import('../workspace/contracts.js').ResolvedBranchContext[]
+      for (const context of branchContextResolution.contexts) {
+        if (context.conversation.length <= 30_000) { resolvedBranchContexts.push(context); continue }
+        if (job.providerId === 'mock') {
+          resolvedBranchContexts.push({ ...context, conversation: context.conversation.slice(-30_000), summarized: true, disclosure: 'The development provider retained the most recent 30,000 characters of this oversized branch conversation.' })
+          continue
+        }
+        const summary = await providers.runAnalysisAgent({
+          requestId: `${job.id}-branch-context-${context.branchId}`,
+          providerId: job.providerId,
+          modelId: job.modelId,
+          ...(job.effort ? { effort: job.effort } : {}),
+          prompt: `Summarize this branch conversation while preserving design decisions, requested changes, unresolved constraints, and the latest direction:\n\n${context.conversation}`,
+          workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId, job.branchId),
+          referencePaths: [requireWorkspace().getDesignRepositoryPath(job.designId, context.branchId)],
+          readOnly: true,
+          instructions: 'This is read-only context preparation. Do not create, edit, delete, or commit files. Return only the faithful conversation summary.',
+          signal,
+        }, (activity) => onActivity({ designId: job.designId, stage: 'generating', detail: activity.detail ?? activity.label }))
+        resolvedBranchContexts.push({ ...context, conversation: summary.text.trim(), summarized: true, disclosure: `AI-generated summary of ${context.title} through message ${context.conversationCutoffMessageId ?? 'at divergence'}.` })
+      }
+      store.saveResolvedBranchContexts(job.id, resolvedBranchContexts)
+      const branchContextInstructions = resolvedBranchContexts.length ? [
+        'The user explicitly attached these parallel design branches as reference context. Their worktrees are reference material only: never edit, delete, rename, create, or commit files there. The provider-owned harness does not technically enforce this boundary, so follow it exactly.',
+        ...resolvedBranchContexts.flatMap((context, index) => [
+          `Reference ${index + 1}: ${context.title} at captured commit ${context.commit}; path ${branchContextResolution.referencePaths[index]}.`,
+          ...(context.disclosure ? [`Disclosure: ${context.disclosure}`] : []),
+          `Conversation through ${context.conversationCutoffMessageId ?? 'the divergence point'}:\n${context.conversation}`,
+        ]),
+      ].join('\n\n') : ''
       if (job.providerId === 'mock') {
         await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3, undefined, job.branchId)
         return
@@ -1073,6 +1104,8 @@ void app.whenReady().then(() => {
           signal,
           workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId, job.branchId),
           attachments: job.attachments,
+          referencePaths: branchContextResolution.referencePaths,
+          branchContextInstructions,
           sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
           ...(providerSessionId ? { resumeSessionId: providerSessionId } : {}),
           ...(conversationRecap ? { conversationRecap } : {}),

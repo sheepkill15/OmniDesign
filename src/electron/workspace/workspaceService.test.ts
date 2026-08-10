@@ -111,6 +111,31 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it('resolves attached branch context from the latest execution-time head and records the evidence', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const alternativeId = alternative.activeBranchId
+    await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+    const reference = { designId: main.id, branchId: alternativeId, title: 'Warmer direction', status: 'available' as const }
+    const job = store.enqueueGenerationJob(main.id, 'Borrow the strongest visual ideas', 'mock', 'mock-v1', null, [], 'fresh', null, null, [], null, [reference])
+    service.switchDesignBranch(main.id, alternativeId)
+    const latestAlternative = await service.generate(main.id, 'Increase the visual warmth', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+
+    store.setGenerationJobState(job.id, 'running')
+    const resolved = service.resolveBranchContextsForGeneration(main.id, main.id, job.branchContexts)
+    expect(resolved.contexts[0]).toMatchObject({ branchId: alternativeId, commit: latestAlternative.revisions.at(-1)?.gitCommit, conversationCutoffMessageId: expect.any(String), summarized: false })
+    store.saveResolvedBranchContexts(job.id, resolved.contexts)
+    expect(store.getGenerationJob(job.id)?.resolvedBranchContexts).toEqual(resolved.contexts)
+    store.setGenerationJobState(job.id, 'completed')
+    store.close()
+  })
+
   it('locks two branches and records a validated two-parent destination combination', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)
