@@ -201,7 +201,7 @@ export function App() {
   useEffect(() => {
     if (definitionsProject || definitionPromptProject || definitionSetupChooserProject) return
     const project = activeDesign ? projects.find((candidate) => candidate.id === activeDesign.projectId) : activeProject
-    if (!project || project.currentDefinitionVersion !== null || project.definitionPromptSuppressed || definitionPromptsSeen.current.has(project.id)) return
+    if (!project || project.kind === 'standalone' || project.currentDefinitionVersion !== null || project.definitionPromptSuppressed || definitionPromptsSeen.current.has(project.id)) return
     const hasEngagedWithFirstResult = !activeDesign
       || activeDesign.revisions.length > 1
       || activeDesign.messages.filter((message) => message.role === 'user').length > 1

@@ -65,12 +65,22 @@ const engagedDesign: OmniDesignDocument = {
   ],
 }
 
+const linkedDesign: OmniDesignDocument = {
+  ...design,
+  sourceProjectPath: 'C:\\Projects\\Calm',
+}
+
+const linkedEngagedDesign: OmniDesignDocument = {
+  ...engagedDesign,
+  sourceProjectPath: 'C:\\Projects\\Calm',
+}
+
 function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
   return {
     id: candidate.projectId,
     name: candidate.projectName,
-    kind: 'standalone',
-    sourceProjectPath: null,
+    kind: candidate.sourceProjectPath ? 'linked' : 'standalone',
+    sourceProjectPath: candidate.sourceProjectPath,
     sourceAvailable: true,
     designCount: 1,
     createdAt: candidate.createdAt,
@@ -874,14 +884,14 @@ describe('Phase 1 walking skeleton UI', () => {
 
     expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: /Set up design definitions/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Definitions' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Definitions' })).not.toBeInTheDocument()
   })
 
   it('offers design-definition setup after the user has iterated and can hide the prompt permanently', async () => {
-    const bridge = installBridge([engagedDesign], engagedDesign)
-    const project = { ...projectFromDesign(engagedDesign), currentDefinitionVersion: null }
+    const bridge = installBridge([linkedEngagedDesign], linkedEngagedDesign)
+    const project = { ...projectFromDesign(linkedEngagedDesign), currentDefinitionVersion: null }
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(engagedDesign.id)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedEngagedDesign.id)
     render(<App />)
 
     const dialog = await screen.findByRole('dialog', { name: 'Set up design definitions for Calm dashboard?' })
@@ -895,10 +905,10 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('offers proposal, manual, and continue setup paths and starts the chosen proposal for review', async () => {
-    const bridge = installBridge([engagedDesign], engagedDesign)
-    const project = { ...projectFromDesign(engagedDesign), currentDefinitionVersion: null }
+    const bridge = installBridge([linkedEngagedDesign], linkedEngagedDesign)
+    const project = { ...projectFromDesign(linkedEngagedDesign), currentDefinitionVersion: null }
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(engagedDesign.id)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedEngagedDesign.id)
     vi.mocked(bridge.settings.getTheme).mockResolvedValue('light')
     render(<App />)
 
@@ -921,8 +931,8 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('edits and saves structured project definitions from a design workspace', async () => {
-    const bridge = installBridge([design], design)
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    const bridge = installBridge([linkedDesign], linkedDesign)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedDesign.id)
     vi.mocked(bridge.workspace.getProjectDesignDefinitions).mockResolvedValue({ current: null, promptSuppressed: false })
     render(<App />)
 
@@ -945,8 +955,8 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('shows field-level recovery for duplicate names and unsafe CSS values before saving definitions', async () => {
-    const bridge = installBridge([design], design)
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    const bridge = installBridge([linkedDesign], linkedDesign)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedDesign.id)
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
@@ -971,8 +981,8 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('loads an AI-generated definition proposal for review without saving it', async () => {
-    const bridge = installBridge([design], design)
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    const bridge = installBridge([linkedDesign], linkedDesign)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedDesign.id)
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
@@ -985,7 +995,7 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('persists a per-design definition decision and offers applying the version to all designs', async () => {
-    const pending = { ...design, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
+    const pending = { ...linkedDesign, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
     const bridge = installBridge([pending], pending)
     vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(pending.id)
     render(<App />)
@@ -998,7 +1008,7 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('reports recoverable partial apply-to-all results without hiding successful designs', async () => {
-    const pending = { ...design, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
+    const pending = { ...linkedDesign, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
     const sibling = { ...pending, id: 'design-2', title: 'Settings' }
     const bridge = installBridge([pending, sibling], pending)
     vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(pending.id)
@@ -1474,6 +1484,36 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('dialog', { name: 'Fork prompt' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Fork into 1 branch' }))
     await waitFor(() => expect(bridge.workspace.forkMessage).toHaveBeenCalledWith('design-1', 'message-1', [{ providerId: 'mock', modelId: 'mock-v1', effort: null }]))
+  })
+
+  it('reads user and assistant messages aloud and lets the user stop playback', async () => {
+    const speak = vi.fn()
+    const cancel = vi.fn()
+    class Utterance {
+      readonly text: string
+      onend: (() => void) | null = null
+      onerror: (() => void) | null = null
+      constructor(text: string) { this.text = text }
+    }
+    Object.defineProperty(window, 'speechSynthesis', { value: { speak, cancel }, configurable: true })
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', { value: Utterance, configurable: true })
+    const spokenDesign = {
+      ...design,
+      messages: [
+        design.messages[0]!,
+        { id: 'message-2', ownerBranchId: 'design-1', role: 'assistant' as const, text: 'The calmer dashboard is ready.', replyToMessageId: null, createdAt: '2026-07-20T10:01:00.000Z' },
+      ],
+    }
+    const bridge = installBridge([spokenDesign], spokenDesign)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(spokenDesign.id)
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Read aloud your message' }))
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'A calm dashboard' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop reading your message' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Read aloud OmniDesign message' }))
+    expect(speak).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'The calmer dashboard is ready.' }))
+    expect(cancel).toHaveBeenCalledTimes(3)
   })
 
   it('compares two branch heads in isolated previews and identifies unmatched pages', async () => {

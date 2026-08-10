@@ -20,6 +20,7 @@ import {
   ArrowUturnLeftIcon,
   QueueListIcon,
   ShareIcon,
+  SpeakerWaveIcon,
   SparklesIcon,
   Squares2X2Icon,
   StopIcon,
@@ -98,7 +99,7 @@ function buildConversationFeed(design: OmniDesignDocument, detail: 'full' | 'con
 // One conversational turn. The user's prompt reads as a trailing-aligned bubble; OmniDesign's reply
 // reads as an avatar-led narrative, so the two sides of the exchange are distinguishable at a glance
 // without wrapping every generation event in a card.
-function ConversationMessage({ message, replySource, canReply, onOpenAttachment, onReply, onCopy, onFork }: { readonly message: DesignMessage; readonly replySource: DesignMessage | null; readonly canReply: boolean; readonly onOpenAttachment: (attachment: DesignAttachment) => void; readonly onReply: (message: DesignMessage) => void; readonly onCopy: (message: DesignMessage) => void; readonly onFork: (message: DesignMessage) => void }) {
+function ConversationMessage({ message, replySource, canReply, speaking, onOpenAttachment, onReply, onCopy, onRead, onFork }: { readonly message: DesignMessage; readonly replySource: DesignMessage | null; readonly canReply: boolean; readonly speaking: boolean; readonly onOpenAttachment: (attachment: DesignAttachment) => void; readonly onReply: (message: DesignMessage) => void; readonly onCopy: (message: DesignMessage) => void; readonly onRead: (message: DesignMessage) => void; readonly onFork: (message: DesignMessage) => void }) {
   // System notices from OmniDesign itself read as a quiet inline note — visibly distinct from both the
   // user's prompt bubble and the design agent's reply, so it is clear the app is speaking, not the agent.
   if (message.role === 'system') {
@@ -122,7 +123,7 @@ function ConversationMessage({ message, replySource, canReply, onOpenAttachment,
           {message.focusedTarget && <div className="focused-target-reference">Target · {message.focusedTarget.path}:{message.focusedTarget.startLine}-{message.focusedTarget.endLine} · {message.focusedTarget.label}</div>}
           {message.focusedFeedback?.length ? <div className="focused-feedback-history" aria-label="Submitted focused feedback">{message.focusedFeedback.map((item, index) => <div key={item.id}><strong>{index + 1}. {item.comment}</strong><small>{item.target.path}:{item.target.startLine}-{item.target.endLine} · {item.target.label}</small></div>)}</div> : null}
         </div>
-        <div className="message-quick-actions"><Button aria-label={`Reply to ${isUser ? 'your message' : 'OmniDesign message'}`} isDisabled={!canReply} onPress={() => onReply(message)}><ArrowUturnLeftIcon aria-hidden="true" />Reply</Button><Button aria-label={`Copy ${isUser ? 'your message' : 'OmniDesign message'}`} onPress={() => onCopy(message)}><ClipboardDocumentIcon aria-hidden="true" />Copy</Button>{isUser && <Button aria-label="Fork this prompt" onPress={() => onFork(message)}><ShareIcon aria-hidden="true" />Fork</Button>}</div>
+        <div className="message-quick-actions"><Button aria-label={`Reply to ${isUser ? 'your message' : 'OmniDesign message'}`} isDisabled={!canReply} onPress={() => onReply(message)}><ArrowUturnLeftIcon aria-hidden="true" />Reply</Button><Button aria-label={`Copy ${isUser ? 'your message' : 'OmniDesign message'}`} onPress={() => onCopy(message)}><ClipboardDocumentIcon aria-hidden="true" />Copy</Button><Button aria-label={`${speaking ? 'Stop reading' : 'Read aloud'} ${isUser ? 'your message' : 'OmniDesign message'}`} onPress={() => onRead(message)}>{speaking ? <StopIcon aria-hidden="true" /> : <SpeakerWaveIcon aria-hidden="true" />}{speaking ? 'Stop' : 'Read aloud'}</Button>{isUser && <Button aria-label="Fork this prompt" onPress={() => onFork(message)}><ShareIcon aria-hidden="true" />Fork</Button>}</div>
       </div>
     </article>
   )
@@ -185,6 +186,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   readonly onOpenProviders: () => void
   readonly onOpenDefinitions: () => void
 }) {
+  const definitionsVisible = projects.find((project) => project.id === design.projectId)?.kind === 'linked'
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
   const [associateCloneOpen, setAssociateCloneOpen] = useState(false)
@@ -233,6 +235,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [combinationPreview, setCombinationPreview] = useState<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>(null)
   const [combiningBranches, setCombiningBranches] = useState(false)
   const [completedCombination, setCompletedCombination] = useState<CombinationAttempt | null>(null)
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -317,6 +320,9 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
+  useEffect(() => () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+  }, [design.id])
   useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
@@ -473,6 +479,22 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const copyMessage = async (message: DesignMessage) => {
     const copied = await runWorkspaceAction(async () => { await navigator.clipboard.writeText(message.text); return true }, 'The message could not be copied.')
     if (copied) setFeedback({ tone: 'success', message: 'Message copied.' })
+  }
+  const readMessage = (message: DesignMessage) => {
+    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+      setFeedback({ tone: 'error', message: 'Read aloud is unavailable on this device.' })
+      return
+    }
+    window.speechSynthesis.cancel()
+    if (speakingMessageId === message.id) {
+      setSpeakingMessageId(null)
+      return
+    }
+    const utterance = new SpeechSynthesisUtterance(message.text)
+    utterance.onend = () => setSpeakingMessageId((current) => current === message.id ? null : current)
+    utterance.onerror = () => setSpeakingMessageId((current) => current === message.id ? null : current)
+    setSpeakingMessageId(message.id)
+    window.speechSynthesis.speak(utterance)
   }
   const openFork = (message: DesignMessage) => {
     setForkTarget(message)
@@ -760,7 +782,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
         {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
-          ? <ConversationMessage key={item.message.id} message={item.message} replySource={item.message.replyToMessageId ? design.messages.find((candidate) => candidate.id === item.message.replyToMessageId) ?? null : null} canReply={selectedIsHead} onOpenAttachment={(attachment) => void openAttachment(attachment)} onReply={(message) => void chooseReply(message)} onCopy={(message) => void copyMessage(message)} onFork={openFork} />
+          ? <ConversationMessage key={item.message.id} message={item.message} replySource={item.message.replyToMessageId ? design.messages.find((candidate) => candidate.id === item.message.replyToMessageId) ?? null : null} canReply={selectedIsHead} speaking={speakingMessageId === item.message.id} onOpenAttachment={(attachment) => void openAttachment(attachment)} onReply={(message) => void chooseReply(message)} onCopy={(message) => void copyMessage(message)} onRead={readMessage} onFork={openFork} />
           : item.kind === 'activity'
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
@@ -780,7 +802,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         </section>}
         {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
         {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
-        {design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
+        {definitionsVisible && design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
       </div>
       {focusedFeedbackQueue.length > 0 && <section className="focused-feedback-queue" aria-label="Focused feedback queue">
         <header><span><QueueListIcon aria-hidden="true" /><span><strong>{focusedFeedbackQueue.length} focused note{focusedFeedbackQueue.length === 1 ? '' : 's'} queued</strong><small>Review them on the preview, then fix them together.</small></span></span><Button className="primary-action" isDisabled={busy || !selectedIsHead || !hasUsableSelection || !previewToken} onPress={() => void submitFocusedFeedbackBatch()}><WrenchScrewdriverIcon aria-hidden="true" />Fix all</Button></header>
@@ -890,7 +912,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
           <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
-          <Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button>
+          {definitionsVisible && <Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button>}
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
