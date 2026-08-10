@@ -35,6 +35,7 @@ interface ProviderActivity {
 
 interface DesignRevision {
   readonly id: string
+  readonly ownerBranchId?: string | null
   readonly parentRevisionId: string | null
   readonly prompt: string
   readonly providerId: string
@@ -59,11 +60,13 @@ interface PreviewDiagnostic {
 
 interface DesignMessage {
   readonly id: string
+  readonly ownerBranchId?: string | null
   readonly role: 'user' | 'assistant' | 'system'
   readonly text: string
   readonly attachments?: readonly DesignAttachment[]
   readonly focusedTarget?: FocusedTarget | null
   readonly focusedFeedback?: readonly FocusedFeedback[]
+  readonly replyToMessageId?: string | null
   readonly createdAt: string
 }
 
@@ -164,6 +167,7 @@ interface GenerationStep {
 interface GenerationJob {
   readonly id: string
   readonly designId: string
+  readonly branchId?: string
   readonly prompt: string
   readonly providerId: 'mock' | 'codex' | 'claude'
   readonly modelId: string
@@ -405,6 +409,9 @@ interface Window {
       restoreTrash(kind: 'project' | 'design', id: string): Promise<ProjectSummary | OmniDesignDocument>
       purgeTrash(kind: 'project' | 'design', id: string): Promise<void>
       get(designId: string): Promise<OmniDesignDocument | null>
+      createBranch(designId: string, title: string, baseRevisionId?: string | null, forkMessageId?: string | null): Promise<OmniDesignDocument>
+      switchBranch(designId: string, branchId: string): Promise<OmniDesignDocument>
+      removeBranch(designId: string, branchId: string, force?: boolean): Promise<readonly DesignBranch[]>
       renameDesign(designId: string, title: string): Promise<OmniDesignDocument>
       renameProject(projectId: string, name: string): Promise<ProjectSummary>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>

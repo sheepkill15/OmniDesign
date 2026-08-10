@@ -66,6 +66,26 @@ interface DesignBranchRow {
   created_at: string
 }
 
+interface DesignBranchStateRow {
+  active_revision_id: string | null
+  selected_revision_id: string | null
+  draft: string
+  draft_attachments_json: string
+  last_provider_id: string
+  last_model_id: string
+  last_effort: string | null
+  layout_json: string
+  queue_paused: number
+  provider_session_id: string | null
+  provider_session_provider: string | null
+  entry_page_path: string | null
+  definition_version: number | null
+  pending_definition_version: number | null
+  kept_definition_version: number | null
+  definition_application_state: DesignRow['definition_application_state']
+  definition_application_error: string | null
+}
+
 interface DesignPageRow {
   path: string
   title: string | null
@@ -162,6 +182,7 @@ interface GenerationStepRow {
 
 interface RevisionRow {
   id: string
+  owner_branch_id: string
   parent_revision_id: string | null
   prompt: string
   provider_id: string
@@ -175,11 +196,13 @@ interface RevisionRow {
 
 interface MessageRow {
   id: string
+  owner_branch_id: string
   role: Message['role']
   text: string
   attachments_json: string
   focused_target_json: string | null
   focused_feedback_json: string
+  reply_to_message_id: string | null
   created_at: string
 }
 
@@ -204,6 +227,7 @@ interface InvalidCandidateRow {
 interface GenerationJobRow {
   id: string
   design_id: string
+  branch_id: string
   prompt: string
   provider_id: 'mock' | 'codex' | 'claude'
   model_id: string
@@ -659,6 +683,72 @@ FROM designs;
 UPDATE designs SET active_branch_id = id;
 `
 
+const migrationFortyThree = `
+ALTER TABLE design_branches ADD COLUMN draft TEXT NOT NULL DEFAULT '';
+ALTER TABLE design_branches ADD COLUMN draft_attachments_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE design_branches ADD COLUMN reply_message_id TEXT REFERENCES messages(id);
+ALTER TABLE design_branches ADD COLUMN separate_branch_mode INTEGER NOT NULL DEFAULT 0 CHECK (separate_branch_mode IN (0, 1));
+ALTER TABLE design_branches ADD COLUMN last_provider_id TEXT NOT NULL DEFAULT 'mock';
+ALTER TABLE design_branches ADD COLUMN last_model_id TEXT NOT NULL DEFAULT 'mock-v1';
+ALTER TABLE design_branches ADD COLUMN last_effort TEXT;
+ALTER TABLE design_branches ADD COLUMN layout_json TEXT NOT NULL DEFAULT '{"conversationWidth":43}';
+ALTER TABLE design_branches ADD COLUMN queue_paused INTEGER NOT NULL DEFAULT 0 CHECK (queue_paused IN (0, 1));
+ALTER TABLE design_branches ADD COLUMN provider_session_id TEXT;
+ALTER TABLE design_branches ADD COLUMN provider_session_provider TEXT;
+ALTER TABLE design_branches ADD COLUMN entry_page_path TEXT;
+ALTER TABLE design_branches ADD COLUMN definition_version INTEGER CHECK (definition_version IS NULL OR definition_version > 0);
+ALTER TABLE design_branches ADD COLUMN pending_definition_version INTEGER CHECK (pending_definition_version IS NULL OR pending_definition_version > 0);
+ALTER TABLE design_branches ADD COLUMN kept_definition_version INTEGER CHECK (kept_definition_version IS NULL OR kept_definition_version > 0);
+ALTER TABLE design_branches ADD COLUMN definition_application_state TEXT NOT NULL DEFAULT 'current' CHECK (definition_application_state IN ('current', 'pending', 'applying', 'kept', 'failed', 'unavailable'));
+ALTER TABLE design_branches ADD COLUMN definition_application_error TEXT;
+UPDATE design_branches SET
+  draft = (SELECT draft FROM designs WHERE designs.id = design_branches.design_id),
+  draft_attachments_json = (SELECT draft_attachments_json FROM designs WHERE designs.id = design_branches.design_id),
+  last_provider_id = (SELECT last_provider_id FROM designs WHERE designs.id = design_branches.design_id),
+  last_model_id = (SELECT last_model_id FROM designs WHERE designs.id = design_branches.design_id),
+  last_effort = (SELECT last_effort FROM designs WHERE designs.id = design_branches.design_id),
+  layout_json = (SELECT layout_json FROM designs WHERE designs.id = design_branches.design_id),
+  queue_paused = (SELECT queue_paused FROM designs WHERE designs.id = design_branches.design_id),
+  provider_session_id = (SELECT provider_session_id FROM designs WHERE designs.id = design_branches.design_id),
+  provider_session_provider = (SELECT provider_session_provider FROM designs WHERE designs.id = design_branches.design_id),
+  entry_page_path = (SELECT entry_page_path FROM designs WHERE designs.id = design_branches.design_id),
+  definition_version = (SELECT definition_version FROM designs WHERE designs.id = design_branches.design_id),
+  pending_definition_version = (SELECT pending_definition_version FROM designs WHERE designs.id = design_branches.design_id),
+  kept_definition_version = (SELECT kept_definition_version FROM designs WHERE designs.id = design_branches.design_id),
+  definition_application_state = (SELECT definition_application_state FROM designs WHERE designs.id = design_branches.design_id),
+  definition_application_error = (SELECT definition_application_error FROM designs WHERE designs.id = design_branches.design_id);
+
+ALTER TABLE revisions ADD COLUMN owner_branch_id TEXT REFERENCES design_branches(id);
+UPDATE revisions SET owner_branch_id = design_id;
+ALTER TABLE messages ADD COLUMN owner_branch_id TEXT REFERENCES design_branches(id);
+ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT REFERENCES messages(id);
+UPDATE messages SET owner_branch_id = design_id;
+CREATE TABLE branch_messages (
+  branch_id TEXT NOT NULL REFERENCES design_branches(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  PRIMARY KEY (branch_id, message_id),
+  UNIQUE (branch_id, ordinal)
+) STRICT;
+INSERT INTO branch_messages (branch_id, message_id, ordinal)
+SELECT design_id, id, ROW_NUMBER() OVER (PARTITION BY design_id ORDER BY created_at, rowid) - 1 FROM messages;
+ALTER TABLE generation_jobs ADD COLUMN branch_id TEXT REFERENCES design_branches(id);
+UPDATE generation_jobs SET branch_id = design_id;
+ALTER TABLE generation_steps ADD COLUMN branch_id TEXT REFERENCES design_branches(id);
+UPDATE generation_steps SET branch_id = design_id;
+ALTER TABLE invalid_candidates ADD COLUMN branch_id TEXT REFERENCES design_branches(id);
+UPDATE invalid_candidates SET branch_id = design_id;
+ALTER TABLE focused_feedback_queue ADD COLUMN branch_id TEXT REFERENCES design_branches(id);
+UPDATE focused_feedback_queue SET branch_id = design_id;
+ALTER TABLE project_definition_application_attempts ADD COLUMN branch_id TEXT REFERENCES design_branches(id);
+UPDATE project_definition_application_attempts SET branch_id = design_id;
+CREATE INDEX branch_messages_by_branch ON branch_messages(branch_id, ordinal);
+CREATE INDEX generation_jobs_by_branch ON generation_jobs(branch_id, created_at);
+CREATE INDEX generation_steps_by_branch ON generation_steps(branch_id, created_at);
+CREATE INDEX invalid_candidates_by_branch ON invalid_candidates(branch_id, created_at);
+CREATE INDEX focused_feedback_queue_by_branch ON focused_feedback_queue(branch_id, created_at);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -678,7 +768,13 @@ export class WorkspaceStore {
     this.purgeExpiredTrash()
     // A background title request never survives a process exit, so no design can still be pending on open.
     this.database.exec('UPDATE designs SET title_pending = 0 WHERE title_pending = 1')
-    this.database.exec("UPDATE designs SET definition_application_state = 'failed', definition_application_error = 'Definition application was interrupted when OmniDesign closed.' WHERE definition_application_state = 'applying'")
+    this.database.exec("UPDATE design_branches SET definition_application_state = 'failed', definition_application_error = 'Definition application was interrupted when OmniDesign closed.' WHERE definition_application_state = 'applying'")
+    this.database.exec(`
+      UPDATE designs SET
+        definition_application_state = (SELECT definition_application_state FROM design_branches WHERE id = designs.active_branch_id),
+        definition_application_error = (SELECT definition_application_error FROM design_branches WHERE id = designs.active_branch_id)
+      WHERE active_branch_id IS NOT NULL
+    `)
     this.database.exec("UPDATE project_definition_application_attempts SET state = 'interrupted', diagnostic = 'OmniDesign closed before this definition application completed.', completed_at = datetime('now') WHERE state = 'applying'")
     this.purgeTimer = setInterval(() => { try { this.purgeExpiredTrash() } catch { /* a transient DB error should not crash the sweep */ } }, TRASH_PURGE_INTERVAL_MS)
     // Do not keep the process alive solely for the sweep.
@@ -718,6 +814,18 @@ export class WorkspaceStore {
     return row ? this.hydrateDesign(row) : null
   }
 
+  public getDesignAtBranch(designId: string, branchId: string): Design | null {
+    const row = this.database.prepare(`
+      SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
+             d.active_branch_id, d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
+             d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
+      FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
+    `).get(designId) as unknown as DesignRow | undefined
+    if (!row || !this.database.prepare('SELECT 1 FROM design_branches WHERE id = ? AND design_id = ?').get(branchId, designId)) return null
+    return this.hydrateDesign(row, branchId)
+  }
+
   public listDesignBranches(designId: string): DesignBranch[] {
     const rows = this.database.prepare(`
       SELECT id, design_id, title, git_ref, worktree_path, is_main, parent_branch_id,
@@ -739,6 +847,95 @@ export class WorkspaceStore {
       status: row.status,
       createdAt: row.created_at,
     }))
+  }
+
+  public createDesignBranch(designId: string, requestedTitle: string, baseRevisionId: string | null = this.requireDesign(designId).activeRevisionId, forkMessageId: string | null = null): DesignBranch {
+    const design = this.requireDesign(designId)
+    if (design.selectedRevisionId !== design.activeRevisionId && !forkMessageId) throw new Error('Return to the branch head before creating a separate branch.')
+    if (baseRevisionId && !design.revisions.some((revision) => revision.id === baseRevisionId)) throw new Error('The branch base revision is not part of the selected branch.')
+    if (forkMessageId && !this.database.prepare('SELECT 1 FROM branch_messages WHERE branch_id = ? AND message_id = ?').get(design.activeBranchId, forkMessageId)) {
+      throw new Error('The fork message is not part of the selected branch conversation.')
+    }
+    const title = this.uniqueBranchTitle(designId, requestedTitle)
+    const branchId = randomUUID()
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO design_branches (
+          id, design_id, title, git_ref, worktree_path, is_main, parent_branch_id, fork_revision_id,
+          fork_message_id, active_revision_id, selected_revision_id, status, created_at,
+          draft, draft_attachments_json, reply_message_id, separate_branch_mode,
+          last_provider_id, last_model_id, last_effort, layout_json, queue_paused,
+          provider_session_id, provider_session_provider, entry_page_path, definition_version,
+          pending_definition_version, kept_definition_version, definition_application_state, definition_application_error
+        )
+        SELECT ?, design_id, ?, ?, ?, 0, id, ?, ?, ?, ?, 'ready', ?,
+               '', '[]', NULL, 0, last_provider_id, last_model_id, last_effort, layout_json, 0,
+               NULL, NULL, entry_page_path, definition_version, pending_definition_version,
+               kept_definition_version, definition_application_state, definition_application_error
+        FROM design_branches WHERE id = ? AND design_id = ?
+      `).run(branchId, title, `refs/heads/od/${branchId}`, `branches/${branchId}/worktree`, baseRevisionId, forkMessageId, baseRevisionId, baseRevisionId, now, design.activeBranchId, designId)
+      this.database.prepare(`
+        INSERT INTO branch_messages (branch_id, message_id, ordinal)
+        SELECT ?, message_id, ordinal FROM branch_messages WHERE branch_id = ? ORDER BY ordinal
+      `).run(branchId, design.activeBranchId)
+    })
+    return this.listDesignBranches(designId).find((branch) => branch.id === branchId)!
+  }
+
+  public switchDesignBranch(designId: string, branchId: string): Design {
+    const branch = this.database.prepare(`
+      SELECT id, active_revision_id, selected_revision_id, draft, draft_attachments_json,
+             last_provider_id, last_model_id, last_effort, layout_json, queue_paused,
+             provider_session_id, provider_session_provider, entry_page_path, definition_version,
+             pending_definition_version, kept_definition_version, definition_application_state, definition_application_error
+      FROM design_branches WHERE id = ? AND design_id = ?
+    `).get(branchId, designId) as unknown as DesignBranchStateRow | undefined
+    if (!branch) throw new Error('Design branch not found.')
+    this.database.prepare(`
+      UPDATE designs SET active_branch_id = ?, active_revision_id = ?, selected_revision_id = ?,
+        draft = ?, draft_attachments_json = ?, last_provider_id = ?, last_model_id = ?, last_effort = ?,
+        layout_json = ?, queue_paused = ?, provider_session_id = ?, provider_session_provider = ?,
+        entry_page_path = ?, definition_version = ?, pending_definition_version = ?, kept_definition_version = ?,
+        definition_application_state = ?, definition_application_error = ?, updated_at = ?
+      WHERE id = ?
+    `).run(branchId, branch.active_revision_id, branch.selected_revision_id, branch.draft, branch.draft_attachments_json,
+      branch.last_provider_id, branch.last_model_id, branch.last_effort, branch.layout_json, branch.queue_paused,
+      branch.provider_session_id, branch.provider_session_provider, branch.entry_page_path, branch.definition_version,
+      branch.pending_definition_version, branch.kept_definition_version, branch.definition_application_state,
+      branch.definition_application_error, new Date().toISOString(), designId)
+    return this.requireDesign(designId)
+  }
+
+  public setDesignBranchStatus(designId: string, branchId: string, status: DesignBranch['status']): DesignBranch {
+    const result = this.database.prepare('UPDATE design_branches SET status = ? WHERE id = ? AND design_id = ?').run(status, branchId, designId)
+    if (result.changes !== 1) throw new Error('Design branch not found.')
+    return this.listDesignBranches(designId).find((branch) => branch.id === branchId)!
+  }
+
+  public removeDesignBranchRecord(designId: string, branchId: string): void {
+    const branch = this.listDesignBranches(designId).find((candidate) => candidate.id === branchId)
+    if (!branch) throw new Error('Design branch not found.')
+    if (branch.isMain) throw new Error('Main cannot be removed.')
+    if (this.requireDesign(designId).activeBranchId === branchId) throw new Error('Switch to another branch before removing this branch.')
+    this.transaction(() => {
+      this.database.prepare('UPDATE design_branches SET parent_branch_id = NULL WHERE parent_branch_id = ?').run(branchId)
+      this.database.prepare('UPDATE revisions SET owner_branch_id = NULL WHERE owner_branch_id = ?').run(branchId)
+      this.database.prepare(`
+        UPDATE messages SET owner_branch_id = NULL
+        WHERE owner_branch_id = ? AND id IN (SELECT message_id FROM branch_messages WHERE branch_id <> ?)
+      `).run(branchId, branchId)
+      this.database.prepare(`
+        DELETE FROM messages
+        WHERE owner_branch_id = ? AND id NOT IN (SELECT message_id FROM branch_messages WHERE branch_id <> ?)
+      `).run(branchId, branchId)
+      this.database.prepare('DELETE FROM generation_steps WHERE branch_id = ?').run(branchId)
+      this.database.prepare('DELETE FROM invalid_candidates WHERE branch_id = ?').run(branchId)
+      this.database.prepare('DELETE FROM focused_feedback_queue WHERE branch_id = ?').run(branchId)
+      this.database.prepare('DELETE FROM project_definition_application_attempts WHERE branch_id = ?').run(branchId)
+      this.database.prepare('DELETE FROM generation_jobs WHERE branch_id = ?').run(branchId)
+      this.database.prepare('DELETE FROM design_branches WHERE id = ? AND design_id = ?').run(branchId, designId)
+    })
   }
 
   public listProjects(): ProjectSummary[] {
@@ -840,6 +1037,12 @@ export class WorkspaceStore {
             definition_application_state = 'pending', definition_application_error = NULL
         WHERE project_id = ? AND trashed_at IS NULL
       `).run(version, projectId)
+      this.database.prepare(`
+        UPDATE design_branches
+        SET pending_definition_version = ?, kept_definition_version = NULL,
+            definition_application_state = 'pending', definition_application_error = NULL
+        WHERE design_id IN (SELECT id FROM designs WHERE project_id = ? AND trashed_at IS NULL)
+      `).run(version, projectId)
     })
     return projectDesignDefinitionVersionSchema.parse({ id, projectId, version, definitions: parsed, createdAt: now })
   }
@@ -852,44 +1055,48 @@ export class WorkspaceStore {
     return this.getProjectDesignDefinitionState(projectId)!
   }
 
-  public keepProjectDesignDefinitions(designId: string, targetVersion: number): Design {
+  public keepProjectDesignDefinitions(designId: string, targetVersion: number, branchId = this.requireDesign(designId).activeBranchId): Design {
     const result = this.database.prepare(`
-      UPDATE designs
+      UPDATE design_branches
       SET pending_definition_version = NULL, kept_definition_version = ?,
           definition_application_state = 'kept', definition_application_error = NULL
-      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
-    `).run(targetVersion, designId, targetVersion)
+      WHERE id = ? AND design_id = ? AND pending_definition_version = ?
+    `).run(targetVersion, branchId, designId, targetVersion)
     if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
-    return this.requireDesign(designId)
+    this.syncActiveBranchProjection(designId, branchId)
+    return this.getDesignAtBranch(designId, branchId)!
   }
 
-  public beginProjectDefinitionApplication(designId: string, targetVersion: number): Design {
+  public beginProjectDefinitionApplication(designId: string, targetVersion: number, branchId = this.requireDesign(designId).activeBranchId): Design {
     const result = this.database.prepare(`
-      UPDATE designs SET definition_application_state = 'applying', definition_application_error = NULL
-      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
-    `).run(designId, targetVersion)
+      UPDATE design_branches SET definition_application_state = 'applying', definition_application_error = NULL
+      WHERE id = ? AND design_id = ? AND pending_definition_version = ?
+    `).run(branchId, designId, targetVersion)
     if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
-    return this.requireDesign(designId)
+    this.syncActiveBranchProjection(designId, branchId)
+    return this.getDesignAtBranch(designId, branchId)!
   }
 
-  public completeProjectDefinitionApplication(designId: string, targetVersion: number): Design {
+  public completeProjectDefinitionApplication(designId: string, targetVersion: number, branchId = this.requireDesign(designId).activeBranchId): Design {
     const result = this.database.prepare(`
-      UPDATE designs
+      UPDATE design_branches
       SET definition_version = ?, pending_definition_version = NULL, kept_definition_version = NULL,
           definition_application_state = 'current', definition_application_error = NULL
-      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
-    `).run(targetVersion, designId, targetVersion)
+      WHERE id = ? AND design_id = ? AND pending_definition_version = ?
+    `).run(targetVersion, branchId, designId, targetVersion)
     if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
-    return this.requireDesign(designId)
+    this.syncActiveBranchProjection(designId, branchId)
+    return this.getDesignAtBranch(designId, branchId)!
   }
 
-  public failProjectDefinitionApplication(designId: string, targetVersion: number, error: string, unavailable = false): Design {
+  public failProjectDefinitionApplication(designId: string, targetVersion: number, error: string, unavailable = false, branchId = this.requireDesign(designId).activeBranchId): Design {
     const result = this.database.prepare(`
-      UPDATE designs SET definition_application_state = ?, definition_application_error = ?
-      WHERE id = ? AND pending_definition_version = ? AND trashed_at IS NULL
-    `).run(unavailable ? 'unavailable' : 'failed', error, designId, targetVersion)
+      UPDATE design_branches SET definition_application_state = ?, definition_application_error = ?
+      WHERE id = ? AND design_id = ? AND pending_definition_version = ?
+    `).run(unavailable ? 'unavailable' : 'failed', error, branchId, designId, targetVersion)
     if (result.changes !== 1) throw new Error('The requested project-definition decision is no longer pending.')
-    return this.requireDesign(designId)
+    this.syncActiveBranchProjection(designId, branchId)
+    return this.getDesignAtBranch(designId, branchId)!
   }
 
   public startProjectDefinitionApplicationAttempt(designId: string, targetVersion: number, options: {
@@ -900,16 +1107,19 @@ export class WorkspaceStore {
     readonly effort?: string | null
     readonly state?: 'applying' | 'failed' | 'unavailable'
     readonly diagnostic?: string | null
+    readonly branchId?: string
   }): ProjectDefinitionApplicationAttempt {
-    this.requireDesign(designId)
+    const design = this.requireDesign(designId)
+    const branchId = options.branchId ?? design.activeBranchId
+    if (!this.getDesignAtBranch(designId, branchId)) throw new Error('Design branch not found.')
     const id = randomUUID()
     const now = new Date().toISOString()
     const state = options.state ?? 'applying'
     this.database.prepare(`
       INSERT INTO project_definition_application_attempts
-        (id, design_id, target_version, mechanism, state, generation_job_id, provider_id, model_id, effort, diagnostic, resulting_revision_id, created_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-    `).run(id, designId, targetVersion, options.mechanism, state, options.generationJobId ?? null, options.providerId ?? null, options.modelId ?? null, options.effort ?? null, options.diagnostic ?? null, now, state === 'applying' ? null : now)
+        (id, design_id, branch_id, target_version, mechanism, state, generation_job_id, provider_id, model_id, effort, diagnostic, resulting_revision_id, created_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    `).run(id, designId, branchId, targetVersion, options.mechanism, state, options.generationJobId ?? null, options.providerId ?? null, options.modelId ?? null, options.effort ?? null, options.diagnostic ?? null, now, state === 'applying' ? null : now)
     return this.requireProjectDefinitionApplicationAttempt(id)
   }
 
@@ -941,11 +1151,11 @@ export class WorkspaceStore {
   }
 
   public listFocusedFeedback(designId: string): FocusedFeedback[] {
-    this.requireDesign(designId)
+    const branchId = this.requireDesign(designId).activeBranchId
     const rows = this.database.prepare(`
       SELECT id, comment, target_json, created_at
-      FROM focused_feedback_queue WHERE design_id = ? ORDER BY created_at, rowid
-    `).all(designId) as unknown as Array<{ id: string; comment: string; target_json: string; created_at: string }>
+      FROM focused_feedback_queue WHERE branch_id = ? ORDER BY created_at, rowid
+    `).all(branchId) as unknown as Array<{ id: string; comment: string; target_json: string; created_at: string }>
     return rows.map((row) => focusedFeedbackSchema.parse({
       id: row.id,
       comment: row.comment,
@@ -963,14 +1173,15 @@ export class WorkspaceStore {
     if (this.listFocusedFeedback(designId).length >= 50) throw new Error('A design can queue at most 50 focused feedback items.')
     const item = focusedFeedbackSchema.parse({ id: randomUUID(), comment, target: parsedTarget, createdAt: new Date().toISOString() })
     this.database.prepare(`
-      INSERT INTO focused_feedback_queue (id, design_id, revision_id, comment, target_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(item.id, designId, parsedTarget.revisionId, item.comment, JSON.stringify(parsedTarget), item.createdAt)
+      INSERT INTO focused_feedback_queue (id, design_id, branch_id, revision_id, comment, target_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(item.id, designId, design.activeBranchId, parsedTarget.revisionId, item.comment, JSON.stringify(parsedTarget), item.createdAt)
     return this.listFocusedFeedback(designId)
   }
 
   public removeFocusedFeedback(designId: string, feedbackId: string): FocusedFeedback[] {
-    const result = this.database.prepare('DELETE FROM focused_feedback_queue WHERE id = ? AND design_id = ?').run(feedbackId, designId)
+    const branchId = this.requireDesign(designId).activeBranchId
+    const result = this.database.prepare('DELETE FROM focused_feedback_queue WHERE id = ? AND design_id = ? AND branch_id = ?').run(feedbackId, designId, branchId)
     if (result.changes !== 1) throw new Error('Focused feedback item not found.')
     return this.listFocusedFeedback(designId)
   }
@@ -1057,8 +1268,7 @@ export class WorkspaceStore {
         .run(designId, projectId, title, project.current_definition_version, now, now)
       this.insertMainBranch(designId, now)
       if (prompt) {
-        this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments), now)
+        this.insertMessage(designId, 'user', prompt, now, { attachments })
       }
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, projectId)
     })
@@ -1068,8 +1278,7 @@ export class WorkspaceStore {
   public addPrompt(designId: string, prompt: string, attachments: readonly Attachment[] = []): void {
     const now = new Date().toISOString()
     this.transaction(() => {
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments), now)
+      this.insertMessage(designId, 'user', prompt, now, { attachments })
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
   }
@@ -1104,6 +1313,7 @@ export class WorkspaceStore {
         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
       `).run(newRevisionId, newDesignId, `Duplicated from ${source.title}`, activeRevision.providerId, activeRevision.modelId, activeRevision.gitCommit, activeRevision.definitionVersion ?? null, now)
       this.insertMainBranch(newDesignId, now, newRevisionId, newRevisionId)
+      this.database.prepare('UPDATE revisions SET owner_branch_id = ? WHERE id = ?').run(newDesignId, newRevisionId)
       for (const page of source.pages) {
         this.database.prepare('INSERT INTO design_pages (design_id, path, title, sort_order) VALUES (?, ?, ?, ?)').run(newDesignId, page.path, page.title, page.order)
       }
@@ -1256,23 +1466,25 @@ export class WorkspaceStore {
     this.database.prepare('DELETE FROM designs WHERE id = ?').run(id)
   }
 
-  public addAssistantResponse(designId: string, response: string): Design {
+  public addAssistantResponse(designId: string, response: string, branchId = this.requireDesign(designId).activeBranchId): Design {
     const now = new Date().toISOString()
     this.transaction(() => {
-      this.requireDesign(designId)
+      if (!this.getDesignAtBranch(designId, branchId)) throw new Error('Design branch not found.')
       // Skip a message identical to the current last one so a streamed message and the final reply do
       // not appear twice.
-      if (!this.isLastMessageText(designId, response)) {
-        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-          .run(randomUUID(), designId, 'assistant', response, now)
+      if (!this.isLastMessageText(designId, response, branchId)) {
+        this.insertMessage(designId, 'assistant', response, now, { branchId })
       }
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
-    return this.requireDesign(designId)
+    return this.getDesignAtBranch(designId, branchId)!
   }
 
-  private isLastMessageText(designId: string, text: string): boolean {
-    const last = this.database.prepare('SELECT text FROM messages WHERE design_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(designId) as { text: string } | undefined
+  private isLastMessageText(designId: string, text: string, branchId = this.requireDesign(designId).activeBranchId): boolean {
+    const last = this.database.prepare(`
+      SELECT m.text FROM branch_messages bm JOIN messages m ON m.id = bm.message_id
+      WHERE bm.branch_id = ? ORDER BY bm.ordinal DESC LIMIT 1
+    `).get(branchId) as { text: string } | undefined
     return last?.text === text
   }
 
@@ -1283,30 +1495,32 @@ export class WorkspaceStore {
     modelId = 'mock-v1',
     gitCommit: string | null = null,
     assistantResponse = 'Generated and validated a new design revision.',
-    definitionVersion: number | null = this.requireDesign(designId).definitionVersion ?? null,
+    definitionVersion: number | null | undefined = undefined,
+    branchId = this.requireDesign(designId).activeBranchId,
   ): Design {
-    const design = this.requireDesign(designId)
+    const design = this.getDesignAtBranch(designId, branchId)
+    if (!design) throw new Error('Design branch not found.')
+    const effectiveDefinitionVersion = definitionVersion === undefined ? design.definitionVersion ?? null : definitionVersion
     const revisionId = randomUUID()
     const now = new Date().toISOString()
 
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(revisionId, designId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, definitionVersion, now)
-      if (!this.isLastMessageText(designId, assistantResponse)) {
-        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-          .run(randomUUID(), designId, 'assistant', assistantResponse, now)
+        INSERT INTO revisions (id, design_id, owner_branch_id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(revisionId, designId, branchId, design.activeRevisionId, prompt, providerId, modelId, gitCommit, effectiveDefinitionVersion, now)
+      if (!this.isLastMessageText(designId, assistantResponse, branchId)) {
+        this.insertMessage(designId, 'assistant', assistantResponse, now, { branchId })
       }
-      this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, definition_version = ?, updated_at = ?, draft = ? WHERE id = ?')
-        .run(revisionId, revisionId, definitionVersion, now, '', designId)
-      this.database.prepare('UPDATE design_branches SET active_revision_id = ?, selected_revision_id = ? WHERE id = ? AND design_id = ?')
-        .run(revisionId, revisionId, design.activeBranchId, designId)
-      this.database.prepare('DELETE FROM focused_feedback_queue WHERE design_id = ?').run(designId)
+      this.database.prepare('UPDATE design_branches SET active_revision_id = ?, selected_revision_id = ?, definition_version = ?, draft = ? WHERE id = ? AND design_id = ?')
+        .run(revisionId, revisionId, effectiveDefinitionVersion, '', branchId, designId)
+      this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, definition_version = ?, updated_at = ?, draft = ? WHERE id = ? AND active_branch_id = ?')
+        .run(revisionId, revisionId, effectiveDefinitionVersion, now, '', designId, branchId)
+      this.database.prepare('DELETE FROM focused_feedback_queue WHERE design_id = ? AND branch_id = ?').run(designId, branchId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, design.projectId)
     })
 
-    return this.requireDesign(designId)
+    return this.getDesignAtBranch(designId, branchId)!
   }
 
   public selectRevision(designId: string, revisionId: string): Design {
@@ -1316,7 +1530,7 @@ export class WorkspaceStore {
       this.database.prepare('UPDATE designs SET selected_revision_id = ? WHERE id = ?').run(revisionId, designId)
       this.database.prepare('UPDATE design_branches SET selected_revision_id = ? WHERE id = ? AND design_id = ?').run(revisionId, design.activeBranchId, designId)
     })
-    return this.requireDesign(designId)
+    return this.getDesignAtBranch(designId, design.activeBranchId)!
   }
 
   public restoreRevision(designId: string, revisionId: string, gitCommit: string | null = null): Design {
@@ -1325,24 +1539,34 @@ export class WorkspaceStore {
     const project = this.database.prepare('SELECT current_definition_version FROM projects WHERE id = ?').get(restored.projectId) as { current_definition_version: number | null } | undefined
     const currentVersion = project?.current_definition_version ?? null
     if (currentVersion && currentVersion > (revision.definitionVersion ?? 0) && restored.keptDefinitionVersion !== currentVersion) {
+      const branchId = restored.activeBranchId
       this.database.prepare(`
-        UPDATE designs SET pending_definition_version = ?, definition_application_state = 'pending', definition_application_error = NULL
-        WHERE id = ?
-      `).run(currentVersion, designId)
-      return this.requireDesign(designId)
+        UPDATE design_branches SET pending_definition_version = ?, kept_definition_version = NULL,
+          definition_application_state = 'pending', definition_application_error = NULL
+        WHERE id = ? AND design_id = ?
+      `).run(currentVersion, branchId, designId)
+      this.syncActiveBranchProjection(designId, branchId)
+      return this.getDesignAtBranch(designId, branchId)!
     }
     return restored
   }
 
   public saveDraft(designId: string, draft: string, attachments: readonly Attachment[] = []): void {
     const parsed = attachments.map((attachment) => attachmentSchema.parse(attachment))
-    const result = this.database.prepare('UPDATE designs SET draft = ?, draft_attachments_json = ? WHERE id = ?').run(draft, JSON.stringify(parsed), designId)
-    if (result.changes !== 1) throw new Error('Design not found.')
+    const branchId = this.requireDesign(designId).activeBranchId
+    this.transaction(() => {
+      this.database.prepare('UPDATE designs SET draft = ?, draft_attachments_json = ? WHERE id = ?').run(draft, JSON.stringify(parsed), designId)
+      this.database.prepare('UPDATE design_branches SET draft = ?, draft_attachments_json = ? WHERE id = ? AND design_id = ?').run(draft, JSON.stringify(parsed), branchId, designId)
+    })
   }
 
   public saveLayout(designId: string, layout: Layout): void {
-    const result = this.database.prepare('UPDATE designs SET layout_json = ? WHERE id = ?').run(JSON.stringify(layout), designId)
-    if (result.changes !== 1) throw new Error('Design not found.')
+    const parsed = layoutSchema.parse(layout)
+    const branchId = this.requireDesign(designId).activeBranchId
+    this.transaction(() => {
+      this.database.prepare('UPDATE designs SET layout_json = ? WHERE id = ?').run(JSON.stringify(parsed), designId)
+      this.database.prepare('UPDATE design_branches SET layout_json = ? WHERE id = ? AND design_id = ?').run(JSON.stringify(parsed), branchId, designId)
+    })
   }
 
   /** Persisted per-page metadata (display title, manual order); isHome is derived from the entry path. */
@@ -1354,9 +1578,11 @@ export class WorkspaceStore {
 
   /** Set (or clear) the design's chosen home page. Null falls back to index.html / first page at read time. */
   public setDesignEntryPage(designId: string, entryPagePath: string | null): Design {
-    const result = this.database.prepare('UPDATE designs SET entry_page_path = ?, updated_at = ? WHERE id = ?')
-      .run(entryPagePath, new Date().toISOString(), designId)
-    if (result.changes !== 1) throw new Error('Design not found.')
+    const branchId = this.requireDesign(designId).activeBranchId
+    this.transaction(() => {
+      this.database.prepare('UPDATE designs SET entry_page_path = ?, updated_at = ? WHERE id = ?').run(entryPagePath, new Date().toISOString(), designId)
+      this.database.prepare('UPDATE design_branches SET entry_page_path = ? WHERE id = ? AND design_id = ?').run(entryPagePath, branchId, designId)
+    })
     return this.requireDesign(designId)
   }
 
@@ -1515,16 +1741,19 @@ export class WorkspaceStore {
 
   public saveDesignSelection(designId: string, selection: GenerationSelection): void {
     const parsed = generationSelectionSchema.parse(selection)
-    const result = this.database.prepare('UPDATE designs SET last_provider_id = ?, last_model_id = ?, last_effort = ? WHERE id = ?')
-      .run(parsed.providerId, parsed.modelId, parsed.effort, designId)
-    if (result.changes !== 1) throw new Error('Design not found.')
+    const branchId = this.requireDesign(designId).activeBranchId
+    this.transaction(() => {
+      this.database.prepare('UPDATE designs SET last_provider_id = ?, last_model_id = ?, last_effort = ? WHERE id = ?').run(parsed.providerId, parsed.modelId, parsed.effort, designId)
+      this.database.prepare('UPDATE design_branches SET last_provider_id = ?, last_model_id = ?, last_effort = ? WHERE id = ? AND design_id = ?').run(parsed.providerId, parsed.modelId, parsed.effort, branchId, designId)
+    })
   }
 
   public addGenerationStep(designId: string, stage: string, label: string, detail: string | null = null, jobId: string | null = null): void {
+    const branchId = jobId ? this.requireGenerationJob(jobId).branchId : this.requireDesign(designId).activeBranchId
     this.database.prepare(`
-      INSERT INTO generation_steps (id, design_id, job_id, stage, label, detail, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(randomUUID(), designId, jobId, stage, label, detail, new Date().toISOString())
+      INSERT INTO generation_steps (id, design_id, branch_id, job_id, stage, label, detail, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(randomUUID(), designId, branchId, jobId, stage, label, detail, new Date().toISOString())
   }
 
   public enqueueGenerationJob(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], mode: 'fresh' | 'continue' = 'fresh', definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = []): GenerationJob {
@@ -1542,14 +1771,19 @@ export class WorkspaceStore {
     const now = new Date().toISOString()
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-      `).run(id, designId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), now)
-      this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, focused_target_json, focused_feedback_json, generation_job_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(randomUUID(), designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), id, now)
+        INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+      `).run(id, designId, design.activeBranchId, prompt, providerId, modelId, effort ?? null, JSON.stringify(attachments.map((attachment) => attachmentSchema.parse(attachment))), mode, definitionTargetVersion, focusedTarget ? JSON.stringify(focusedTargetSchema.parse(focusedTarget)) : null, JSON.stringify(parsedFocusedFeedback), now)
+      this.insertMessage(designId, definitionTargetVersion ? 'system' : 'user', definitionTargetVersion ? `Apply project definitions version ${definitionTargetVersion}.` : prompt, now, {
+        attachments,
+        focusedTarget,
+        focusedFeedback: parsedFocusedFeedback,
+        generationJobId: id,
+        branchId: design.activeBranchId,
+      })
       if (parsedFocusedFeedback.length) {
         const placeholders = parsedFocusedFeedback.map(() => '?').join(', ')
-        this.database.prepare(`DELETE FROM focused_feedback_queue WHERE design_id = ? AND id IN (${placeholders})`).run(designId, ...parsedFocusedFeedback.map((item) => item.id))
+        this.database.prepare(`DELETE FROM focused_feedback_queue WHERE design_id = ? AND branch_id = ? AND id IN (${placeholders})`).run(designId, design.activeBranchId, ...parsedFocusedFeedback.map((item) => item.id))
       }
       // Sending any new prompt resolves a pending "adapt to project" decision.
       this.database.prepare('UPDATE designs SET updated_at = ?, adaptation_pending = 0 WHERE id = ?').run(now, designId)
@@ -1561,7 +1795,7 @@ export class WorkspaceStore {
     if (!states.length) return []
     const placeholders = states.map(() => '?').join(', ')
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE state IN (${placeholders}) ORDER BY created_at, rowid
     `).all(...states) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
@@ -1569,7 +1803,7 @@ export class WorkspaceStore {
 
   public getGenerationJob(id: string): GenerationJob | null {
     const row = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
+      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
       FROM generation_jobs WHERE id = ?
     `).get(id) as unknown as GenerationJobRow | undefined
     return row ? this.hydrateGenerationJob(row) : null
@@ -1599,14 +1833,18 @@ export class WorkspaceStore {
   }
 
   /** Remember the provider conversation session for a design so later prompts can resume it. */
-  public saveDesignProviderSession(designId: string, providerId: string, providerSessionId: string): void {
+  public saveDesignProviderSession(designId: string, providerId: string, providerSessionId: string, branchId = this.requireDesign(designId).activeBranchId): void {
     if (!providerSessionId) throw new Error('Provider session identifier is required.')
-    this.database.prepare('UPDATE designs SET provider_session_id = ?, provider_session_provider = ? WHERE id = ?').run(providerSessionId, providerId, designId)
+    this.transaction(() => {
+      const result = this.database.prepare('UPDATE design_branches SET provider_session_id = ?, provider_session_provider = ? WHERE id = ? AND design_id = ?').run(providerSessionId, providerId, branchId, designId)
+      if (result.changes !== 1) throw new Error('Design branch not found.')
+      this.database.prepare('UPDATE designs SET provider_session_id = ?, provider_session_provider = ? WHERE id = ? AND active_branch_id = ?').run(providerSessionId, providerId, designId, branchId)
+    })
   }
 
   /** The design's resumable provider session, or null when none exists yet. */
-  public getDesignProviderSession(designId: string): { readonly providerId: string; readonly sessionId: string } | null {
-    const row = this.database.prepare('SELECT provider_session_id, provider_session_provider FROM designs WHERE id = ?').get(designId) as { provider_session_id: string | null; provider_session_provider: string | null } | undefined
+  public getDesignProviderSession(designId: string, branchId = this.requireDesign(designId).activeBranchId): { readonly providerId: string; readonly sessionId: string } | null {
+    const row = this.database.prepare('SELECT provider_session_id, provider_session_provider FROM design_branches WHERE id = ? AND design_id = ?').get(branchId, designId) as { provider_session_id: string | null; provider_session_provider: string | null } | undefined
     if (!row?.provider_session_id || !row.provider_session_provider) return null
     return { providerId: row.provider_session_provider, sessionId: row.provider_session_id }
   }
@@ -1627,9 +1865,9 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can be retried.')
     const retryId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(retryId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(retryId, previous.designId, previous.branchId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
     return this.requireGenerationJob(retryId)
   }
 
@@ -1659,34 +1897,43 @@ export class WorkspaceStore {
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
     const continueId = randomUUID()
     this.database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-    `).run(continueId, previous.designId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
+      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'continue', ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
+    `).run(continueId, previous.designId, previous.branchId, previous.prompt, previous.providerId, previous.modelId, previous.effort ?? null, JSON.stringify(previous.attachments), previous.providerSessionId, previous.definitionTargetVersion, previous.focusedTarget ? JSON.stringify(previous.focusedTarget) : null, JSON.stringify(previous.focusedFeedback ?? []), previous.createdAt)
     return this.requireGenerationJob(continueId)
   }
 
   public markGenerationJobsInterrupted(): GenerationJob[] {
     const now = new Date().toISOString()
     this.transaction(() => {
-      this.database.prepare("UPDATE designs SET queue_paused = 1 WHERE id IN (SELECT DISTINCT design_id FROM generation_jobs WHERE state IN ('queued', 'running'))").run()
+      this.database.prepare("UPDATE design_branches SET queue_paused = 1 WHERE id IN (SELECT DISTINCT branch_id FROM generation_jobs WHERE state IN ('queued', 'running'))").run()
+      this.database.prepare("UPDATE designs SET queue_paused = 1 WHERE active_branch_id IN (SELECT DISTINCT branch_id FROM generation_jobs WHERE state IN ('queued', 'running'))").run()
+      this.database.prepare("UPDATE design_branches SET status = 'queued' WHERE id IN (SELECT DISTINCT branch_id FROM generation_jobs WHERE state = 'queued')").run()
+      this.database.prepare("UPDATE design_branches SET status = 'failed' WHERE id IN (SELECT DISTINCT branch_id FROM generation_jobs WHERE state = 'running')").run()
       this.database.prepare("UPDATE generation_jobs SET state = 'interrupted', completed_at = ?, error = 'OmniDesign closed before this generation completed.' WHERE state = 'running'")
         .run(now)
     })
     return this.listGenerationJobs(['interrupted'])
   }
 
-  public pauseGenerationQueue(designId: string): void {
-    const result = this.database.prepare('UPDATE designs SET queue_paused = 1 WHERE id = ?').run(designId)
-    if (result.changes !== 1) throw new Error('Design not found.')
+  public pauseGenerationQueue(designId: string, branchId = this.requireDesign(designId).activeBranchId): void {
+    this.transaction(() => {
+      const result = this.database.prepare('UPDATE design_branches SET queue_paused = 1 WHERE id = ? AND design_id = ?').run(branchId, designId)
+      if (result.changes !== 1) throw new Error('Design branch not found.')
+      this.database.prepare('UPDATE designs SET queue_paused = 1 WHERE id = ? AND active_branch_id = ?').run(designId, branchId)
+    })
   }
 
-  public resumeGenerationQueue(designId: string): void {
-    const result = this.database.prepare('UPDATE designs SET queue_paused = 0 WHERE id = ?').run(designId)
-    if (result.changes !== 1) throw new Error('Design not found.')
+  public resumeGenerationQueue(designId: string, branchId = this.requireDesign(designId).activeBranchId): void {
+    this.transaction(() => {
+      const result = this.database.prepare('UPDATE design_branches SET queue_paused = 0 WHERE id = ? AND design_id = ?').run(branchId, designId)
+      if (result.changes !== 1) throw new Error('Design branch not found.')
+      this.database.prepare('UPDATE designs SET queue_paused = 0 WHERE id = ? AND active_branch_id = ?').run(designId, branchId)
+    })
   }
 
-  public listPausedGenerationDesignIds(): string[] {
-    return (this.database.prepare('SELECT id FROM designs WHERE queue_paused = 1').all() as { id: string }[]).map((row) => row.id)
+  public listPausedGenerationBranches(): Array<{ readonly designId: string; readonly branchId: string }> {
+    return (this.database.prepare('SELECT design_id, id FROM design_branches WHERE queue_paused = 1').all() as Array<{ design_id: string; id: string }>).map((row) => ({ designId: row.design_id, branchId: row.id }))
   }
 
   public addPreviewDiagnostic(designId: string, revisionId: string, diagnostic: Omit<PreviewDiagnostic, 'id' | 'createdAt'>): void {
@@ -1741,8 +1988,9 @@ export class WorkspaceStore {
   // Records a rejected candidate for diagnostics. A user-facing system message is posted only when
   // `systemMessage` is provided — intermediate candidates in a repair loop that later succeeds are
   // recorded silently so they do not clutter the conversation.
-  public addInvalidCandidate(designId: string, prompt: string, html: string, diagnostic: string, systemMessage: string | null = null): Design {
-    this.requireDesign(designId)
+  public addInvalidCandidate(designId: string, prompt: string, html: string, diagnostic: string, systemMessage: string | null = null, branchId = this.requireDesign(designId).activeBranchId): Design {
+    const design = this.getDesignAtBranch(designId, branchId)
+    if (!design) throw new Error('Design branch not found.')
     const candidateId = randomUUID()
     const now = new Date().toISOString()
     const candidateDirectory = path.join(this.artifactsDirectory, designId, 'candidates', candidateId)
@@ -1752,17 +2000,16 @@ export class WorkspaceStore {
 
     this.transaction(() => {
       this.database.prepare(`
-        INSERT INTO invalid_candidates (id, design_id, prompt, candidate_path, diagnostic, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(candidateId, designId, prompt, candidatePath, diagnostic, now)
+        INSERT INTO invalid_candidates (id, design_id, branch_id, prompt, candidate_path, diagnostic, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(candidateId, designId, branchId, prompt, candidatePath, diagnostic, now)
       if (systemMessage) {
-        this.database.prepare('INSERT INTO messages (id, design_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)')
-          .run(randomUUID(), designId, 'system', systemMessage, now)
+        this.insertMessage(designId, 'system', systemMessage, now, { branchId })
       }
       this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
     })
 
-    return this.requireDesign(designId)
+    return this.getDesignAtBranch(designId, branchId)!
   }
 
   private insertMainBranch(designId: string, createdAt: string, activeRevisionId: string | null = null, selectedRevisionId: string | null = null): void {
@@ -1772,12 +2019,69 @@ export class WorkspaceStore {
         selected_revision_id, status, created_at
       ) VALUES (?, ?, 'Main', 'refs/heads/main', 'repository', 1, ?, ?, 'ready', ?)
     `).run(designId, designId, activeRevisionId, selectedRevisionId, createdAt)
+    this.database.prepare(`
+      UPDATE design_branches SET
+        draft = (SELECT draft FROM designs WHERE id = ?),
+        draft_attachments_json = (SELECT draft_attachments_json FROM designs WHERE id = ?),
+        last_provider_id = (SELECT last_provider_id FROM designs WHERE id = ?),
+        last_model_id = (SELECT last_model_id FROM designs WHERE id = ?),
+        last_effort = (SELECT last_effort FROM designs WHERE id = ?),
+        layout_json = (SELECT layout_json FROM designs WHERE id = ?),
+        queue_paused = (SELECT queue_paused FROM designs WHERE id = ?),
+        entry_page_path = (SELECT entry_page_path FROM designs WHERE id = ?),
+        definition_version = (SELECT definition_version FROM designs WHERE id = ?),
+        pending_definition_version = (SELECT pending_definition_version FROM designs WHERE id = ?),
+        kept_definition_version = (SELECT kept_definition_version FROM designs WHERE id = ?),
+        definition_application_state = (SELECT definition_application_state FROM designs WHERE id = ?),
+        definition_application_error = (SELECT definition_application_error FROM designs WHERE id = ?)
+      WHERE id = ?
+    `).run(designId, designId, designId, designId, designId, designId, designId, designId, designId, designId, designId, designId, designId, designId)
     this.database.prepare('UPDATE designs SET active_branch_id = ? WHERE id = ?').run(designId, designId)
+  }
+
+  private uniqueBranchTitle(designId: string, requestedTitle: string): string {
+    const base = requestedTitle.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180) || 'Alternative direction'
+    const existing = new Set(this.listDesignBranches(designId).map((branch) => branch.title.toLocaleLowerCase()))
+    if (!existing.has(base.toLocaleLowerCase())) return base
+    for (let suffix = 2; suffix < 10_000; suffix += 1) {
+      const candidate = `${base} ${suffix}`.slice(0, 200)
+      if (!existing.has(candidate.toLocaleLowerCase())) return candidate
+    }
+    throw new Error('Could not create a unique branch title.')
+  }
+
+  private insertMessage(designId: string, role: Message['role'], text: string, createdAt: string, options: {
+    readonly attachments?: readonly Attachment[]
+    readonly focusedTarget?: FocusedTarget | null
+    readonly focusedFeedback?: readonly FocusedFeedback[]
+    readonly generationJobId?: string | null
+    readonly replyToMessageId?: string | null
+    readonly branchId?: string
+  } = {}): string {
+    const branchId = options.branchId ?? this.requireDesign(designId).activeBranchId
+    const branch = this.database.prepare('SELECT id FROM design_branches WHERE id = ? AND design_id = ?').get(branchId, designId)
+    if (!branch) throw new Error('Design branch not found.')
+    if (options.replyToMessageId && !this.database.prepare('SELECT 1 FROM branch_messages WHERE branch_id = ? AND message_id = ?').get(branchId, options.replyToMessageId)) {
+      throw new Error('Reply target is not part of this branch conversation.')
+    }
+    const id = randomUUID()
+    const attachments = (options.attachments ?? []).map((attachment) => attachmentSchema.parse(attachment))
+    const focusedTarget = options.focusedTarget ? focusedTargetSchema.parse(options.focusedTarget) : null
+    const focusedFeedback = (options.focusedFeedback ?? []).map((item) => focusedFeedbackSchema.parse(item))
+    this.database.prepare(`
+      INSERT INTO messages (
+        id, design_id, owner_branch_id, role, text, attachments_json, focused_target_json,
+        focused_feedback_json, generation_job_id, reply_to_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, designId, branchId, role, text, JSON.stringify(attachments), focusedTarget ? JSON.stringify(focusedTarget) : null, JSON.stringify(focusedFeedback), options.generationJobId ?? null, options.replyToMessageId ?? null, createdAt)
+    const ordinal = this.database.prepare('SELECT COALESCE(MAX(ordinal), -1) + 1 AS ordinal FROM branch_messages WHERE branch_id = ?').get(branchId) as { ordinal: number }
+    this.database.prepare('INSERT INTO branch_messages (branch_id, message_id, ordinal) VALUES (?, ?, ?)').run(branchId, id, ordinal.ordinal)
+    return id
   }
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1797,17 +2101,35 @@ export class WorkspaceStore {
     }
   }
 
-  private hydrateDesign(row: DesignRow): Design {
-    const messageRows = this.database.prepare('SELECT id, role, text, attachments_json, focused_target_json, focused_feedback_json, created_at FROM messages WHERE design_id = ? ORDER BY created_at, rowid')
-      .all(row.id) as unknown as MessageRow[]
+  private hydrateDesign(row: DesignRow, branchId = row.active_branch_id): Design {
+    const branch = this.database.prepare(`
+      SELECT active_revision_id, selected_revision_id, draft, draft_attachments_json,
+             last_provider_id, last_model_id, last_effort, layout_json, queue_paused,
+             provider_session_id, provider_session_provider, entry_page_path, definition_version,
+             pending_definition_version, kept_definition_version, definition_application_state, definition_application_error
+      FROM design_branches WHERE id = ? AND design_id = ?
+    `).get(branchId, row.id) as unknown as DesignBranchStateRow | undefined
+    if (!branch) throw new Error('Design branch not found.')
+    const messageRows = this.database.prepare(`
+      SELECT m.id, m.owner_branch_id, m.role, m.text, m.attachments_json, m.focused_target_json,
+             m.focused_feedback_json, m.reply_to_message_id, m.created_at
+      FROM branch_messages bm JOIN messages m ON m.id = bm.message_id
+      WHERE bm.branch_id = ? ORDER BY bm.ordinal
+    `).all(branchId) as unknown as MessageRow[]
     const revisionRows = this.database.prepare(`
-      SELECT id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, quality_checked_at, quality_check_version, created_at
-      FROM revisions WHERE design_id = ? ORDER BY created_at, rowid
-    `).all(row.id) as unknown as RevisionRow[]
+      WITH RECURSIVE history(id) AS (
+        SELECT active_revision_id FROM design_branches WHERE id = ?
+        UNION ALL
+        SELECT r.parent_revision_id FROM revisions r JOIN history h ON r.id = h.id WHERE r.parent_revision_id IS NOT NULL
+      )
+      SELECT r.id, r.owner_branch_id, r.parent_revision_id, r.prompt, r.provider_id, r.model_id, r.git_commit,
+             r.definition_version, r.quality_checked_at, r.quality_check_version, r.created_at
+      FROM revisions r JOIN history h ON h.id = r.id ORDER BY r.created_at, r.rowid
+    `).all(branchId) as unknown as RevisionRow[]
     const invalidCandidateRows = this.database.prepare(`
       SELECT id, prompt, candidate_path, diagnostic, created_at
-      FROM invalid_candidates WHERE design_id = ? ORDER BY created_at, rowid
-    `).all(row.id) as unknown as InvalidCandidateRow[]
+      FROM invalid_candidates WHERE branch_id = ? ORDER BY created_at, rowid
+    `).all(branchId) as unknown as InvalidCandidateRow[]
 
     return designSchema.parse({
       id: row.id,
@@ -1817,32 +2139,32 @@ export class WorkspaceStore {
       title: row.title,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      activeBranchId: row.active_branch_id,
+      activeBranchId: branchId,
       branches: this.listDesignBranches(row.id),
-      activeRevisionId: row.active_revision_id,
-      selectedRevisionId: row.selected_revision_id,
-      definitionVersion: row.definition_version,
-      pendingDefinitionVersion: row.pending_definition_version,
-      keptDefinitionVersion: row.kept_definition_version,
-      definitionApplicationState: row.definition_application_state,
-      definitionApplicationError: row.definition_application_error,
-      draft: row.draft,
-      draftAttachments: this.hydrateAttachments(row.draft_attachments_json),
-      thumbnailDataUrl: row.thumbnail_path && existsSync(row.thumbnail_path) ? `data:image/png;base64,${readFileSync(row.thumbnail_path).toString('base64')}` : null,
-      queuePaused: row.queue_paused === 1,
+      activeRevisionId: branch.active_revision_id,
+      selectedRevisionId: branch.selected_revision_id,
+      definitionVersion: branch.definition_version,
+      pendingDefinitionVersion: branch.pending_definition_version,
+      keptDefinitionVersion: branch.kept_definition_version,
+      definitionApplicationState: branch.definition_application_state,
+      definitionApplicationError: branch.definition_application_error,
+      draft: branch.draft,
+      draftAttachments: this.hydrateAttachments(branch.draft_attachments_json),
+      thumbnailDataUrl: this.readThumbnailDataUrl(branch.active_revision_id ? this.database.prepare('SELECT thumbnail_path FROM revision_thumbnails WHERE revision_id = ?').get(branch.active_revision_id) as { thumbnail_path: string } | undefined : undefined),
+      queuePaused: branch.queue_paused === 1,
       titlePending: row.title_pending === 1,
       adaptationPending: row.adaptation_pending === 1,
-      entryPagePath: row.entry_page_path,
-      pages: this.listDesignPages(row.id, row.entry_page_path),
+      entryPagePath: branch.entry_page_path,
+      pages: this.listDesignPages(row.id, branch.entry_page_path),
       tags: this.listTagsForTarget('design', row.id),
       lastSelection: {
-        providerId: row.last_provider_id,
-        modelId: row.last_model_id,
-        effort: row.last_effort,
+        providerId: branch.last_provider_id,
+        modelId: branch.last_model_id,
+        effort: branch.last_effort,
       },
-      generationSteps: this.listGenerationStepsForDesign(row.id),
-      layout: layoutSchema.parse(JSON.parse(row.layout_json)),
-      messages: messageRows.map((message) => ({ id: message.id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), focusedFeedback: this.hydrateFocusedFeedback(message.focused_feedback_json), createdAt: message.created_at })),
+      generationSteps: this.listGenerationStepsForBranch(branchId),
+      layout: layoutSchema.parse(JSON.parse(branch.layout_json)),
+      messages: messageRows.map((message) => ({ id: message.id, ownerBranchId: message.owner_branch_id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), focusedFeedback: this.hydrateFocusedFeedback(message.focused_feedback_json), replyToMessageId: message.reply_to_message_id, createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
         id: candidate.id,
         prompt: candidate.prompt,
@@ -1850,9 +2172,10 @@ export class WorkspaceStore {
         diagnostic: candidate.diagnostic,
         createdAt: candidate.created_at,
       })),
-      generationJobs: this.listGenerationJobsForDesign(row.id),
+      generationJobs: this.listGenerationJobsForBranch(branchId),
       revisions: revisionRows.map((revision): Revision => ({
         id: revision.id,
+        ownerBranchId: revision.owner_branch_id,
         parentRevisionId: revision.parent_revision_id,
         prompt: revision.prompt,
         providerId: revision.provider_id,
@@ -1872,6 +2195,31 @@ export class WorkspaceStore {
         }),
       })),
     })
+  }
+
+  private syncActiveBranchProjection(designId: string, branchId: string): void {
+    this.database.prepare(`
+      UPDATE designs SET
+        active_revision_id = b.active_revision_id,
+        selected_revision_id = b.selected_revision_id,
+        draft = b.draft,
+        draft_attachments_json = b.draft_attachments_json,
+        last_provider_id = b.last_provider_id,
+        last_model_id = b.last_model_id,
+        last_effort = b.last_effort,
+        layout_json = b.layout_json,
+        queue_paused = b.queue_paused,
+        provider_session_id = b.provider_session_id,
+        provider_session_provider = b.provider_session_provider,
+        entry_page_path = b.entry_page_path,
+        definition_version = b.definition_version,
+        pending_definition_version = b.pending_definition_version,
+        kept_definition_version = b.kept_definition_version,
+        definition_application_state = b.definition_application_state,
+        definition_application_error = b.definition_application_error
+      FROM design_branches b
+      WHERE designs.id = ? AND designs.active_branch_id = ? AND b.id = ? AND b.design_id = designs.id
+    `).run(designId, branchId, branchId)
   }
 
   private hydrateProject(row: ProjectRow): ProjectSummary {
@@ -1979,19 +2327,19 @@ export class WorkspaceStore {
     }
   }
 
-  private listGenerationStepsForDesign(designId: string): GenerationStep[] {
+  private listGenerationStepsForBranch(branchId: string): GenerationStep[] {
     const rows = this.database.prepare(`
       SELECT id, stage, label, detail, created_at
-      FROM generation_steps WHERE design_id = ? ORDER BY created_at, rowid
-    `).all(designId) as unknown as GenerationStepRow[]
+      FROM generation_steps WHERE branch_id = ? ORDER BY created_at, rowid
+    `).all(branchId) as unknown as GenerationStepRow[]
     return rows.map((row) => ({ id: row.id, stage: row.stage, label: row.label, detail: row.detail, createdAt: row.created_at }))
   }
 
-  private listGenerationJobsForDesign(designId: string): GenerationJob[] {
+  private listGenerationJobsForBranch(branchId: string): GenerationJob[] {
     const rows = this.database.prepare(`
-      SELECT id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
-      FROM generation_jobs WHERE design_id = ? ORDER BY created_at, rowid
-    `).all(designId) as unknown as GenerationJobRow[]
+      SELECT id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, provider_session_id, definition_target_version, focused_target_json, focused_feedback_json, state, created_at, started_at, completed_at, error
+      FROM generation_jobs WHERE branch_id = ? ORDER BY created_at, rowid
+    `).all(branchId) as unknown as GenerationJobRow[]
     return rows.map((row) => this.hydrateGenerationJob(row))
   }
 
@@ -1999,6 +2347,7 @@ export class WorkspaceStore {
     return generationJobSchema.parse({
       id: row.id,
       designId: row.design_id,
+      branchId: row.branch_id,
       prompt: row.prompt,
       providerId: row.provider_id,
       modelId: row.model_id,

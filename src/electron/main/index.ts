@@ -15,6 +15,7 @@ import {
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
   compareRevisionsRequestSchema,
+  createDesignBranchRequestSchema,
   createFolderRequestSchema,
   createTagRequestSchema,
   designIdRequestSchema,
@@ -45,12 +46,14 @@ import {
   locateFocusedTargetsRequestSchema,
   resolveFocusedTargetRequestSchema,
   removeFocusedFeedbackRequestSchema,
+  removeDesignBranchRequestSchema,
   savePageMetadataRequestSchema,
   saveProjectDesignDefinitionsRequestSchema,
   saveDesignSelectionRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
+  branchIdRequestSchema,
   setEntryPageRequestSchema,
   setProjectDefinitionPromptSuppressedRequestSchema,
   submitFocusedFeedbackBatchRequestSchema,
@@ -331,6 +334,21 @@ function registerIpc(): void {
   ipcMain.handle('workspace:get', (event, value: unknown) => {
     authorize(event)
     return requireWorkspace().getDesign(designIdRequestSchema.parse(value).designId)
+  })
+  ipcMain.handle('workspace:create-branch', (event, value: unknown) => {
+    authorize(event)
+    const request = createDesignBranchRequestSchema.parse(value)
+    return requireWorkspace().createDesignBranch(request.designId, request.title, request.baseRevisionId, request.forkMessageId)
+  })
+  ipcMain.handle('workspace:switch-branch', (event, value: unknown) => {
+    authorize(event)
+    const request = branchIdRequestSchema.parse(value)
+    return requireWorkspace().switchDesignBranch(request.designId, request.branchId)
+  })
+  ipcMain.handle('workspace:remove-branch', (event, value: unknown) => {
+    authorize(event)
+    const request = removeDesignBranchRequestSchema.parse(value)
+    return requireWorkspace().removeDesignBranch(request.designId, request.branchId, request.force)
   })
   ipcMain.handle('workspace:rename-design', (event, value: unknown) => {
     authorize(event)
@@ -853,9 +871,9 @@ void app.whenReady().then(() => {
     async (job, signal, onActivity) => {
       // Make sure the repository is at the head of the main timeline before generating, in case the
       // user was viewing (and had checked out) an earlier revision.
-      if (job.mode === 'fresh') requireWorkspace().prepareGenerationWorkspace(job.designId)
+      if (job.mode === 'fresh') requireWorkspace().prepareGenerationWorkspace(job.designId, job.branchId)
       if (job.providerId === 'mock') {
-        await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3)
+        await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3, undefined, job.branchId)
         return
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
@@ -863,9 +881,9 @@ void app.whenReady().then(() => {
       // A retry normally resumes the provider thread that already received the new-design context.
       // Re-send it only when there is no resumable session (for example, the first attempt failed
       // before the provider returned a session id).
-      const storedSession = store.getDesignProviderSession(job.designId)
+      const storedSession = store.getDesignProviderSession(job.designId, job.branchId)
       if (job.mode === 'fresh' && !job.providerSessionId && !storedSession) {
-        const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId)
+        const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId, job.branchId)
         if (definitionContext) agentPrompt = `${agentPrompt}\n\n${definitionContext}`
       }
       if (job.focusedFeedback?.length) agentPrompt = createFocusedFeedbackBatchPrompt(job.focusedFeedback)
@@ -875,12 +893,12 @@ void app.whenReady().then(() => {
       let providerSessionId = job.providerSessionId ?? (storedSession && storedSession.providerId === job.providerId ? storedSession.sessionId : undefined)
       // When starting fresh, give the agent a recap of the conversation so far so it is not blind to it.
       // The last message is the current prompt (added at enqueue), so it is excluded from the recap.
-      const conversationRecap = providerSessionId ? '' : buildConversationRecap((store.getDesign(job.designId)?.messages ?? []).slice(0, -1))
+      const conversationRecap = providerSessionId ? '' : buildConversationRecap((store.getDesignAtBranch(job.designId, job.branchId)?.messages ?? []).slice(0, -1))
       const rememberSession = (sessionId: string) => {
         if (!sessionId || sessionId === providerSessionId) return
         providerSessionId = sessionId
         store.saveGenerationJobSession(job.id, sessionId)
-        store.saveDesignProviderSession(job.designId, job.providerId, sessionId)
+        store.saveDesignProviderSession(job.designId, job.providerId, sessionId, job.branchId)
       }
       for (let attempt = 0; attempt < 4; attempt += 1) {
         onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? 'Starting the design agent.' : `Making improvements (round ${attempt} of 3).` })
@@ -898,7 +916,7 @@ void app.whenReady().then(() => {
           if (!message || message === lastFlushed) return
           lastFlushed = message
           try {
-            store.addAssistantResponse(job.designId, message)
+            store.addAssistantResponse(job.designId, message, job.branchId)
             sendWorkspaceChanged(job.designId)
           } catch { /* the design may have been removed mid-stream */ }
         }
@@ -909,7 +927,7 @@ void app.whenReady().then(() => {
           ...(job.effort ? { effort: job.effort } : {}),
           prompt: agentPrompt,
           signal,
-          workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
+          workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId, job.branchId),
           attachments: job.attachments,
           sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
           ...(providerSessionId ? { resumeSessionId: providerSessionId } : {}),
@@ -927,13 +945,13 @@ void app.whenReady().then(() => {
         flushAgentMessage()
         if (reply.sessionId) rememberSession(reply.sessionId)
         if (signal.aborted) throw new Error('Generation was cancelled.')
-        const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
+        const invalidCount = store.getDesignAtBranch(job.designId, job.branchId)?.invalidCandidates.length ?? 0
         const revisionReason = job.definitionTargetVersion ? `Apply project definitions version ${job.definitionTargetVersion}` : job.prompt
-        const priorRevisionId = requireWorkspace().getDesign(job.designId)?.activeRevisionId ?? null
-        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, revisionReason, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3, job.definitionTargetVersion)
+        const priorRevisionId = store.getDesignAtBranch(job.designId, job.branchId)?.activeRevisionId ?? null
+        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, revisionReason, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3, job.definitionTargetVersion, job.branchId)
         if (saved.invalidCandidates.length === invalidCount) {
           if (job.definitionTargetVersion) {
-            store.completeProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
+            store.completeProjectDefinitionApplication(job.designId, job.definitionTargetVersion, job.branchId)
             store.finishProjectDefinitionApplicationAttemptForJob(job.id, 'completed', null, saved.activeRevisionId !== priorRevisionId ? saved.activeRevisionId : null)
           }
           return

@@ -42,10 +42,10 @@ const design: OmniDesignDocument = {
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
   layout: { conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewCustomWidth: 1280, previewCustomHeight: 800, previewPage: null, previewZoom: 0.75, previewPanX: 0, previewPanY: 0 },
-  messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
+  messages: [{ id: 'message-1', ownerBranchId: 'design-1', role: 'user', text: 'A calm dashboard', replyToMessageId: null, createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
-  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:00:02.000Z', qualityCheckVersion: 1, createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
+  revisions: [{ id: 'revision-1', ownerBranchId: 'design-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:00:02.000Z', qualityCheckVersion: 1, createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
 const engagedDesign: OmniDesignDocument = {

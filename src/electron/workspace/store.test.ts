@@ -28,9 +28,22 @@ describe('WorkspaceStore', () => {
     const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
     database.exec(`
       PRAGMA foreign_keys = OFF;
+      DROP TABLE branch_messages;
+      DROP INDEX generation_jobs_by_branch;
+      DROP INDEX generation_steps_by_branch;
+      DROP INDEX invalid_candidates_by_branch;
+      DROP INDEX focused_feedback_queue_by_branch;
+      ALTER TABLE revisions DROP COLUMN owner_branch_id;
+      ALTER TABLE messages DROP COLUMN owner_branch_id;
+      ALTER TABLE messages DROP COLUMN reply_to_message_id;
+      ALTER TABLE generation_jobs DROP COLUMN branch_id;
+      ALTER TABLE generation_steps DROP COLUMN branch_id;
+      ALTER TABLE invalid_candidates DROP COLUMN branch_id;
+      ALTER TABLE focused_feedback_queue DROP COLUMN branch_id;
+      ALTER TABLE project_definition_application_attempts DROP COLUMN branch_id;
       ALTER TABLE designs DROP COLUMN active_branch_id;
       DROP TABLE design_branches;
-      DELETE FROM schema_migrations WHERE version = 42;
+      DELETE FROM schema_migrations WHERE version IN (42, 43);
     `)
     database.close()
 

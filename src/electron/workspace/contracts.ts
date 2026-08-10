@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const revisionSchema = z.object({
   id: z.string().min(1),
+  ownerBranchId: z.string().min(1).max(100).nullable(),
   parentRevisionId: z.string().nullable(),
   prompt: z.string(),
   providerId: z.string().min(1),
@@ -237,11 +238,13 @@ export const locateFocusedTargetsRequestSchema = z.object({
 
 export const messageSchema = z.object({
   id: z.string().min(1),
+  ownerBranchId: z.string().min(1).max(100).nullable(),
   role: z.enum(['user', 'assistant', 'system']),
   text: z.string(),
   attachments: z.array(attachmentSchema).default([]),
   focusedTarget: focusedTargetSchema.nullable().default(null),
   focusedFeedback: z.array(focusedFeedbackSchema).max(50).optional(),
+  replyToMessageId: z.string().min(1).max(100).nullable().default(null),
   createdAt: z.string().datetime(),
 })
 
@@ -357,6 +360,7 @@ export const generationJobModeSchema = z.enum(['fresh', 'continue'])
 export const generationJobSchema = z.object({
   id: z.string().min(1),
   designId: z.string().min(1),
+  branchId: z.string().min(1).max(100),
   prompt: z.string(),
   providerId: z.enum(['mock', 'codex', 'claude']),
   modelId: z.string().min(1),
@@ -427,6 +431,20 @@ export const attachmentPickerRequestSchema = z.object({
 
 export const designIdRequestSchema = z.object({
   designId: z.string().min(1).max(100),
+})
+
+export const branchIdRequestSchema = designIdRequestSchema.extend({
+  branchId: z.string().min(1).max(100),
+})
+
+export const createDesignBranchRequestSchema = designIdRequestSchema.extend({
+  title: z.string().trim().min(1).max(80),
+  baseRevisionId: z.string().min(1).max(100).nullable().optional(),
+  forkMessageId: z.string().min(1).max(100).nullable().optional(),
+})
+
+export const removeDesignBranchRequestSchema = branchIdRequestSchema.extend({
+  force: z.boolean().default(false),
 })
 
 export const renameDesignRequestSchema = designIdRequestSchema.extend({
@@ -631,6 +649,7 @@ export type SavePageMetadataRequest = z.infer<typeof savePageMetadataRequestSche
 
 export interface GenerationActivity {
   readonly designId: string
+  readonly branchId?: string
   readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'repairing' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
   readonly detail: string
 }

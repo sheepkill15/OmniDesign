@@ -62,6 +62,10 @@ export class DesignRepositoryManager {
     return `refs/heads/od/${branchId}`
   }
 
+  public getWorkingPath(designId: string, branchId = designId): string {
+    return branchId === designId ? this.initialize(designId) : this.requireRegisteredBranchWorktree(designId, branchId).path
+  }
+
   public initialize(designId: string): string {
     const repositoryPath = this.getPath(designId)
     mkdirSync(repositoryPath, { recursive: true })
@@ -160,9 +164,9 @@ export class DesignRepositoryManager {
    * the whole document); agents author index.html themselves, so it is omitted and only the compiled
    * stylesheet is refreshed. Returns the resulting commit SHA, or null when nothing changed.
    */
-  public commitRevision(designId: string, indexHtml: string | null, tailwindCss: string, message: string): string | null {
-    if (indexHtml !== null) return this.commitGeneratedRevision(designId, { [ENTRY_HTML_PATH]: indexHtml }, tailwindCss, message)
-    const repositoryPath = this.initialize(designId)
+  public commitRevision(designId: string, indexHtml: string | null, tailwindCss: string, message: string, branchId = designId): string | null {
+    if (indexHtml !== null) return this.commitGeneratedRevision(designId, { [ENTRY_HTML_PATH]: indexHtml }, tailwindCss, message, branchId)
+    const repositoryPath = this.getWorkingPath(designId, branchId)
     this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
     this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
     if (!this.commit(repositoryPath, message)) return null
@@ -170,10 +174,10 @@ export class DesignRepositoryManager {
   }
 
   /** Replace the mock provider's authored source tree and commit it with the managed build outputs. */
-  public commitGeneratedRevision(designId: string, sourceFiles: RevisionFiles, tailwindCss: string, message: string): string | null {
-    const repositoryPath = this.initialize(designId)
+  public commitGeneratedRevision(designId: string, sourceFiles: RevisionFiles, tailwindCss: string, message: string, branchId = designId): string | null {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
     const normalizedFiles = new Map(Object.entries(sourceFiles).map(([relativePath, content]) => [this.normalizeGeneratedPath(relativePath), content]))
-    for (const relativePath of Object.keys(this.readWorkingTreeFiles(designId))) {
+    for (const relativePath of Object.keys(this.readWorkingTreeFiles(designId, branchId))) {
       if (relativePath.startsWith(`${BUILD_DIR}/`) || normalizedFiles.has(relativePath)) continue
       const target = path.resolve(repositoryPath, relativePath)
       if (path.dirname(target) === repositoryPath || target.startsWith(`${repositoryPath}${path.sep}`)) unlinkSync(target)
@@ -195,12 +199,12 @@ export class DesignRepositoryManager {
     cpSync(source, target, { recursive: true })
   }
 
-  public readIndexHtml(designId: string): string {
-    return readFileSync(path.join(this.initialize(designId), ENTRY_HTML_PATH), 'utf8')
+  public readIndexHtml(designId: string, branchId = designId): string {
+    return readFileSync(path.join(this.getWorkingPath(designId, branchId), ENTRY_HTML_PATH), 'utf8')
   }
 
-  public writeSourceFiles(designId: string, sourceFiles: RevisionFiles): void {
-    const repositoryPath = this.initialize(designId)
+  public writeSourceFiles(designId: string, sourceFiles: RevisionFiles, branchId = designId): void {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
     for (const [relativePath, content] of Object.entries(sourceFiles)) {
       if (relativePath === BUILD_DIR || relativePath.startsWith(`${BUILD_DIR}/`)) continue
       this.writeFile(repositoryPath, this.normalizeGeneratedPath(relativePath), content)
@@ -212,8 +216,8 @@ export class DesignRepositoryManager {
    * plus the managed build assets), keyed by relative path. Used to compile Tailwind across all pages
    * before a revision is committed. The .git directory is never included.
    */
-  public readWorkingTreeFiles(designId: string): RevisionFiles {
-    const repositoryPath = this.initialize(designId)
+  public readWorkingTreeFiles(designId: string, branchId = designId): RevisionFiles {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
     // -c lists tracked+untracked files while honouring .gitignore; -o adds untracked; --exclude-standard
     // keeps ignored noise out. Together they enumerate exactly the files a commit would capture.
     const listing = this.run(repositoryPath, ['ls-files', '--cached', '--others', '--exclude-standard'])
@@ -226,13 +230,18 @@ export class DesignRepositoryManager {
   }
 
   /** Check out an earlier revision's commit (detached HEAD) so the working tree reflects it. */
-  public checkoutRevision(designId: string, commit: string): void {
-    this.run(this.initialize(designId), ['checkout', '--force', commit])
+  public checkoutRevision(designId: string, commit: string, branchId = designId): void {
+    this.run(this.getWorkingPath(designId, branchId), ['checkout', '--force', commit])
   }
 
-  /** Return the working tree to the head of the main timeline, discarding any transient checkout. */
+  /** Return one worktree to its product branch head, discarding any transient historical checkout. */
+  public checkoutBranchHead(designId: string, branchId = designId): void {
+    const branchName = branchId === designId ? 'main' : `od/${branchId}`
+    this.run(this.getWorkingPath(designId, branchId), ['checkout', '--force', branchName])
+  }
+
   public checkoutMain(designId: string): void {
-    this.run(this.initialize(designId), ['checkout', '--force', 'main'])
+    this.checkoutBranchHead(designId, designId)
   }
 
   /**
@@ -280,9 +289,10 @@ export class DesignRepositoryManager {
    * Restore a past revision as a new head commit on the main timeline: return to main, bring that
    * commit's tree into the working tree, and commit it forward. Earlier revisions are preserved.
    */
-  public restore(designId: string, commit: string, message: string): string {
-    const repositoryPath = this.initialize(designId)
-    this.run(repositoryPath, ['checkout', '--force', 'main'])
+  public restore(designId: string, commit: string, message: string, branchId = designId): string {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
+    const branchName = branchId === designId ? 'main' : `od/${branchId}`
+    this.run(repositoryPath, ['checkout', '--force', branchName])
     this.run(repositoryPath, ['checkout', commit, '--', '.'])
     this.commit(repositoryPath, message)
     return this.run(repositoryPath, ['rev-parse', 'HEAD'])

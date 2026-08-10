@@ -14,6 +14,39 @@ afterEach(() => {
 })
 
 describe('WorkspaceService', () => {
+  it('coordinates branch records, linked worktrees, isolated state, restart, and removal', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const mainHead = main.activeRevisionId
+
+    const branch = service.createDesignBranch(main.id, 'Warmer direction')
+    const branchId = branch.activeBranchId
+    const branchPath = service.getDesignRepositoryPath(main.id, branchId)
+    expect(branchId).not.toBe(main.id)
+    expect(existsSync(branchPath)).toBe(true)
+    const revisedBranch = await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    expect(revisedBranch.activeRevisionId).not.toBe(mainHead)
+    service.saveDraft(main.id, 'Branch-only draft')
+
+    const restoredMain = service.switchDesignBranch(main.id, main.id)
+    expect(restoredMain).toMatchObject({ activeBranchId: main.id, activeRevisionId: mainHead, draft: '' })
+    expect(service.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft' })
+    service.switchDesignBranch(main.id, main.id)
+    store.close()
+
+    const reopenedStore = new WorkspaceStore(directory)
+    const reopenedService = new WorkspaceService(reopenedStore)
+    expect(reopenedService.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft' })
+    reopenedService.switchDesignBranch(main.id, main.id)
+    expect(reopenedService.removeDesignBranch(main.id, branchId)).toHaveLength(1)
+    expect(existsSync(branchPath)).toBe(false)
+    expect(() => reopenedService.removeDesignBranch(main.id, main.id)).toThrow('Main cannot be removed.')
+    reopenedStore.close()
+  })
+
   it('materializes the captured project definitions and exposes first-prompt AI Agent instructions', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

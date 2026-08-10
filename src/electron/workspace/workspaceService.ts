@@ -1,5 +1,5 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
@@ -21,7 +21,17 @@ export class WorkspaceService {
 
   public constructor(private readonly store: WorkspaceStore) {
     this.repositories = new DesignRepositoryManager(store.getDesignArtifactsDirectory())
-    for (const design of store.listDesigns()) this.repositories.validateMainWorktree(design.id)
+    for (const design of store.listDesigns()) {
+      this.repositories.validateMainWorktree(design.id)
+      for (const branch of design.branches.filter((candidate) => !candidate.isMain)) {
+        try {
+          this.repositories.getWorkingPath(design.id, branch.id)
+        } catch {
+          try { this.repositories.repairBranchWorktree(design.id, branch.id) }
+          catch { this.store.setDesignBranchStatus(design.id, branch.id, 'failed') }
+        }
+      }
+    }
   }
 
   public listDesigns(): Design[] {
@@ -41,6 +51,60 @@ export class WorkspaceService {
   public getDesign(designId: string): Design | null {
     return this.store.getDesign(designId)
   }
+  public createDesignBranch(designId: string, title: string, baseRevisionId?: string | null, forkMessageId?: string | null): Design {
+    const source = this.store.getDesign(designId)
+    if (!source) throw new Error('Design not found.')
+    const resolvedBaseRevisionId = baseRevisionId === undefined ? source.activeRevisionId : baseRevisionId
+    const baseRevision = resolvedBaseRevisionId ? source.revisions.find((revision) => revision.id === resolvedBaseRevisionId) : null
+    if (!baseRevision?.gitCommit) throw new Error('A branch requires a committed design revision as its starting point.')
+    const branch = this.store.createDesignBranch(designId, title, resolvedBaseRevisionId, forkMessageId ?? null)
+    try {
+      this.repositories.createBranchWorktree(designId, branch.id, baseRevision.gitCommit)
+      return this.switchDesignBranch(designId, branch.id)
+    } catch (error) {
+      try { this.store.removeDesignBranchRecord(designId, branch.id) } catch { /* preserve the original lifecycle error */ }
+      throw error
+    }
+  }
+
+  public switchDesignBranch(designId: string, branchId: string): Design {
+    const branch = this.store.listDesignBranches(designId).find((candidate) => candidate.id === branchId)
+    if (!branch) throw new Error('Design branch not found.')
+    try {
+      if (branch.isMain) this.repositories.validateMainWorktree(designId)
+      else {
+        try { this.repositories.getWorkingPath(designId, branchId) }
+        catch { this.repositories.repairBranchWorktree(designId, branchId) }
+      }
+      const selectedRevision = branch.selectedRevisionId
+        ? this.store.getDesignAtBranch(designId, branchId)?.revisions.find((revision) => revision.id === branch.selectedRevisionId)
+        : null
+      if (selectedRevision && selectedRevision.id !== branch.activeRevisionId && selectedRevision.gitCommit) {
+        this.repositories.checkoutRevision(designId, selectedRevision.gitCommit, branchId)
+      } else {
+        this.repositories.checkoutBranchHead(designId, branchId)
+      }
+    } catch (error) {
+      this.store.setDesignBranchStatus(designId, branchId, 'failed')
+      throw error
+    }
+    if (branch.status === 'failed') this.store.setDesignBranchStatus(designId, branchId, 'ready')
+    return this.store.switchDesignBranch(designId, branchId)
+  }
+
+  public removeDesignBranch(designId: string, branchId: string, force = false): DesignBranch[] {
+    const branch = this.store.listDesignBranches(designId).find((candidate) => candidate.id === branchId)
+    if (!branch) throw new Error('Design branch not found.')
+    if (branch.isMain) throw new Error('Main cannot be removed.')
+    if (this.store.getDesign(designId)?.activeBranchId === branchId) throw new Error('Switch to another branch before removing this branch.')
+    const branchState = this.store.getDesignAtBranch(designId, branchId)
+    if (branchState?.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')) {
+      throw new Error('Finish or stop this branch\'s active work before removing it.')
+    }
+    this.repositories.removeBranchWorktree(designId, branchId, force)
+    this.store.removeDesignBranchRecord(designId, branchId)
+    return this.store.listDesignBranches(designId)
+  }
   public renameProject(projectId: string, name: string): ProjectSummary { return this.store.renameProject(projectId, name) }
   public getProjectDesignDefinitionState(projectId: string): ProjectDesignDefinitionState | null { return this.store.getProjectDesignDefinitionState(projectId) }
   public listProjectDesignDefinitionVersions(projectId: string): ProjectDesignDefinitionVersion[] { return this.store.listProjectDesignDefinitionVersions(projectId) }
@@ -48,8 +112,9 @@ export class WorkspaceService {
   public setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): ProjectDesignDefinitionState { return this.store.setProjectDefinitionPromptSuppressed(projectId, suppressed) }
   public keepProjectDesignDefinitions(designId: string, targetVersion: number): Design { return this.store.keepProjectDesignDefinitions(designId, targetVersion) }
 
-  public async applyProjectDesignDefinitions(designId: string, targetVersion: number): Promise<Design> {
-    const design = this.store.getDesign(designId)
+  public async applyProjectDesignDefinitions(designId: string, targetVersion: number, branchId = this.store.getDesign(designId)?.activeBranchId): Promise<Design> {
+    if (!branchId) throw new Error('Design branch not found.')
+    const design = this.store.getDesignAtBranch(designId, branchId)
     if (!design || design.pendingDefinitionVersion !== targetVersion) throw new Error('The requested project-definition decision is no longer pending.')
     const target = this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === targetVersion)
     if (!target) throw new Error('The requested project definitions are missing.')
@@ -58,47 +123,49 @@ export class WorkspaceService {
       : null
     if (design.activeRevisionId && (!current || !canUpdateProjectThemeDeterministically(current.definitions, target.definitions))) {
       const diagnostic = 'This change needs AI interpretation. Choose an available provider to apply it.'
-      this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'ai', state: 'unavailable', diagnostic })
-      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic, true)
+      this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'ai', state: 'unavailable', diagnostic, branchId })
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic, true, branchId)
     }
-    const attempt = this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'deterministic' })
+    const attempt = this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'deterministic', branchId })
     if (design.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')) {
       const diagnostic = 'Finish or stop the design’s active work before applying project definitions.'
       this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'failed', diagnostic)
-      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic)
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic, false, branchId)
     }
 
-    this.store.beginProjectDefinitionApplication(designId, targetVersion)
+    this.store.beginProjectDefinitionApplication(designId, targetVersion, branchId)
     try {
-      this.repositories.checkoutMain(designId)
-      const sourceFiles = materializeProjectTheme(this.repositories.readWorkingTreeFiles(designId), target)
-      this.repositories.writeSourceFiles(designId, sourceFiles)
+      this.repositories.checkoutBranchHead(designId, branchId)
+      const sourceFiles = materializeProjectTheme(this.repositories.readWorkingTreeFiles(designId, branchId), target)
+      this.repositories.writeSourceFiles(designId, sourceFiles, branchId)
       if (!design.activeRevisionId) {
-        const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion)
+        const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion, branchId)
         this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'completed')
         return completed
       }
       const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       validateDesignFiles(sourceFiles)
-      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply project definitions version ${targetVersion}`)
-      const revised = gitCommit ? this.store.addRevision(designId, `Apply project definitions version ${targetVersion}`, 'omnidesign', 'deterministic', gitCommit, `Applied project definitions version ${targetVersion}.`, targetVersion) : null
-      const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion)
+      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply project definitions version ${targetVersion}`, branchId)
+      const revised = gitCommit ? this.store.addRevision(designId, `Apply project definitions version ${targetVersion}`, 'omnidesign', 'deterministic', gitCommit, `Applied project definitions version ${targetVersion}.`, targetVersion, branchId) : null
+      const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion, branchId)
       this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'completed', null, revised?.activeRevisionId ?? null)
       return completed
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Project definitions could not be applied.'
-      this.store.failProjectDefinitionApplication(designId, targetVersion, message)
+      this.store.failProjectDefinitionApplication(designId, targetVersion, message, false, branchId)
       this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'failed', message)
       throw error
     }
   }
 
   public async applyProjectDesignDefinitionsToAll(projectId: string, targetVersion: number): Promise<Design[]> {
-    const pending = this.store.listDesignsByProject(projectId).filter((design) => design.pendingDefinitionVersion === targetVersion)
+    const pending = this.store.listDesignsByProject(projectId).flatMap((design) => design.branches
+      .map((branch) => this.store.getDesignAtBranch(design.id, branch.id))
+      .filter((candidate): candidate is Design => candidate?.pendingDefinitionVersion === targetVersion))
     const results: Design[] = []
     for (const design of pending) {
-      try { results.push(await this.applyProjectDesignDefinitions(design.id, targetVersion)) }
-      catch { const failed = this.store.getDesign(design.id); if (failed) results.push(failed) }
+      try { results.push(await this.applyProjectDesignDefinitions(design.id, targetVersion, design.activeBranchId)) }
+      catch { const failed = this.store.getDesignAtBranch(design.id, design.activeBranchId); if (failed) results.push(failed) }
     }
     return results
   }
@@ -167,9 +234,9 @@ export class WorkspaceService {
     return this.store.createStandaloneDesign(prompt, title, attachments)
   }
 
-  public getDesignRepositoryPath(designId: string): string {
-    if (!this.store.getDesign(designId)) throw new Error('Design not found.')
-    return this.repositories.getPath(designId)
+  public getDesignRepositoryPath(designId: string, branchId = this.store.getDesign(designId)?.activeBranchId): string {
+    if (!branchId || !this.store.getDesignAtBranch(designId, branchId)) throw new Error('Design branch not found.')
+    return this.repositories.getWorkingPath(designId, branchId)
   }
 
   public async createDesign(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget, attachments: readonly Attachment[] = []): Promise<Design> {
@@ -192,18 +259,19 @@ export class WorkspaceService {
     return design
   }
 
-  public getInitialProjectDefinitionPromptContext(designId: string): string {
-    const design = this.store.getDesign(designId)
+  public getInitialProjectDefinitionPromptContext(designId: string, branchId?: string): string {
+    const design = branchId ? this.store.getDesignAtBranch(designId, branchId) : this.store.getDesign(designId)
     if (!design || design.activeRevisionId) return ''
     const definitionVersion = this.definitionVersionForDesign(design)
     return definitionVersion ? createProjectDefinitionPromptContext(definitionVersion) : ''
   }
 
-  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0, generatedFiles?: RevisionFiles): Promise<Design> {
+  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0, generatedFiles?: RevisionFiles, branchId = this.store.getDesign(designId)?.activeBranchId): Promise<Design> {
+    if (!branchId) throw new Error('Design branch not found.')
     this.throwIfCancelled(signal)
     if (savePrompt) this.store.addPrompt(designId, prompt)
     onActivity({ designId, stage: 'generating', detail: 'Mock provider is shaping the requested direction.' })
-    const current = this.store.getDesign(designId)
+    const current = this.store.getDesignAtBranch(designId, branchId)
     if (!current) throw new Error('Design not found.')
     const isIteration = current.activeRevisionId ?? undefined
     let generated = generatedFiles ? { html: generatedHtml ?? generatedFiles['index.html'] ?? '', files: generatedFiles } : generateMockDesign(prompt, isIteration)
@@ -223,15 +291,15 @@ export class WorkspaceService {
         onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
         validateDesignFiles(generated.files)
         onActivity({ designId, stage: 'saving', detail: 'Committing the revision to the design repository.' })
-        const gitCommit = this.repositories.commitGeneratedRevision(designId, generated.files, tailwindCss, `Apply design revision: ${prompt}`)
-        const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
+        const gitCommit = this.repositories.commitGeneratedRevision(designId, generated.files, tailwindCss, `Apply design revision: ${prompt}`, branchId)
+        const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit, undefined, undefined, branchId)
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved
       } catch (error) {
         if (signal?.aborted) return this.cancelledDesign(designId, onActivity)
         const diagnostic = error instanceof Error ? error.message : 'Generation failed.'
         if (repairAttempt === maxRepairAttempts) {
-          const rejected = this.store.addInvalidCandidate(designId, prompt, generated.html, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
+          const rejected = this.store.addInvalidCandidate(designId, prompt, generated.html, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.', branchId)
           onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
           return rejected
         }
@@ -249,22 +317,24 @@ export class WorkspaceService {
     if (!design || !revision) throw new Error('Revision not found.')
     // Going back to a revision checks its commit out into the working tree; selecting the current
     // head returns to the main timeline. Legacy revisions without a commit are viewed without checkout.
-    if (revision.id === design.activeRevisionId) this.repositories.checkoutMain(designId)
-    else if (revision.gitCommit) this.repositories.checkoutRevision(designId, revision.gitCommit)
+    if (revision.id === design.activeRevisionId) this.repositories.checkoutBranchHead(designId, design.activeBranchId)
+    else if (revision.gitCommit) this.repositories.checkoutRevision(designId, revision.gitCommit, design.activeBranchId)
     return this.store.selectRevision(designId, revisionId)
   }
 
   /** Ensure the working tree is at the head of the main timeline before a new generation runs. */
-  public prepareGenerationWorkspace(designId: string): void {
-    this.repositories.checkoutMain(designId)
+  public prepareGenerationWorkspace(designId: string, branchId = this.store.getDesign(designId)?.activeBranchId): void {
+    if (!branchId) throw new Error('Design branch not found.')
+    this.repositories.checkoutBranchHead(designId, branchId)
   }
 
   public restoreRevision(designId: string, revisionId: string): Design {
     const design = this.store.getDesign(designId)
-    const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
+    if (!design) throw new Error('Design not found.')
+    const revision = design.revisions.find((candidate) => candidate.id === revisionId)
     if (!revision) throw new Error('Revision not found.')
     if (!revision.gitCommit) throw new Error('Revision has no committed content to restore.')
-    const gitCommit = this.repositories.restore(designId, revision.gitCommit, `Restore design revision: ${revision.prompt}`)
+    const gitCommit = this.repositories.restore(designId, revision.gitCommit, `Restore design revision: ${revision.prompt}`, design.activeBranchId)
     return this.store.restoreRevision(designId, revisionId, gitCommit)
   }
 
@@ -317,31 +387,33 @@ export class WorkspaceService {
     onActivity: ActivityListener,
     allowRepair = false,
     definitionTargetVersion: number | null = null,
+    branchId = this.store.getDesign(designId)?.activeBranchId,
   ): Promise<Design> {
-    const current = this.store.getDesign(designId)
+    if (!branchId) throw new Error('Design branch not found.')
+    const current = this.store.getDesignAtBranch(designId, branchId)
     if (!current) throw new Error('Design not found.')
 
     try {
-      let sourceFiles = this.repositories.readWorkingTreeFiles(designId)
+      let sourceFiles = this.repositories.readWorkingTreeFiles(designId, branchId)
       const definitionVersion = definitionTargetVersion
         ? this.store.listProjectDesignDefinitionVersions(current.projectId).find((candidate) => candidate.version === definitionTargetVersion) ?? null
         : current.activeRevisionId ? null : this.definitionVersionForDesign(current)
       if (definitionTargetVersion && !definitionVersion) throw new Error('The requested project definitions are missing.')
       if (definitionVersion) {
         sourceFiles = materializeProjectTheme(sourceFiles, definitionVersion)
-        this.repositories.writeSourceFiles(designId, sourceFiles)
+        this.repositories.writeSourceFiles(designId, sourceFiles, branchId)
       }
       onActivity({ designId, stage: 'compiling', detail: 'Preparing the design’s styles.' })
       const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
       validateDesignFiles(sourceFiles)
       onActivity({ designId, stage: 'saving', detail: 'Saving your design.' })
-      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`)
+      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`, branchId)
       if (gitCommit === null) {
         onActivity({ designId, stage: 'complete', detail: 'No changes were needed.' })
-        return this.store.addAssistantResponse(designId, response)
+        return this.store.addAssistantResponse(designId, response, branchId)
       }
-      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response, definitionTargetVersion ?? current.definitionVersion ?? null)
+      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response, definitionTargetVersion ?? current.definitionVersion ?? null, branchId)
       onActivity({ designId, stage: 'complete', detail: 'Your design is ready.' })
       return saved
     } catch (error) {
@@ -350,12 +422,12 @@ export class WorkspaceService {
       // conversation: only a final, unrecoverable failure posts a system message and the agent's reply,
       // so a design that is fixed on a later attempt shows no leftover rejection.
       if (allowRepair) {
-        const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId), diagnostic)
+        const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId, branchId), diagnostic, null, branchId)
         onActivity({ designId, stage: 'repairing', detail: 'Making a few improvements…' })
         return rejected
       }
-      const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
-      this.store.addAssistantResponse(designId, response)
+      const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId, branchId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.', branchId)
+      this.store.addAssistantResponse(designId, response, branchId)
       onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
       return rejected
     }
@@ -417,11 +489,12 @@ export class WorkspaceService {
 
   // The entry page's current working-tree HTML, for storing a rejected candidate. Falls back to any
   // discovered page, then to index.html, so a design whose home page is not index.html still records.
-  private readEntryPageForDiagnostics(designId: string): string {
-    const files = this.repositories.readWorkingTreeFiles(designId)
+  private readEntryPageForDiagnostics(designId: string, branchId = this.store.getDesign(designId)?.activeBranchId): string {
+    if (!branchId) throw new Error('Design branch not found.')
+    const files = this.repositories.readWorkingTreeFiles(designId, branchId)
     const entry = resolveEntryPage(discoverPages(files))
     if (entry && files[entry] !== undefined) return files[entry]
-    return this.repositories.readIndexHtml(designId)
+    return this.repositories.readIndexHtml(designId, branchId)
   }
 
   private definitionVersionForDesign(design: Design): ProjectDesignDefinitionVersion | null {
