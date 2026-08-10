@@ -131,6 +131,8 @@ This is the preparation required to begin Phase 1 responsibly; it does not repla
 - Let users compare branches and choose the best parts from multiple versions: the best of all worlds.
 - Preserve the lineage and history needed to understand branching and combination decisions.
 
+The ratified Phase 4 product contract is `docs/PHASE_4_SPEC.md`. It defines prompt-led branches backed by persistent Git worktrees, branch conversations and provider fan-out, visual comparison, AI-directed source-to-destination combination with Git and manual recovery, and the Phase 4 trusted-application refinements. Implementation must satisfy that contract without exposing low-level Git as the product model.
+
 ### Phase 5: Cloud and Collaboration
 
 - Move appropriate capabilities to an optional cloud offering.

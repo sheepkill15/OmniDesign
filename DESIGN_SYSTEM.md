@@ -294,6 +294,39 @@ The product owner accepted the Quiet Studio home direction on 2026-07-20. It is 
 - Keep detailed generation output scannable. Metadata and repeated tool activity should use compact rows rather than large containers.
 - Queue, retry, repair, interruption, and failure states use consistent status primitives and direct next actions.
 
+## Phase 4 Composition Guidance
+
+### Branch Context and Lineage
+
+- Branch navigation belongs in one slim context strip directly below the main workspace header, not in the already dense workspace or preview toolbar.
+- Keep the strip visible in Split, Conversation-only, and Preview-only layouts. It shows the immutable AI-generated branch name, one plain-language status, and an accessible selector without becoming a second command toolbar.
+- Put comparison, combination, and permanent removal in **Manage branches**, reached from the selector. Keep destructive controls out of everyday switching.
+- The lineage view emphasizes branches, fork points, and successful combinations. Reveal ordinary revisions on demand instead of drawing every commit permanently.
+- Use product language such as `Main`, source, destination, direction, combining, and manual resolution. Do not expose ahead/behind, dirty, detached, ref, index, or other Git implementation terms.
+- Statuses use an icon and wording, never color alone. The accepted compact states are Ready, Generating, Queued, Failed, Combining, and Needs manual resolution.
+
+### Branching Composer and Message Actions
+
+- Continuing the selected branch is the composer default. Separate-branch mode visibly changes the composer with an icon and the exact text **This change will happen in a separate branch**.
+- A hover/focus information control may explain branches, but the active branch-mode state cannot exist only in a tooltip.
+- Message quick actions stay visually quiet until pointer hover or keyboard focus. User prompts expose Copy, Fork, Reply, and later Phase 4 Read aloud; agent messages expose Copy, Reply, and Read aloud.
+- Reply appears as one removable, clearly attributed reference in the ordinary composer. It must not be mistaken for branch creation or historical restoration.
+- Provider/model fan-out uses the existing shared selection primitives and makes the number of branches that will be created clear before submission.
+
+### Comparison and Combination
+
+- Compare branch pages in paired, equally weighted preview regions with a shared page selector. Clearly mark a page that exists on only one branch instead of showing an empty lookalike as if it were a failed render.
+- Label source and destination persistently through comparison and combination. Their roles cannot depend on left/right position or color alone.
+- An AI-generated comparison summary is secondary evidence, explicitly requested, labeled as generated interpretation, and visually subordinate to the rendered designs.
+- Combination uses an ordinary substantial prompt rather than a dense merge-control panel. The recovery UI presents intelligent attempt, fallback, manual resolution, Check resolution, and Abort in calm product language.
+
+### Definitions and Updates
+
+- Standalone design workspaces do not show the Definitions button, missing-definition prompts, definition-version warnings, or application actions. Definitions remain a project concept.
+- A project-associated branch that is behind the project's definition version shows the existing contextual warning only inside its selected workspace, not in the branch selector or lineage view.
+- On updater-enabled platforms, reserve one quiet bottom-left sidebar slot for numeric background download progress. Completion changes that same slot into Update; failure changes it into Retry.
+- Update progress must not become a modal, toast storm, animated decorative treatment, or obstruction over generated work. A blocked immediate restart explains the active generation or combination that must finish first.
+
 ### Empty, Loading, Warning, and Error States
 
 - Each state includes an appropriate icon, a concise title or message, and the most useful next action when one exists.
