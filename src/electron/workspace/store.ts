@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import { attachmentSchema, combinationAttemptSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
 import { providerStatusesSchema, type ProviderStatus } from '../provider/types.js'
-import type { Attachment, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, CombinationAttempt, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { REVISION_QUALITY_VERSION } from './revisionQuality.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
@@ -751,6 +751,40 @@ CREATE INDEX invalid_candidates_by_branch ON invalid_candidates(branch_id, creat
 CREATE INDEX focused_feedback_queue_by_branch ON focused_feedback_queue(branch_id, created_at);
 `
 
+const migrationFortyFour = `
+CREATE TABLE branch_combination_attempts (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  source_branch_id TEXT REFERENCES design_branches(id) ON DELETE SET NULL,
+  source_branch_title TEXT NOT NULL,
+  destination_branch_id TEXT REFERENCES design_branches(id) ON DELETE SET NULL,
+  destination_branch_title TEXT NOT NULL,
+  source_commit TEXT NOT NULL,
+  destination_commit TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  provider_id TEXT NOT NULL CHECK (provider_id IN ('mock', 'codex', 'claude')),
+  model_id TEXT NOT NULL,
+  effort TEXT,
+  state TEXT NOT NULL CHECK (state IN ('applying', 'manual_resolution', 'completed', 'failed', 'aborted')),
+  response TEXT,
+  fallback_path TEXT CHECK (fallback_path IS NULL OR fallback_path IN ('none', 'automatic_merge', 'manual_resolution')),
+  diagnostic TEXT,
+  resulting_revision_id TEXT REFERENCES revisions(id) ON DELETE SET NULL,
+  merge_commit TEXT,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+) STRICT;
+CREATE TABLE design_branch_locks (
+  branch_id TEXT PRIMARY KEY REFERENCES design_branches(id) ON DELETE CASCADE,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  operation_id TEXT NOT NULL REFERENCES branch_combination_attempts(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('combination')),
+  acquired_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX branch_combination_attempts_by_design ON branch_combination_attempts(design_id, created_at);
+CREATE INDEX design_branch_locks_by_operation ON design_branch_locks(operation_id);
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -946,6 +980,115 @@ export class WorkspaceStore {
       this.database.prepare('DELETE FROM project_definition_application_attempts WHERE branch_id = ?').run(branchId)
       this.database.prepare('DELETE FROM generation_jobs WHERE branch_id = ?').run(branchId)
       this.database.prepare('DELETE FROM design_branches WHERE id = ? AND design_id = ?').run(branchId, designId)
+    })
+  }
+
+  public beginCombinationAttempt(designId: string, sourceBranchId: string, destinationBranchId: string, sourceCommit: string, destinationCommit: string, prompt: string, selection: GenerationSelection): CombinationAttempt {
+    if (sourceBranchId === destinationBranchId) throw new Error('Choose two different branches.')
+    const source = this.listDesignBranches(designId).find((branch) => branch.id === sourceBranchId)
+    const destination = this.listDesignBranches(designId).find((branch) => branch.id === destinationBranchId)
+    const sourceDesign = source ? this.getDesignAtBranch(designId, sourceBranchId) : null
+    const destinationDesign = destination ? this.getDesignAtBranch(designId, destinationBranchId) : null
+    if (!source || !destination || !sourceDesign || !destinationDesign) throw new Error('Design branch not found.')
+    if (sourceDesign.revisions.find((revision) => revision.id === source.activeRevisionId)?.gitCommit !== sourceCommit || destinationDesign.revisions.find((revision) => revision.id === destination.activeRevisionId)?.gitCommit !== destinationCommit) {
+      throw new Error('A branch head changed before the combination could start.')
+    }
+    if ([...sourceDesign.generationJobs, ...destinationDesign.generationJobs].some((job) => job.state === 'running')) throw new Error('Finish or stop active work on both branches before combining them.')
+    if (this.isDesignBranchLocked(sourceBranchId) || this.isDesignBranchLocked(destinationBranchId)) throw new Error('One of these branches is already in another operation.')
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO branch_combination_attempts (
+          id, design_id, source_branch_id, source_branch_title, destination_branch_id, destination_branch_title,
+          source_commit, destination_commit, prompt, provider_id, model_id, effort, state, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'applying', ?)
+      `).run(id, designId, sourceBranchId, source.title, destinationBranchId, destination.title, sourceCommit, destinationCommit, prompt, selection.providerId, selection.modelId, selection.effort ?? null, now)
+      const insertLock = this.database.prepare("INSERT INTO design_branch_locks (branch_id, design_id, operation_id, kind, acquired_at) VALUES (?, ?, ?, 'combination', ?)")
+      insertLock.run(sourceBranchId, designId, id, now)
+      insertLock.run(destinationBranchId, designId, id, now)
+      this.database.prepare("UPDATE design_branches SET status = 'combining' WHERE id IN (?, ?)").run(sourceBranchId, destinationBranchId)
+    })
+    return this.requireCombinationAttempt(id)
+  }
+
+  public setCombinationManualResolution(id: string, diagnostic: string, response: string | null, fallbackPath: 'automatic_merge' | 'manual_resolution'): CombinationAttempt {
+    const attempt = this.requireCombinationAttempt(id)
+    const result = this.database.prepare(`
+      UPDATE branch_combination_attempts SET state = 'manual_resolution', diagnostic = ?, response = ?, fallback_path = ?
+      WHERE id = ? AND state = 'applying'
+    `).run(diagnostic, response, fallbackPath, id)
+    if (result.changes !== 1) throw new Error('Combination attempt is not active.')
+    if (attempt.destinationBranchId) this.database.prepare("UPDATE design_branches SET status = 'manual_resolution' WHERE id = ?").run(attempt.destinationBranchId)
+    return this.requireCombinationAttempt(id)
+  }
+
+  public completeCombinationAttempt(id: string, resultingRevisionId: string, mergeCommit: string, response: string | null, fallbackPath: 'none' | 'automatic_merge' | 'manual_resolution'): CombinationAttempt {
+    const attempt = this.requireCombinationAttempt(id)
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      const result = this.database.prepare(`
+        UPDATE branch_combination_attempts SET state = 'completed', response = ?, fallback_path = ?, diagnostic = NULL,
+          resulting_revision_id = ?, merge_commit = ?, completed_at = ?
+        WHERE id = ? AND state IN ('applying', 'manual_resolution')
+      `).run(response, fallbackPath, resultingRevisionId, mergeCommit, now, id)
+      if (result.changes !== 1) throw new Error('Combination attempt is not active.')
+      this.releaseCombinationLocks(attempt)
+    })
+    return this.requireCombinationAttempt(id)
+  }
+
+  public stopCombinationAttempt(id: string, state: 'failed' | 'aborted', diagnostic: string, response: string | null = null): CombinationAttempt {
+    const attempt = this.requireCombinationAttempt(id)
+    this.transaction(() => {
+      const result = this.database.prepare(`
+        UPDATE branch_combination_attempts SET state = ?, diagnostic = ?, response = ?, completed_at = ?
+        WHERE id = ? AND state IN ('applying', 'manual_resolution')
+      `).run(state, diagnostic, response, new Date().toISOString(), id)
+      if (result.changes !== 1) throw new Error('Combination attempt is not active.')
+      this.releaseCombinationLocks(attempt)
+    })
+    return this.requireCombinationAttempt(id)
+  }
+
+  public listCombinationAttempts(designId: string): CombinationAttempt[] {
+    return (this.database.prepare('SELECT * FROM branch_combination_attempts WHERE design_id = ? ORDER BY created_at, rowid').all(designId) as Record<string, unknown>[]).map((row) => this.hydrateCombinationAttempt(row))
+  }
+
+  public getCombinationAttempt(id: string): CombinationAttempt | null {
+    const row = this.database.prepare('SELECT * FROM branch_combination_attempts WHERE id = ?').get(id) as Record<string, unknown> | undefined
+    return row ? this.hydrateCombinationAttempt(row) : null
+  }
+
+  public listActiveCombinationAttempts(): CombinationAttempt[] {
+    return (this.database.prepare("SELECT * FROM branch_combination_attempts WHERE state IN ('applying', 'manual_resolution') ORDER BY created_at, rowid").all() as Record<string, unknown>[]).map((row) => this.hydrateCombinationAttempt(row))
+  }
+
+  public isDesignBranchLocked(branchId: string): boolean {
+    return Boolean(this.database.prepare('SELECT 1 FROM design_branch_locks WHERE branch_id = ?').get(branchId))
+  }
+
+  private releaseCombinationLocks(attempt: CombinationAttempt): void {
+    this.database.prepare('DELETE FROM design_branch_locks WHERE operation_id = ?').run(attempt.id)
+    const ids = [attempt.sourceBranchId, attempt.destinationBranchId].filter((id): id is string => Boolean(id))
+    if (ids.length) this.database.prepare(`UPDATE design_branches SET status = 'ready' WHERE id IN (${ids.map(() => '?').join(', ')})`).run(...ids)
+  }
+
+  private requireCombinationAttempt(id: string): CombinationAttempt {
+    const row = this.database.prepare('SELECT * FROM branch_combination_attempts WHERE id = ?').get(id) as Record<string, unknown> | undefined
+    if (!row) throw new Error('Combination attempt not found.')
+    return this.hydrateCombinationAttempt(row)
+  }
+
+  private hydrateCombinationAttempt(row: Record<string, unknown>): CombinationAttempt {
+    return combinationAttemptSchema.parse({
+      id: row.id, designId: row.design_id, sourceBranchId: row.source_branch_id, sourceBranchTitle: row.source_branch_title,
+      destinationBranchId: row.destination_branch_id, destinationBranchTitle: row.destination_branch_title,
+      sourceCommit: row.source_commit, destinationCommit: row.destination_commit, prompt: row.prompt,
+      providerId: row.provider_id, modelId: row.model_id, effort: row.effort, state: row.state,
+      response: row.response, fallbackPath: row.fallback_path, diagnostic: row.diagnostic,
+      resultingRevisionId: row.resulting_revision_id, mergeCommit: row.merge_commit,
+      createdAt: row.created_at, completedAt: row.completed_at,
     })
   }
 
@@ -2104,7 +2247,7 @@ export class WorkspaceStore {
 
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo, migrationFortyThree, migrationFortyFour]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.

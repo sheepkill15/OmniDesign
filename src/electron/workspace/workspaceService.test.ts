@@ -88,6 +88,33 @@ describe('WorkspaceService', () => {
     store.close()
   })
 
+  it('locks two branches and records a validated two-parent destination combination', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const sourceBranchId = alternative.activeBranchId
+    const source = await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+    const prepared = service.startCombination(main.id, sourceBranchId, main.id, 'Bring the warmer accent into Main', { providerId: 'mock', modelId: 'mock-v1', effort: null })
+    expect(store.isDesignBranchLocked(sourceBranchId)).toBe(true)
+    expect(store.isDesignBranchLocked(main.id)).toBe(true)
+    const destinationPath = service.getDesignRepositoryPath(main.id, main.id)
+    writeFileSync(path.join(destinationPath, 'index.html'), `${readFileSync(path.join(destinationPath, 'index.html'), 'utf8')}\n<!-- combined direction -->\n`)
+
+    const completed = await service.completeIntelligentCombination(prepared.attempt.id, 'Combined the warmer accent.')
+    expect(completed).toMatchObject({ state: 'completed', fallbackPath: 'none', sourceCommit: source.revisions.at(-1)?.gitCommit, destinationCommit: main.revisions.at(-1)?.gitCommit })
+    expect(store.isDesignBranchLocked(sourceBranchId)).toBe(false)
+    expect(store.isDesignBranchLocked(main.id)).toBe(false)
+    const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', completed.mergeCommit!], { cwd: destinationPath, encoding: 'utf8' }).trim().split(/\s+/)
+    expect(parents).toEqual([completed.mergeCommit, completed.destinationCommit, completed.sourceCommit])
+    expect(service.getDesign(main.id)?.activeRevisionId).toBe(completed.resultingRevisionId)
+    expect(service.switchDesignBranch(main.id, sourceBranchId).activeRevisionId).toBe(source.activeRevisionId)
+    store.close()
+  })
+
   it('materializes the captured project definitions and exposes first-prompt AI Agent instructions', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

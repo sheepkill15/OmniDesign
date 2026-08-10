@@ -534,6 +534,29 @@ export const branchComparisonSchema = z.object({
   changes: revisionComparisonSchema,
 })
 
+export const combinationAttemptSchema = z.object({
+  id: z.string().uuid(),
+  designId: z.string().min(1).max(100),
+  sourceBranchId: z.string().min(1).max(100).nullable(),
+  sourceBranchTitle: z.string().min(1).max(200),
+  destinationBranchId: z.string().min(1).max(100).nullable(),
+  destinationBranchTitle: z.string().min(1).max(200),
+  sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  destinationCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  prompt: z.string().min(1).max(100_000),
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().min(1).max(200),
+  effort: z.string().min(1).max(100).nullable(),
+  state: z.enum(['applying', 'manual_resolution', 'completed', 'failed', 'aborted']),
+  response: z.string().nullable(),
+  fallbackPath: z.enum(['none', 'automatic_merge', 'manual_resolution']).nullable(),
+  diagnostic: z.string().nullable(),
+  resultingRevisionId: z.string().min(1).max(100).nullable(),
+  mergeCommit: z.string().regex(/^[0-9a-f]{40}$/).nullable(),
+  createdAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+})
+
 export const compareDesignBranchesRequestSchema = designIdRequestSchema.extend({
   sourceBranchId: z.string().min(1).max(100),
   destinationBranchId: z.string().min(1).max(100),
@@ -543,6 +566,15 @@ export const saveDraftRequestSchema = designIdRequestSchema.extend({
   draft: z.string().max(100_000),
   attachments: z.array(attachmentSchema).max(100).default([]),
 })
+
+export const combineDesignBranchesRequestSchema = compareDesignBranchesRequestSchema.extend({
+  prompt: z.string().trim().min(1).max(100_000),
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().trim().min(1).max(200),
+  effort: z.string().trim().min(1).max(100).nullable(),
+})
+
+export const combinationAttemptRequestSchema = designIdRequestSchema.extend({ attemptId: z.string().uuid() })
 
 export const saveLayoutRequestSchema = designIdRequestSchema.extend({
   layout: layoutSchema,
@@ -658,6 +690,7 @@ export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
 export type CompareRevisionsRequest = z.infer<typeof compareRevisionsRequestSchema>
 export type RevisionComparison = z.infer<typeof revisionComparisonSchema>
 export type BranchComparison = z.infer<typeof branchComparisonSchema>
+export type CombinationAttempt = z.infer<typeof combinationAttemptSchema>
 export type RenameDesignRequest = z.infer<typeof renameDesignRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>

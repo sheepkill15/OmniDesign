@@ -1,5 +1,5 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, BranchComparison, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, BranchComparison, CombinationAttempt, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
@@ -30,6 +30,16 @@ export class WorkspaceService {
           try { this.repositories.repairBranchWorktree(design.id, branch.id) }
           catch { this.store.setDesignBranchStatus(design.id, branch.id, 'failed') }
         }
+      }
+    }
+    for (const attempt of store.listActiveCombinationAttempts().filter((candidate) => candidate.state === 'applying')) {
+      if (!attempt.destinationBranchId) { store.stopCombinationAttempt(attempt.id, 'failed', 'The destination branch was removed before restart recovery.'); continue }
+      try {
+        const fallback = this.repositories.beginFallbackMerge(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit, attempt.sourceCommit)
+        store.setCombinationManualResolution(attempt.id, fallback.conflicts.length ? `OmniDesign restarted during combination. Resolve conflicts in: ${fallback.conflicts.join(', ')}` : 'OmniDesign restarted during combination. Review the recovered fallback merge before finishing.', null, fallback.clean ? 'automatic_merge' : 'manual_resolution')
+      } catch (error) {
+        try { this.repositories.restoreBranchToCommit(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit) } catch { /* retain the original recovery failure */ }
+        store.stopCombinationAttempt(attempt.id, 'failed', error instanceof Error ? error.message : 'Combination recovery failed.')
       }
     }
   }
@@ -387,6 +397,78 @@ export class WorkspaceService {
       destination: { branchId: destinationBranch.id, title: destinationBranch.title, revisionId: destinationRevision.id, pages: destinationPages.pages, entryPagePath: destinationPages.entryPagePath },
       changes: this.repositories.compareRevisions(designId, destinationRevision.gitCommit, sourceRevision.gitCommit, destinationRevision.id, sourceRevision.id),
     }
+  }
+
+  public startCombination(designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: GenerationSelection): { readonly attempt: CombinationAttempt; readonly sourcePath: string; readonly destinationPath: string; readonly conversationContext: string } {
+    const source = this.store.getDesignAtBranch(designId, sourceBranchId)
+    const destination = this.store.getDesignAtBranch(designId, destinationBranchId)
+    const sourceBranch = source?.branches.find((branch) => branch.id === sourceBranchId)
+    const destinationBranch = destination?.branches.find((branch) => branch.id === destinationBranchId)
+    if (!source || !destination || !sourceBranch || !destinationBranch) throw new Error('Design branch not found.')
+    const sourceRevision = source?.revisions.find((revision) => revision.id === sourceBranch?.activeRevisionId)
+    const destinationRevision = destination?.revisions.find((revision) => revision.id === destinationBranch?.activeRevisionId)
+    if (!sourceRevision?.gitCommit || !destinationRevision?.gitCommit) throw new Error('Both branches need a valid committed head before combination.')
+    this.repositories.checkoutBranchHead(designId, destinationBranchId)
+    const attempt = this.store.beginCombinationAttempt(designId, sourceBranchId, destinationBranchId, sourceRevision.gitCommit, destinationRevision.gitCommit, prompt, selection)
+    const divergenceMessageId = sourceBranch?.forkMessageId ?? destinationBranch?.forkMessageId
+    const sourceMessages = divergenceMessageId ? source.messages.slice(Math.max(0, source.messages.findIndex((message) => message.id === divergenceMessageId))) : source.messages
+    const destinationMessages = divergenceMessageId ? destination.messages.slice(Math.max(0, destination.messages.findIndex((message) => message.id === divergenceMessageId))) : destination.messages
+    const summarize = (label: string, messages: readonly Design['messages'][number][]) => `${label}:\n${messages.map((message) => `${message.role}: ${message.text}`).join('\n')}`
+    return {
+      attempt,
+      sourcePath: this.repositories.getWorkingPath(designId, sourceBranchId),
+      destinationPath: this.repositories.getWorkingPath(designId, destinationBranchId),
+      conversationContext: `${summarize('Source branch conversation since divergence', sourceMessages)}\n\n${summarize('Destination branch conversation since divergence', destinationMessages)}`,
+    }
+  }
+
+  public async completeIntelligentCombination(attemptId: string, response: string): Promise<CombinationAttempt> {
+    return this.finishCombinationWorkingTree(attemptId, response, 'none')
+  }
+
+  public beginCombinationFallback(attemptId: string, diagnostic: string, response: string | null = null): CombinationAttempt {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    if (!attempt?.destinationBranchId || attempt.state !== 'applying') throw new Error('Combination attempt is not active.')
+    const fallback = this.repositories.beginFallbackMerge(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit, attempt.sourceCommit)
+    return this.store.setCombinationManualResolution(attempt.id, fallback.conflicts.length ? `${diagnostic}\nConflicts: ${fallback.conflicts.join(', ')}` : diagnostic, response, fallback.clean ? 'automatic_merge' : 'manual_resolution')
+  }
+
+  public async finishManualCombination(attemptId: string): Promise<CombinationAttempt> {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    return this.finishCombinationWorkingTree(attemptId, null, attempt?.fallbackPath === 'automatic_merge' ? 'automatic_merge' : 'manual_resolution')
+  }
+
+  public abortCombination(attemptId: string): CombinationAttempt {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    if (!attempt?.destinationBranchId || !['applying', 'manual_resolution'].includes(attempt.state)) throw new Error('Combination attempt is not active.')
+    this.repositories.restoreBranchToCommit(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit)
+    return this.store.stopCombinationAttempt(attempt.id, 'aborted', 'Combination was aborted and the destination branch was restored.', attempt.response)
+  }
+
+  public getCombinationAttempt(attemptId: string): CombinationAttempt | null { return this.store.getCombinationAttempt(attemptId) }
+  public listCombinationAttempts(designId: string): CombinationAttempt[] { return this.store.listCombinationAttempts(designId) }
+  public getCombinationPreview(attemptId: string): { readonly designId: string; readonly revisionId: string; readonly files: RevisionFiles; readonly pages: RevisionPages } {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    if (!attempt?.destinationBranchId || attempt.state !== 'manual_resolution') throw new Error('Combination attempt is not awaiting manual resolution.')
+    const files = this.repositories.readWorkingTreeFiles(attempt.designId, attempt.destinationBranchId)
+    const discovered = discoverPages(files)
+    const entryPagePath = resolveEntryPage(discovered)
+    return { designId: attempt.designId, revisionId: `combination-${attempt.id}`, files, pages: { pages: discovered.map((page, order) => ({ path: page, title: extractPageTitle(files[page] ?? ''), order, isHome: page === entryPagePath })), entryPagePath } }
+  }
+
+  private async finishCombinationWorkingTree(attemptId: string, response: string | null, fallbackPath: 'none' | 'automatic_merge' | 'manual_resolution'): Promise<CombinationAttempt> {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    if (!attempt?.destinationBranchId || !['applying', 'manual_resolution'].includes(attempt.state)) throw new Error('Combination attempt is not active.')
+    const files = this.repositories.readWorkingTreeFiles(attempt.designId, attempt.destinationBranchId)
+    const tailwindCss = await compileTailwindCssForFiles(files)
+    this.repositories.writeSourceFiles(attempt.designId, files, attempt.destinationBranchId)
+    this.repositories.writeManagedBuildOutputs(attempt.designId, attempt.destinationBranchId, tailwindCss)
+    validateDesignFiles(files)
+    const mergeCommit = this.repositories.commitCombinationRevision(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit, attempt.sourceCommit, `Combine ${attempt.sourceBranchTitle} into ${attempt.destinationBranchTitle}`)
+    const revised = this.store.addRevision(attempt.designId, attempt.prompt, attempt.providerId, attempt.modelId, mergeCommit, response ?? `Combined ${attempt.sourceBranchTitle} into ${attempt.destinationBranchTitle}.`, undefined, attempt.destinationBranchId)
+    const revisionId = revised.activeRevisionId
+    if (!revisionId) throw new Error('The combination revision could not be recorded.')
+    return this.store.completeCombinationAttempt(attempt.id, revisionId, mergeCommit, response, fallbackPath)
   }
 
   /**

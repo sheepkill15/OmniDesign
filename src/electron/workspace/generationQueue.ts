@@ -119,7 +119,7 @@ export class GenerationQueue {
       while (this.runningCount < this.concurrency) {
         const job = this.store.listGenerationJobs().find((candidate) => {
           const key = this.branchKey(candidate.designId, candidate.branchId)
-          return !this.runningBranchKeys.has(key) && !this.pausedBranchKeys.has(key)
+          return !this.runningBranchKeys.has(key) && !this.pausedBranchKeys.has(key) && !this.store.isDesignBranchLocked(candidate.branchId)
         })
         if (!job) return
         this.start(job)
@@ -190,6 +190,8 @@ export class GenerationQueue {
     this.pausedBranchKeys.add(this.branchKey(designId, branchId))
     this.store.pauseGenerationQueue(designId, branchId)
   }
+
+  public refresh(): void { void this.drain() }
 
   private branchKey(designId: string, branchId: string): string {
     return `${designId}:${branchId}`

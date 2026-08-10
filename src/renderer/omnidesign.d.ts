@@ -191,6 +191,29 @@ interface BranchComparison {
   readonly changes: RevisionComparison
 }
 
+interface CombinationAttempt {
+  readonly id: string
+  readonly designId: string
+  readonly sourceBranchId: string | null
+  readonly sourceBranchTitle: string
+  readonly destinationBranchId: string | null
+  readonly destinationBranchTitle: string
+  readonly sourceCommit: string
+  readonly destinationCommit: string
+  readonly prompt: string
+  readonly providerId: 'mock' | 'codex' | 'claude'
+  readonly modelId: string
+  readonly effort: string | null
+  readonly state: 'applying' | 'manual_resolution' | 'completed' | 'failed' | 'aborted'
+  readonly response: string | null
+  readonly fallbackPath: 'none' | 'automatic_merge' | 'manual_resolution' | null
+  readonly diagnostic: string | null
+  readonly resultingRevisionId: string | null
+  readonly mergeCommit: string | null
+  readonly createdAt: string
+  readonly completedAt: string | null
+}
+
 interface DesignBranch {
   readonly id: string
   readonly designId: string
@@ -441,6 +464,11 @@ interface Window {
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       compareRevisions(designId: string, baseRevisionId: string, targetRevisionId: string): Promise<RevisionComparison>
       compareBranches(designId: string, sourceBranchId: string, destinationBranchId: string): Promise<BranchComparison>
+      combineBranches(designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: GenerationSelection): Promise<CombinationAttempt>
+      finishCombination(designId: string, attemptId: string): Promise<CombinationAttempt>
+      abortCombination(designId: string, attemptId: string): Promise<CombinationAttempt>
+      openCombinationEditor(designId: string, attemptId: string): Promise<void>
+      listCombinations(designId: string): Promise<readonly CombinationAttempt[]>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
       saveLayout(designId: string, layout: Layout): Promise<void>
@@ -467,6 +495,7 @@ interface Window {
     }
     readonly preview: {
       register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>
+      registerCombination(designId: string, attemptId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null }>
       resolveFocusedTarget(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly page: string; readonly locationId: string; readonly clickedLabel: string; readonly usedAncestor: boolean }): Promise<FocusedTarget | null>
       locateFocusedTargets(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly targets: readonly { readonly id: string; readonly target: FocusedTarget }[] }): Promise<readonly { readonly id: string; readonly locationId: string }[]>
       reportDiagnostic(designId: string, revisionId: string, diagnostic: { readonly level: 'warning' | 'error'; readonly message: string; readonly source: string | null; readonly line: number | null }): Promise<void>

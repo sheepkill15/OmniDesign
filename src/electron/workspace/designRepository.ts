@@ -318,6 +318,43 @@ export class DesignRepositoryManager {
     return normalized
   }
 
+  public restoreBranchToCommit(designId: string, branchId: string, commit: string): void {
+    if (!commitPattern.test(commit)) throw new Error('The destination commit is invalid.')
+    const repositoryPath = this.getWorkingPath(designId, branchId)
+    const branchName = branchId === designId ? 'main' : `od/${branchId}`
+    this.run(repositoryPath, ['checkout', '--force', branchName])
+    this.run(repositoryPath, ['reset', '--hard', commit])
+    this.run(repositoryPath, ['clean', '-fdx'])
+  }
+
+  public beginFallbackMerge(designId: string, destinationBranchId: string, destinationCommit: string, sourceCommit: string): { readonly clean: boolean; readonly conflicts: readonly string[] } {
+    if (!commitPattern.test(sourceCommit)) throw new Error('The source commit is invalid.')
+    this.restoreBranchToCommit(designId, destinationBranchId, destinationCommit)
+    const repositoryPath = this.getWorkingPath(designId, destinationBranchId)
+    const merged = this.runAllowingFailure(repositoryPath, ['merge', '--no-commit', '--no-ff', sourceCommit])
+    const conflicts = this.run(repositoryPath, ['diff', '--name-only', '--diff-filter=U']).split(/\r?\n/).filter(Boolean)
+    return { clean: merged.status === 0 && conflicts.length === 0, conflicts }
+  }
+
+  public commitCombinationRevision(designId: string, destinationBranchId: string, destinationCommit: string, sourceCommit: string, message: string): string {
+    if (!commitPattern.test(destinationCommit) || !commitPattern.test(sourceCommit)) throw new Error('Combination parent commit is invalid.')
+    const repositoryPath = this.getWorkingPath(designId, destinationBranchId)
+    this.run(repositoryPath, ['add', '--all'])
+    const tree = this.run(repositoryPath, ['write-tree']).trim()
+    const commit = this.run(repositoryPath, ['commit-tree', tree, '-p', destinationCommit, '-p', sourceCommit, '-m', message]).trim()
+    if (!commitPattern.test(commit)) throw new Error('Git did not create a valid combination commit.')
+    const branchRef = destinationBranchId === designId ? 'refs/heads/main' : this.getBranchRef(destinationBranchId)
+    this.run(repositoryPath, ['update-ref', branchRef, commit, destinationCommit])
+    this.run(repositoryPath, ['reset', '--hard', commit])
+    return commit
+  }
+
+  public writeManagedBuildOutputs(designId: string, branchId: string, tailwindCss: string): void {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
+    this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
+    this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
+  }
+
   private requireRegisteredBranchWorktree(designId: string, branchId: string): DesignWorktree {
     const expectedPath = this.getBranchPath(designId, branchId)
     const expectedRef = this.getBranchRef(branchId)

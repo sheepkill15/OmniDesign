@@ -227,6 +227,12 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [branchComparison, setBranchComparison] = useState<BranchComparison | null>(null)
   const [branchComparisonTokens, setBranchComparisonTokens] = useState<{ readonly source: string; readonly destination: string } | null>(null)
   const [branchComparisonPage, setBranchComparisonPage] = useState<string | null>(null)
+  const [combinationPrompt, setCombinationPrompt] = useState('')
+  const [combinationAttempt, setCombinationAttempt] = useState<CombinationAttempt | null>(null)
+  const [combinationHistory, setCombinationHistory] = useState<readonly CombinationAttempt[]>([])
+  const [combinationPreview, setCombinationPreview] = useState<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>(null)
+  const [combiningBranches, setCombiningBranches] = useState(false)
+  const [completedCombination, setCompletedCombination] = useState<CombinationAttempt | null>(null)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -523,6 +529,61 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     }).catch(() => { if (!cancelled) setBranchComparisonTokens(null) })
     return () => { cancelled = true }
   }, [branchComparison, design.id])
+  useEffect(() => {
+    let cancelled = false
+    void api?.listCombinations(design.id).then((attempts) => {
+      if (cancelled) return
+      setCombinationHistory(attempts)
+      setCombinationAttempt(attempts.find((attempt) => attempt.state === 'manual_resolution' || attempt.state === 'applying') ?? null)
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [api, design.id])
+  useEffect(() => {
+    if (!combinationAttempt || combinationAttempt.state !== 'manual_resolution') { setCombinationPreview(null); return }
+    let cancelled = false
+    void window.omnidesign?.preview.registerCombination(design.id, combinationAttempt.id).then((preview) => { if (!cancelled) setCombinationPreview(preview) }).catch(() => { if (!cancelled) setCombinationPreview(null) })
+    return () => { cancelled = true }
+  }, [combinationAttempt, design.id])
+  const beginCombination = async () => {
+    if (!api || !branchComparison || !combinationPrompt.trim() || combiningBranches || !hasUsableSelection) return
+    setCombiningBranches(true)
+    const attempt = await runWorkspaceAction(() => api.combineBranches(design.id, branchComparison.source.branchId, branchComparison.destination.branchId, combinationPrompt.trim(), selection), 'The branches could not be combined.')
+    setCombiningBranches(false)
+    if (!attempt) return
+    setCombinationHistory((current) => [...current.filter((candidate) => candidate.id !== attempt.id), attempt])
+    if (attempt.state === 'completed') {
+      setBranchComparison(null)
+      setCompletedCombination(attempt)
+      const updated = await api.switchBranch(design.id, attempt.destinationBranchId!)
+      onChange(updated)
+    } else setCombinationAttempt(attempt)
+  }
+  const finishCombination = async () => {
+    if (!api || !combinationAttempt) return
+    const completed = await runWorkspaceAction(() => api.finishCombination(design.id, combinationAttempt.id), 'The combination still needs attention.')
+    if (!completed) return
+    setCombinationAttempt(null)
+    setCompletedCombination(completed)
+    const updated = completed.destinationBranchId ? await api.switchBranch(design.id, completed.destinationBranchId) : await api.get(design.id)
+    if (updated) onChange(updated)
+  }
+  const abortCombination = async () => {
+    if (!api || !combinationAttempt) return
+    const aborted = await runWorkspaceAction(() => api.abortCombination(design.id, combinationAttempt.id), 'The destination branch could not be restored.')
+    if (aborted) { setCombinationAttempt(null); setCombinationPreview(null) }
+  }
+  const retryCombination = async () => {
+    if (!api || !combinationAttempt?.sourceBranchId || !combinationAttempt.destinationBranchId) return
+    const previous = combinationAttempt
+    const aborted = await runWorkspaceAction(() => api.abortCombination(design.id, previous.id), 'The previous attempt could not be reset.')
+    if (!aborted) return
+    setCombinationAttempt(null)
+    setCombiningBranches(true)
+    const attempt = await runWorkspaceAction(() => api.combineBranches(design.id, previous.sourceBranchId!, previous.destinationBranchId!, previous.prompt, selection), 'The branches could not be retried.')
+    setCombiningBranches(false)
+    if (attempt) setCombinationAttempt(attempt.state === 'completed' ? null : attempt)
+    if (attempt?.state === 'completed') setCompletedCombination(attempt)
+  }
   const fixQualityIssues = async () => {
     if (!api || !qualityDiagnostics.length || busy || !selectedIsHead || !hasUsableSelection) return
     const findings = qualityDiagnostics.map((diagnostic) => `- [${diagnostic.level}] ${diagnostic.source ?? 'design'}: ${diagnostic.message}`).join('\n')
@@ -851,6 +912,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           <p>Review the persistent directions in this design. Branch names describe the prompt that created them and cannot be edited.</p>
           <div className="branch-manager-list">{design.branches.map((branch) => <article key={branch.id} data-child={branch.parentBranchId ? true : undefined}><input type="checkbox" aria-label={`Select ${branch.title} for comparison`} checked={lineageSelection.includes(branch.id)} onChange={(event) => setLineageSelection((current) => event.target.checked ? current.length < 2 ? [...current, branch.id] : [current.at(-1)!, branch.id] : current.filter((id) => id !== branch.id))} /><ShareIcon aria-hidden="true" /><span><strong>{branch.title}</strong><small>{branch.isMain ? 'Protected Main branch' : `${branch.parentBranchId ? `Forked from ${design.branches.find((candidate) => candidate.id === branch.parentBranchId)?.title ?? 'removed branch'} · ` : ''}${branch.status === 'failed' ? 'Needs attention' : branch.status}`}</small></span>{branch.id === design.activeBranchId ? <span className="branch-current-label">Current</span> : <span className="branch-manager-actions"><Button className="secondary-action" onPress={() => { close(); void switchBranch(branch.id) }}>Open</Button>{!branch.isMain && <Button className="secondary-action branch-remove-action" onPress={() => { setRemoveBranchTarget(branch); setForceBranchRemoval(false) }}>Remove</Button>}</span>}</article>)}</div>
           <div className="branch-manager-footer"><span>{lineageSelection.length === 2 ? 'Two branches selected' : 'Select two branches to compare'}</span><Button className="clone-confirm-action" isDisabled={lineageSelection.length !== 2} onPress={() => void compareBranches()}>Compare branches</Button></div>
+          {combinationHistory.filter((attempt) => attempt.state === 'completed').length > 0 && <section className="combination-history" aria-label="Successful combinations"><strong>Successful combinations</strong>{combinationHistory.filter((attempt) => attempt.state === 'completed').map((attempt) => <span key={attempt.id}><ShareIcon aria-hidden="true" />{attempt.sourceBranchTitle} into {attempt.destinationBranchTitle}</span>)}</section>}
         </>}
       </AppModal>
       <AppModal isOpen={removeBranchTarget !== null} onOpenChange={(open) => { if (!open) { setRemoveBranchTarget(null); setForceBranchRemoval(false) } }} className="branch-manager-modal" title="Remove branch permanently?">
@@ -875,8 +937,19 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
             {(['destination', 'source'] as const).map((side) => { const branch = branchComparison[side]; const token = branchComparisonTokens?.[side]; const hasPage = !!branchComparisonPage && branch.pages.some((page) => page.path === branchComparisonPage); return <article key={side}><header><span>{side === 'destination' ? 'Destination' : 'Source'}</span><strong>{branch.title}</strong></header>{token && branchComparisonPage && hasPage ? <iframe title={`${branch.title} · ${branchComparisonPage}`} src={comparisonPageUrl(token, branchComparisonPage)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">{hasPage ? 'Preview unavailable' : 'This page exists only in the other branch'}</div>}</article> })}
           </div>
           <section className="revision-comparison-changes" aria-label="Branch authored file changes"><header><span><strong>{branchComparison.changes.files.length} authored file{branchComparison.changes.files.length === 1 ? '' : 's'} changed</strong><small>Destination compared with source. Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{branchComparison.changes.additions}</strong><strong>−{branchComparison.changes.deletions}</strong></span></header>{branchComparison.changes.files.length ? <ul>{branchComparison.changes.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files differ between these branch heads.</p>}</section>
+          <section className="combine-branches-composer" aria-label="Combine branches"><header><span><strong>Best of both directions</strong><small>Describe what the destination should keep and what it should adopt from the source.</small></span></header><TextField aria-label="Combination prompt"><TextArea value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Bring the best of ${branchComparison.source.title} into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" isDisabled={!combinationPrompt.trim() || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches ? 'Combining…' : 'Combine into destination'}</Button></div></section>
           <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Close</Button></div>
         </>}
+      </AppModal>
+      <AppModal isOpen={combinationAttempt?.state === 'manual_resolution'} onOpenChange={() => undefined} className="branch-comparison-modal" title="Combination needs review">
+        {() => combinationAttempt && <>
+          <div className="generation-recovery" role="status"><span><strong>{combinationAttempt.fallbackPath === 'automatic_merge' ? 'Fallback merge is ready to review.' : 'Manual conflict resolution is required.'}</strong>{combinationAttempt.diagnostic}</span></div>
+          <div className="combination-recovery-preview">{combinationPreview?.token && combinationPreview.entryPagePath ? <iframe title="Unresolved destination preview" src={comparisonPageUrl(combinationPreview.token, combinationPreview.entryPagePath)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">The unresolved preview is unavailable. Open the destination in an editor to inspect it.</div>}</div>
+          <div className="combination-recovery-actions"><Button className="secondary-action" onPress={() => void api?.openCombinationEditor(design.id, combinationAttempt.id)}>Open in editor</Button><Button className="secondary-action" isDisabled={combiningBranches || !combinationAttempt.sourceBranchId || !combinationAttempt.destinationBranchId} onPress={() => void retryCombination()}>Retry intelligent combination</Button><Button className="secondary-action" onPress={() => void abortCombination()}>Abort combination</Button><Button className="clone-confirm-action" onPress={() => void finishCombination()}>Keep combination</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={completedCombination !== null} onOpenChange={(open) => { if (!open) setCompletedCombination(null) }} className="branch-manager-modal" title="Combination complete">
+        {(close) => completedCombination && <><p><strong>{completedCombination.destinationBranchTitle}</strong> now includes the combined direction. The source branch remains unchanged.</p><p>Do you want to keep <strong>{completedCombination.sourceBranchTitle}</strong> as a separate direction?</p><div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Keep source branch</Button><Button className="clone-confirm-action danger-action" isDisabled={!completedCombination.sourceBranchId} onPress={() => void (async () => { if (!api || !completedCombination.sourceBranchId) return; await api.removeBranch(design.id, completedCombination.sourceBranchId, false); const updated = await api.get(design.id); setCompletedCombination(null); if (updated) onChange(updated) })()}>Remove source branch</Button></div></>}
       </AppModal>
       <AppModal isOpen={comparison !== null} onOpenChange={(open) => { if (!open) setComparison(null) }} className="revision-comparison-modal" title="Compare revisions">
         {(close) => comparison && <>

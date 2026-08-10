@@ -83,6 +83,11 @@ contextBridge.exposeInMainWorld('omnidesign', {
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),
     compareRevisions: (designId: string, baseRevisionId: string, targetRevisionId: string) => ipcRenderer.invoke('workspace:compare-revisions', { designId, baseRevisionId, targetRevisionId }),
     compareBranches: (designId: string, sourceBranchId: string, destinationBranchId: string) => ipcRenderer.invoke('workspace:compare-branches', { designId, sourceBranchId, destinationBranchId }),
+    combineBranches: (designId: string, sourceBranchId: string, destinationBranchId: string, prompt: string, selection: import('../workspace/contracts.js').GenerationSelection) => ipcRenderer.invoke('workspace:combine-branches', { designId, sourceBranchId, destinationBranchId, prompt, ...selection }),
+    finishCombination: (designId: string, attemptId: string) => ipcRenderer.invoke('workspace:finish-combination', { designId, attemptId }),
+    abortCombination: (designId: string, attemptId: string) => ipcRenderer.invoke('workspace:abort-combination', { designId, attemptId }),
+    openCombinationEditor: (designId: string, attemptId: string) => ipcRenderer.invoke('workspace:open-combination-editor', { designId, attemptId }),
+    listCombinations: (designId: string) => ipcRenderer.invoke('workspace:list-combinations', { designId }),
     restoreRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:restore-revision', { designId, revisionId }),
     saveDraft: (designId: string, draft: string, attachments: readonly import('../workspace/contracts.js').Attachment[] = []) => ipcRenderer.invoke('workspace:save-draft', { designId, draft, attachments }),
     saveLayout: (designId: string, layout: Layout) => ipcRenderer.invoke('workspace:save-layout', { designId, layout }),
@@ -119,8 +124,9 @@ contextBridge.exposeInMainWorld('omnidesign', {
     getLastOpenDesignId: () => ipcRenderer.invoke('settings:get-last-open-design'),
     saveLastOpenDesignId: (designId: string | null) => ipcRenderer.invoke('settings:save-last-open-design', designId),
   },
-  preview: {
+    preview: {
     register: (designId: string, revisionId: string) => ipcRenderer.invoke('preview:register', { designId, revisionId }),
+    registerCombination: (designId: string, attemptId: string) => ipcRenderer.invoke('preview:register-combination', { designId, attemptId }),
     resolveFocusedTarget: (request: { designId: string; revisionId: string; token: string; page: string; locationId: string; clickedLabel: string; usedAncestor: boolean }) => ipcRenderer.invoke('preview:resolve-focused-target', request),
     locateFocusedTargets: (request: { designId: string; revisionId: string; token: string; targets: readonly { id: string; target: import('../workspace/contracts.js').FocusedTarget }[] }) => ipcRenderer.invoke('preview:locate-focused-targets', request),
     reportDiagnostic: (designId: string, revisionId: string, diagnostic: { level: 'warning' | 'error'; message: string; source: string | null; line: number | null }) => ipcRenderer.invoke('preview:report-diagnostic', { designId, revisionId, diagnostic }),

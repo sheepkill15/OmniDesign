@@ -16,6 +16,8 @@ import {
   cloneProjectRequestSchema,
   compareRevisionsRequestSchema,
   compareDesignBranchesRequestSchema,
+  combineDesignBranchesRequestSchema,
+  combinationAttemptRequestSchema,
   createDesignBranchRequestSchema,
   createFolderRequestSchema,
   createTagRequestSchema,
@@ -754,6 +756,70 @@ function registerIpc(): void {
     authorize(event)
     const request = compareDesignBranchesRequestSchema.parse(value)
     return requireWorkspace().compareDesignBranches(request.designId, request.sourceBranchId, request.destinationBranchId)
+  })
+  ipcMain.handle('workspace:combine-branches', async (event, value: unknown) => {
+    authorize(event)
+    const request = combineDesignBranchesRequestSchema.parse(value)
+    const prepared = requireWorkspace().startCombination(request.designId, request.sourceBranchId, request.destinationBranchId, request.prompt, { providerId: request.providerId, modelId: request.modelId, effort: request.effort })
+    if (request.providerId === 'mock') return requireWorkspace().beginCombinationFallback(prepared.attempt.id, 'The development provider uses the deterministic fallback merge for combination previews.')
+    try {
+      const reply = await providers.runAnalysisAgent({
+        requestId: randomUUID(), providerId: request.providerId, modelId: request.modelId,
+        ...(request.effort ? { effort: request.effort } : {}),
+        workspacePath: prepared.destinationPath,
+        referencePaths: [prepared.sourcePath],
+        prompt: request.prompt,
+        instructions: `Combine the source design direction into the destination design according to the user's prompt.\n\nDestination (the only writable branch): ${prepared.destinationPath}\nSource (reference only; do not modify it): ${prepared.sourcePath}\n\nWork only in the destination workspace. Preserve valid OmniDesign build references, do not commit, and return a concise summary of what you changed.\n\n${prepared.conversationContext}`,
+      }, (activity) => {
+        if (!event.sender.isDestroyed()) event.sender.send('providers:activity', activity)
+      })
+      try {
+        const completed = await requireWorkspace().completeIntelligentCombination(prepared.attempt.id, reply.text)
+        requireGenerationQueue().refresh()
+        return completed
+      } catch (error) {
+        return requireWorkspace().beginCombinationFallback(prepared.attempt.id, error instanceof Error ? error.message : 'The intelligent combination did not validate.', reply.text)
+      }
+    } catch (error) {
+      return requireWorkspace().beginCombinationFallback(prepared.attempt.id, error instanceof Error ? error.message : 'The intelligent combination failed.')
+    } finally {
+      sendWorkspaceChanged(request.designId)
+    }
+  })
+  ipcMain.handle('workspace:finish-combination', async (event, value: unknown) => {
+    authorize(event)
+    const request = combinationAttemptRequestSchema.parse(value)
+    const result = await requireWorkspace().finishManualCombination(request.attemptId)
+    requireGenerationQueue().refresh()
+    sendWorkspaceChanged(request.designId)
+    return result
+  })
+  ipcMain.handle('workspace:abort-combination', (event, value: unknown) => {
+    authorize(event)
+    const request = combinationAttemptRequestSchema.parse(value)
+    const result = requireWorkspace().abortCombination(request.attemptId)
+    requireGenerationQueue().refresh()
+    sendWorkspaceChanged(request.designId)
+    return result
+  })
+  ipcMain.handle('workspace:open-combination-editor', async (event, value: unknown) => {
+    authorize(event)
+    const request = combinationAttemptRequestSchema.parse(value)
+    const attempt = requireWorkspace().getCombinationAttempt(request.attemptId)
+    if (!attempt?.destinationBranchId || attempt.designId !== request.designId || attempt.state !== 'manual_resolution') throw new Error('Combination attempt is not awaiting manual resolution.')
+    const error = await shell.openPath(requireWorkspace().getDesignRepositoryPath(request.designId, attempt.destinationBranchId))
+    if (error) throw new Error(error)
+  })
+  ipcMain.handle('workspace:list-combinations', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().listCombinationAttempts(designIdRequestSchema.parse(value).designId)
+  })
+  ipcMain.handle('preview:register-combination', (event, value: unknown) => {
+    authorize(event)
+    const request = combinationAttemptRequestSchema.parse(value)
+    const preview = requireWorkspace().getCombinationPreview(request.attemptId)
+    if (preview.designId !== request.designId) throw new Error('Combination attempt does not belong to this design.')
+    return { token: requirePreviewServer().register(preview.designId, preview.revisionId, preview.files), ...preview.pages }
   })
   ipcMain.handle('workspace:restore-revision', (event, value: unknown) => {
     authorize(event)
