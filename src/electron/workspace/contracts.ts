@@ -14,6 +14,24 @@ export const revisionSchema = z.object({
   thumbnailDataUrl: z.string().nullable(),
 })
 
+export const designBranchStatusSchema = z.enum(['ready', 'generating', 'queued', 'failed', 'combining', 'manual_resolution'])
+
+export const designBranchSchema = z.object({
+  id: z.string().min(1).max(100),
+  designId: z.string().min(1).max(100),
+  title: z.string().min(1).max(200),
+  gitRef: z.string().min(1).max(300),
+  worktreePath: z.string().min(1).max(2_000),
+  isMain: z.boolean(),
+  parentBranchId: z.string().min(1).max(100).nullable(),
+  forkRevisionId: z.string().min(1).max(100).nullable(),
+  forkMessageId: z.string().min(1).max(100).nullable(),
+  activeRevisionId: z.string().min(1).max(100).nullable(),
+  selectedRevisionId: z.string().min(1).max(100).nullable(),
+  status: designBranchStatusSchema,
+  createdAt: z.string().datetime(),
+})
+
 export const previewDiagnosticSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['console', 'runtime', 'load', 'quality']),
@@ -364,6 +382,8 @@ export const designSchema = z.object({
   title: z.string().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  activeBranchId: z.string().min(1).max(100),
+  branches: z.array(designBranchSchema).min(1),
   activeRevisionId: z.string().nullable(),
   selectedRevisionId: z.string().nullable(),
   definitionVersion: z.number().int().positive().nullable().optional(),
@@ -566,6 +586,7 @@ export type RegisterLinkedProjectRequest = z.infer<typeof registerLinkedProjectR
 export type TrashItem = z.infer<typeof trashItemSchema>
 export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>
+export type DesignBranch = z.infer<typeof designBranchSchema>
 export type Attachment = z.infer<typeof attachmentSchema>
 export type FocusedTarget = z.infer<typeof focusedTargetSchema>
 export type FocusedFeedback = z.infer<typeof focusedFeedbackSchema>

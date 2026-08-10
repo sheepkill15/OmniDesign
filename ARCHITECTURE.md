@@ -804,7 +804,7 @@ or ambiguous targets remain in ordinary history and are not assigned a visual ma
 
 ## Phase 4 Architecture Decisions
 
-### ADR 2026-08-10: Product branches use persistent Git worktrees (accepted, not implemented)
+### ADR 2026-08-10: Product branches use persistent Git worktrees (accepted, foundation in progress)
 
 One OmniDesign design remains one Git repository. Its protected `Main` product branch uses
 the main worktree, and every alternative product branch uses one linked worktree stored for
@@ -831,6 +831,15 @@ when a branch is created.
 Official Git documentation confirms that one repository may have multiple linked worktrees,
 each with per-worktree state, and that clean linked worktrees should be removed through the
 worktree lifecycle command: https://git-scm.com/docs/git-worktree.
+
+Track A began with migration 42. It creates one explicit protected `Main` branch record for every
+existing and new design, copies the existing active and selected revision pointers without making
+a revision, and retains the main repository worktree as `repository`. The repository manager now
+parses `git worktree list --porcelain -z`, validates managed identifiers, paths, refs, and base
+commits, and owns linked-worktree creation, repair, dirty-state confirmation, and Git lifecycle
+removal. Workspace startup validates the registered Main worktree for every active design. Branch-
+specific conversations, queues, worktree routing, and production branch creation remain subsequent
+Track A work; the design-level fields remain the compatibility projection until that routing lands.
 
 ### ADR 2026-08-10: Intelligent combination records two-parent destination commits (accepted, not implemented)
 

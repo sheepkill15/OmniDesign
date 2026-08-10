@@ -32,11 +32,34 @@ export interface RevisionFiles {
   readonly [relativePath: string]: string
 }
 
+export interface DesignWorktree {
+  readonly path: string
+  readonly head: string
+  readonly branch: string | null
+  readonly locked: boolean
+  readonly prunable: boolean
+}
+
+const managedIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/
+const commitPattern = /^[0-9a-f]{40}$/
+
 export class DesignRepositoryManager {
   public constructor(private readonly artifactsDirectory: string) {}
 
   public getPath(designId: string): string {
+    this.validateManagedId(designId, 'design')
     return path.join(this.artifactsDirectory, designId, 'repository')
+  }
+
+  public getBranchPath(designId: string, branchId: string): string {
+    this.validateManagedId(designId, 'design')
+    this.validateManagedId(branchId, 'branch')
+    return this.resolveInsideDesignRoot(designId, 'branches', branchId, 'worktree')
+  }
+
+  public getBranchRef(branchId: string): string {
+    this.validateManagedId(branchId, 'branch')
+    return `refs/heads/od/${branchId}`
   }
 
   public initialize(designId: string): string {
@@ -59,6 +82,77 @@ export class DesignRepositoryManager {
     }
 
     return repositoryPath
+  }
+
+  public listWorktrees(designId: string): DesignWorktree[] {
+    const repositoryPath = this.initialize(designId)
+    const output = this.run(repositoryPath, ['worktree', 'list', '--porcelain', '-z'])
+    const worktrees: DesignWorktree[] = []
+    let current: { path?: string; head?: string; branch?: string | null; locked?: boolean; prunable?: boolean } = {}
+    const finish = () => {
+      if (!current.path) return
+      worktrees.push({
+        path: path.resolve(current.path),
+        head: current.head ?? '',
+        branch: current.branch ?? null,
+        locked: current.locked ?? false,
+        prunable: current.prunable ?? false,
+      })
+      current = {}
+    }
+    for (const field of output.split('\0')) {
+      if (!field) { finish(); continue }
+      const separator = field.indexOf(' ')
+      const key = separator === -1 ? field : field.slice(0, separator)
+      const value = separator === -1 ? '' : field.slice(separator + 1)
+      if (key === 'worktree') { finish(); current.path = value }
+      else if (key === 'HEAD') current.head = value
+      else if (key === 'branch') current.branch = value
+      else if (key === 'locked') current.locked = true
+      else if (key === 'prunable') current.prunable = true
+    }
+    finish()
+    return worktrees
+  }
+
+  public validateMainWorktree(designId: string): DesignWorktree {
+    const expectedPath = path.resolve(this.initialize(designId))
+    const association = this.listWorktrees(designId).find((candidate) => this.samePath(candidate.path, expectedPath))
+    if (!association || (association.branch !== null && association.branch !== 'refs/heads/main')) {
+      throw new Error('The Main branch worktree is not registered with its managed design repository.')
+    }
+    return association
+  }
+
+  public createBranchWorktree(designId: string, branchId: string, baseCommit: string): DesignWorktree {
+    if (!commitPattern.test(baseCommit)) throw new Error('The branch base revision is invalid.')
+    const repositoryPath = this.initialize(designId)
+    const worktreePath = this.getBranchPath(designId, branchId)
+    const branchName = `od/${branchId}`
+    if (existsSync(worktreePath)) throw new Error('The managed branch worktree already exists.')
+    if (this.runAllowingFailure(repositoryPath, ['show-ref', '--verify', '--quiet', this.getBranchRef(branchId)]).status === 0) {
+      throw new Error('The managed branch ref already exists.')
+    }
+    mkdirSync(path.dirname(worktreePath), { recursive: true })
+    this.run(repositoryPath, ['worktree', 'add', '-b', branchName, worktreePath, baseCommit])
+    return this.requireRegisteredBranchWorktree(designId, branchId)
+  }
+
+  public repairBranchWorktree(designId: string, branchId: string): DesignWorktree {
+    const repositoryPath = this.initialize(designId)
+    const worktreePath = this.getBranchPath(designId, branchId)
+    if (!existsSync(worktreePath)) throw new Error('The managed branch worktree is missing and cannot be repaired automatically.')
+    this.run(repositoryPath, ['worktree', 'repair', worktreePath])
+    return this.requireRegisteredBranchWorktree(designId, branchId)
+  }
+
+  public removeBranchWorktree(designId: string, branchId: string, force = false): void {
+    const repositoryPath = this.initialize(designId)
+    const association = this.requireRegisteredBranchWorktree(designId, branchId)
+    const status = this.run(association.path, ['status', '--porcelain'])
+    if (status && !force) throw new Error('This branch has unresolved or uncommitted files. Confirm removal to discard them.')
+    this.run(repositoryPath, ['worktree', 'remove', ...(force ? ['--force'] : []), association.path])
+    this.run(repositoryPath, ['branch', '-D', `od/${branchId}`])
   }
 
   /**
@@ -206,6 +300,33 @@ export class DesignRepositoryManager {
       throw new Error(`Invalid generated file path: ${relativePath}`)
     }
     return normalized
+  }
+
+  private requireRegisteredBranchWorktree(designId: string, branchId: string): DesignWorktree {
+    const expectedPath = this.getBranchPath(designId, branchId)
+    const expectedRef = this.getBranchRef(branchId)
+    const association = this.listWorktrees(designId).find((candidate) => this.samePath(candidate.path, expectedPath))
+    if (!association || association.branch !== expectedRef) {
+      throw new Error('The managed branch worktree does not match its registered Git association.')
+    }
+    return association
+  }
+
+  private validateManagedId(value: string, kind: 'design' | 'branch'): void {
+    if (!managedIdPattern.test(value)) throw new Error(`Invalid managed ${kind} identifier.`)
+  }
+
+  private resolveInsideDesignRoot(designId: string, ...segments: string[]): string {
+    const designRoot = path.resolve(this.artifactsDirectory, designId)
+    const target = path.resolve(designRoot, ...segments)
+    if (target === designRoot || !target.startsWith(`${designRoot}${path.sep}`)) throw new Error('Managed branch path escaped its design root.')
+    return target
+  }
+
+  private samePath(left: string, right: string): boolean {
+    const normalizedLeft = path.resolve(left)
+    const normalizedRight = path.resolve(right)
+    return process.platform === 'win32' ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight
   }
 
   private showFileAtCommit(repositoryPath: string, commit: string, relativePath: string): string | null {

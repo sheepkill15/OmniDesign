@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WorkspaceStore } from './store.js'
 
@@ -18,6 +19,82 @@ afterEach(() => {
 })
 
 describe('WorkspaceStore', () => {
+  it('migrates an existing design to Main without changing its revision history', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
+    const revised = store.addRevision(created.id, 'Create a calm dashboard', 'mock', 'mock-v1', 'a'.repeat(40))
+    store.close()
+
+    const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
+    database.exec(`
+      PRAGMA foreign_keys = OFF;
+      ALTER TABLE designs DROP COLUMN active_branch_id;
+      DROP TABLE design_branches;
+      DELETE FROM schema_migrations WHERE version = 42;
+    `)
+    database.close()
+
+    const migrated = new WorkspaceStore(directory)
+    expect(migrated.getDesign(created.id)).toMatchObject({
+      activeBranchId: created.id,
+      activeRevisionId: revised.activeRevisionId,
+      selectedRevisionId: revised.selectedRevisionId,
+      branches: [{
+        id: created.id,
+        title: 'Main',
+        activeRevisionId: revised.activeRevisionId,
+        selectedRevisionId: revised.selectedRevisionId,
+      }],
+      revisions: [{ id: revised.activeRevisionId, gitCommit: 'a'.repeat(40) }],
+    })
+    migrated.close()
+  })
+
+  it('creates and restores one protected Main branch without manufacturing revisions', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
+
+    expect(created).toMatchObject({
+      activeBranchId: created.id,
+      activeRevisionId: null,
+      selectedRevisionId: null,
+      branches: [{
+        id: created.id,
+        designId: created.id,
+        title: 'Main',
+        gitRef: 'refs/heads/main',
+        worktreePath: 'repository',
+        isMain: true,
+        parentBranchId: null,
+        forkRevisionId: null,
+        forkMessageId: null,
+        activeRevisionId: null,
+        selectedRevisionId: null,
+        status: 'ready',
+      }],
+      revisions: [],
+    })
+
+    const first = store.addRevision(created.id, 'Create a calm dashboard', 'mock', 'mock-v1', 'a'.repeat(40))
+    const second = store.addRevision(created.id, 'Use a warmer accent', 'mock', 'mock-v1', 'b'.repeat(40))
+    store.selectRevision(created.id, first.activeRevisionId!)
+    expect(store.listDesignBranches(created.id)[0]).toMatchObject({
+      activeRevisionId: second.activeRevisionId,
+      selectedRevisionId: first.activeRevisionId,
+    })
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)).toMatchObject({
+      activeBranchId: created.id,
+      activeRevisionId: second.activeRevisionId,
+      selectedRevisionId: first.activeRevisionId,
+      branches: [{ title: 'Main', activeRevisionId: second.activeRevisionId, selectedRevisionId: first.activeRevisionId }],
+      revisions: [{ id: first.activeRevisionId }, { id: second.activeRevisionId }],
+    })
+    reopened.close()
+  })
+
   it('versions project design definitions and persists prompt suppression across reopen', () => {
     const { directory, store } = createStore()
     const design = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')

@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { attachmentSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
+import { attachmentSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, tagSchema, themeSchema } from './contracts.js'
 import { providerStatusesSchema, type ProviderStatus } from '../provider/types.js'
-import type { Attachment, Design, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { REVISION_QUALITY_VERSION } from './revisionQuality.js'
 
 // The final path segment of a linked source folder, tolerant of both Windows and POSIX separators
@@ -29,6 +29,7 @@ interface DesignRow {
   title: string
   created_at: string
   updated_at: string
+  active_branch_id: string
   active_revision_id: string | null
   selected_revision_id: string | null
   draft: string
@@ -47,6 +48,22 @@ interface DesignRow {
   kept_definition_version: number | null
   definition_application_state: 'current' | 'pending' | 'applying' | 'kept' | 'failed' | 'unavailable'
   definition_application_error: string | null
+}
+
+interface DesignBranchRow {
+  id: string
+  design_id: string
+  title: string
+  git_ref: string
+  worktree_path: string
+  is_main: number
+  parent_branch_id: string | null
+  fork_revision_id: string | null
+  fork_message_id: string | null
+  active_revision_id: string | null
+  selected_revision_id: string | null
+  status: DesignBranch['status']
+  created_at: string
 }
 
 interface DesignPageRow {
@@ -607,6 +624,41 @@ const migrationFortyOne = `
 ALTER TABLE revisions ADD COLUMN quality_check_version INTEGER CHECK (quality_check_version IS NULL OR quality_check_version > 0);
 `
 
+// Phase 4 establishes the protected Main branch as an explicit persisted product entity. Existing
+// design-level pointers are copied without creating or rewriting revisions; later Track A migrations
+// move branch-owned conversations, queues, and workspace state behind this foundation.
+const migrationFortyTwo = `
+CREATE TABLE design_branches (
+  id TEXT PRIMARY KEY,
+  design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  git_ref TEXT NOT NULL,
+  worktree_path TEXT NOT NULL,
+  is_main INTEGER NOT NULL CHECK (is_main IN (0, 1)),
+  parent_branch_id TEXT REFERENCES design_branches(id),
+  fork_revision_id TEXT REFERENCES revisions(id),
+  fork_message_id TEXT REFERENCES messages(id),
+  active_revision_id TEXT REFERENCES revisions(id),
+  selected_revision_id TEXT REFERENCES revisions(id),
+  status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready', 'generating', 'queued', 'failed', 'combining', 'manual_resolution')),
+  created_at TEXT NOT NULL,
+  UNIQUE (design_id, title),
+  UNIQUE (design_id, git_ref),
+  UNIQUE (design_id, worktree_path)
+) STRICT;
+CREATE UNIQUE INDEX design_branches_main_by_design ON design_branches(design_id) WHERE is_main = 1;
+CREATE INDEX design_branches_by_design ON design_branches(design_id, created_at);
+ALTER TABLE designs ADD COLUMN active_branch_id TEXT REFERENCES design_branches(id);
+INSERT INTO design_branches (
+  id, design_id, title, git_ref, worktree_path, is_main, parent_branch_id, fork_revision_id,
+  fork_message_id, active_revision_id, selected_revision_id, status, created_at
+)
+SELECT id, id, 'Main', 'refs/heads/main', 'repository', 1, NULL, NULL, NULL,
+       active_revision_id, selected_revision_id, 'ready', created_at
+FROM designs;
+UPDATE designs SET active_branch_id = id;
+`
+
 // Sweep expired trash roughly every six hours so a long-running session purges 30-day-old items
 // without waiting for the next restart.
 const TRASH_PURGE_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -645,7 +697,7 @@ export class WorkspaceStore {
   public listDesigns(): Design[] {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.active_branch_id, d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
              d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id
@@ -658,12 +710,35 @@ export class WorkspaceStore {
   public getDesign(designId: string): Design | null {
     const row = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.active_branch_id, d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
              d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND d.trashed_at IS NULL AND p.trashed_at IS NULL
     `).get(designId) as unknown as DesignRow | undefined
     return row ? this.hydrateDesign(row) : null
+  }
+
+  public listDesignBranches(designId: string): DesignBranch[] {
+    const rows = this.database.prepare(`
+      SELECT id, design_id, title, git_ref, worktree_path, is_main, parent_branch_id,
+             fork_revision_id, fork_message_id, active_revision_id, selected_revision_id, status, created_at
+      FROM design_branches WHERE design_id = ? ORDER BY is_main DESC, created_at, rowid
+    `).all(designId) as unknown as DesignBranchRow[]
+    return rows.map((row) => designBranchSchema.parse({
+      id: row.id,
+      designId: row.design_id,
+      title: row.title,
+      gitRef: row.git_ref,
+      worktreePath: row.worktree_path,
+      isMain: row.is_main === 1,
+      parentBranchId: row.parent_branch_id,
+      forkRevisionId: row.fork_revision_id,
+      forkMessageId: row.fork_message_id,
+      activeRevisionId: row.active_revision_id,
+      selectedRevisionId: row.selected_revision_id,
+      status: row.status,
+      createdAt: row.created_at,
+    }))
   }
 
   public listProjects(): ProjectSummary[] {
@@ -698,7 +773,7 @@ export class WorkspaceStore {
   public listDesignsByProject(projectId: string): Design[] {
     const rows = this.database.prepare(`
       SELECT d.id, d.project_id, p.name AS project_name, p.source_path, d.title, d.created_at, d.updated_at,
-             d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
+             d.active_branch_id, d.active_revision_id, d.selected_revision_id, d.draft, d.draft_attachments_json, d.layout_json, d.thumbnail_path, d.queue_paused,
              d.last_provider_id, d.last_model_id, d.last_effort, d.title_pending, d.adaptation_pending, d.entry_page_path, d.definition_version,
              d.pending_definition_version, d.kept_definition_version, d.definition_application_state, d.definition_application_error
       FROM designs d JOIN projects p ON p.id = d.project_id
@@ -980,6 +1055,7 @@ export class WorkspaceStore {
       if (!project) throw new Error('Project not found.')
       this.database.prepare('INSERT INTO designs (id, project_id, title, definition_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
         .run(designId, projectId, title, project.current_definition_version, now, now)
+      this.insertMainBranch(designId, now)
       if (prompt) {
         this.database.prepare('INSERT INTO messages (id, design_id, role, text, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
           .run(randomUUID(), designId, 'user', prompt, JSON.stringify(attachments), now)
@@ -1027,6 +1103,7 @@ export class WorkspaceStore {
         INSERT INTO revisions (id, design_id, parent_revision_id, prompt, provider_id, model_id, git_commit, definition_version, created_at)
         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
       `).run(newRevisionId, newDesignId, `Duplicated from ${source.title}`, activeRevision.providerId, activeRevision.modelId, activeRevision.gitCommit, activeRevision.definitionVersion ?? null, now)
+      this.insertMainBranch(newDesignId, now, newRevisionId, newRevisionId)
       for (const page of source.pages) {
         this.database.prepare('INSERT INTO design_pages (design_id, path, title, sort_order) VALUES (?, ?, ?, ?)').run(newDesignId, page.path, page.title, page.order)
       }
@@ -1223,6 +1300,8 @@ export class WorkspaceStore {
       }
       this.database.prepare('UPDATE designs SET active_revision_id = ?, selected_revision_id = ?, definition_version = ?, updated_at = ?, draft = ? WHERE id = ?')
         .run(revisionId, revisionId, definitionVersion, now, '', designId)
+      this.database.prepare('UPDATE design_branches SET active_revision_id = ?, selected_revision_id = ? WHERE id = ? AND design_id = ?')
+        .run(revisionId, revisionId, design.activeBranchId, designId)
       this.database.prepare('DELETE FROM focused_feedback_queue WHERE design_id = ?').run(designId)
       this.database.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now, design.projectId)
     })
@@ -1232,7 +1311,11 @@ export class WorkspaceStore {
 
   public selectRevision(designId: string, revisionId: string): Design {
     this.requireRevision(designId, revisionId)
-    this.database.prepare('UPDATE designs SET selected_revision_id = ? WHERE id = ?').run(revisionId, designId)
+    const design = this.requireDesign(designId)
+    this.transaction(() => {
+      this.database.prepare('UPDATE designs SET selected_revision_id = ? WHERE id = ?').run(revisionId, designId)
+      this.database.prepare('UPDATE design_branches SET selected_revision_id = ? WHERE id = ? AND design_id = ?').run(revisionId, design.activeBranchId, designId)
+    })
     return this.requireDesign(designId)
   }
 
@@ -1682,9 +1765,19 @@ export class WorkspaceStore {
     return this.requireDesign(designId)
   }
 
+  private insertMainBranch(designId: string, createdAt: string, activeRevisionId: string | null = null, selectedRevisionId: string | null = null): void {
+    this.database.prepare(`
+      INSERT INTO design_branches (
+        id, design_id, title, git_ref, worktree_path, is_main, active_revision_id,
+        selected_revision_id, status, created_at
+      ) VALUES (?, ?, 'Main', 'refs/heads/main', 'repository', 1, ?, ?, 'ready', ?)
+    `).run(designId, designId, activeRevisionId, selectedRevisionId, createdAt)
+    this.database.prepare('UPDATE designs SET active_branch_id = ? WHERE id = ?').run(designId, designId)
+  }
+
   private migrate(): void {
     this.database.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL) STRICT;')
-    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne]
+    const migrations = [migrationOne, migrationTwo, migrationThree, migrationFour, migrationFive, migrationSix, migrationSeven, migrationEight, migrationNine, migrationTen, migrationEleven, migrationTwelve, migrationThirteen, migrationFourteen, migrationFifteen, migrationSixteen, migrationSeventeen, migrationEighteen, migrationNineteen, migrationTwenty, migrationTwentyOne, migrationTwentyTwo, migrationTwentyThree, migrationTwentyFour, migrationTwentyFive, migrationTwentySix, migrationTwentySeven, migrationTwentyEight, migrationTwentyNine, migrationThirty, migrationThirtyOne, migrationThirtyTwo, migrationThirtyThree, migrationThirtyFour, migrationThirtyFive, migrationThirtySix, migrationThirtySeven, migrationThirtyEight, migrationThirtyNine, migrationForty, migrationFortyOne, migrationFortyTwo]
     // Foreign keys are disabled while migrating so table-rebuild migrations (rename/copy/drop of a
     // table other tables reference) can run; re-enabled and verified afterwards. The pragma is a no-op
     // inside a transaction, so it is toggled around the per-migration transactions, not within them.
@@ -1724,6 +1817,8 @@ export class WorkspaceStore {
       title: row.title,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      activeBranchId: row.active_branch_id,
+      branches: this.listDesignBranches(row.id),
       activeRevisionId: row.active_revision_id,
       selectedRevisionId: row.selected_revision_id,
       definitionVersion: row.definition_version,

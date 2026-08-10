@@ -22,6 +22,12 @@ const design: OmniDesignDocument = {
   title: 'Calm dashboard',
   createdAt: '2026-07-20T10:00:00.000Z',
   updatedAt: '2026-07-20T10:00:00.000Z',
+  activeBranchId: 'design-1',
+  branches: [{
+    id: 'design-1', designId: 'design-1', title: 'Main', gitRef: 'refs/heads/main', worktreePath: 'repository',
+    isMain: true, parentBranchId: null, forkRevisionId: null, forkMessageId: null,
+    activeRevisionId: 'revision-1', selectedRevisionId: 'revision-1', status: 'ready', createdAt: '2026-07-20T10:00:00.000Z',
+  }],
   activeRevisionId: 'revision-1',
   selectedRevisionId: 'revision-1',
   draft: '',

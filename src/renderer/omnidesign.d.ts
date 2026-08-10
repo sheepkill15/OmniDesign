@@ -181,6 +181,22 @@ interface GenerationJob {
   readonly error: string | null
 }
 
+interface DesignBranch {
+  readonly id: string
+  readonly designId: string
+  readonly title: string
+  readonly gitRef: string
+  readonly worktreePath: string
+  readonly isMain: boolean
+  readonly parentBranchId: string | null
+  readonly forkRevisionId: string | null
+  readonly forkMessageId: string | null
+  readonly activeRevisionId: string | null
+  readonly selectedRevisionId: string | null
+  readonly status: 'ready' | 'generating' | 'queued' | 'failed' | 'combining' | 'manual_resolution'
+  readonly createdAt: string
+}
+
 interface OmniDesignDocument {
   readonly id: string
   readonly projectId: string
@@ -189,6 +205,8 @@ interface OmniDesignDocument {
   readonly title: string
   readonly createdAt: string
   readonly updatedAt: string
+  readonly activeBranchId: string
+  readonly branches: readonly DesignBranch[]
   readonly activeRevisionId: string | null
   readonly selectedRevisionId: string | null
   readonly definitionVersion?: number | null

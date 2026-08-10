@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -18,6 +18,48 @@ function newManager(): DesignRepositoryManager {
 }
 
 describe('DesignRepositoryManager', () => {
+  it('creates a persistent linked worktree from a verified base commit', () => {
+    const manager = newManager()
+    const repositoryPath = manager.initialize('design-branches')
+    const baseCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath, encoding: 'utf8' }).trim()
+
+    const branch = manager.createBranchWorktree('design-branches', 'branch-1', baseCommit)
+
+    expect(branch).toMatchObject({
+      path: manager.getBranchPath('design-branches', 'branch-1'),
+      head: baseCommit,
+      branch: 'refs/heads/od/branch-1',
+      locked: false,
+      prunable: false,
+    })
+    expect(manager.listWorktrees('design-branches')).toHaveLength(2)
+    expect(manager.validateMainWorktree('design-branches').path).toBe(path.resolve(repositoryPath))
+    writeFileSync(path.join(branch.path, 'branch-only.html'), '<html>Branch only</html>', 'utf8')
+    expect(existsSync(path.join(repositoryPath, 'branch-only.html'))).toBe(false)
+  })
+
+  it('uses Git lifecycle removal and requires confirmation for dirty branch files', () => {
+    const manager = newManager()
+    const repositoryPath = manager.initialize('design-remove')
+    const baseCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath, encoding: 'utf8' }).trim()
+    const branch = manager.createBranchWorktree('design-remove', 'branch-dirty', baseCommit)
+    writeFileSync(path.join(branch.path, 'uncommitted.html'), '<html>Uncommitted</html>', 'utf8')
+
+    expect(() => manager.removeBranchWorktree('design-remove', 'branch-dirty')).toThrow(/unresolved or uncommitted/i)
+    manager.removeBranchWorktree('design-remove', 'branch-dirty', true)
+
+    expect(existsSync(branch.path)).toBe(false)
+    expect(manager.listWorktrees('design-remove')).toHaveLength(1)
+    expect(() => execFileSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/od/branch-dirty'], { cwd: repositoryPath, stdio: 'ignore' })).toThrow()
+  })
+
+  it('rejects forged managed identifiers and commit values before filesystem mutation', () => {
+    const manager = newManager()
+    expect(() => manager.getPath('../foreign')).toThrow(/identifier/i)
+    expect(() => manager.getBranchPath('design-safe', '..')).toThrow(/identifier/i)
+    expect(() => manager.createBranchWorktree('design-safe', 'branch-safe', 'HEAD')).toThrow(/base revision/i)
+  })
+
   it('initializes a Git repository with a prepared entry page and committed build assets', () => {
     const manager = newManager()
 

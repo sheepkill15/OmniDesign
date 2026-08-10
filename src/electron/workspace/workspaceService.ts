@@ -21,6 +21,7 @@ export class WorkspaceService {
 
   public constructor(private readonly store: WorkspaceStore) {
     this.repositories = new DesignRepositoryManager(store.getDesignArtifactsDirectory())
+    for (const design of store.listDesigns()) this.repositories.validateMainWorktree(design.id)
   }
 
   public listDesigns(): Design[] {
