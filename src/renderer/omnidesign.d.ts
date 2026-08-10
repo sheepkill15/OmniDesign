@@ -513,6 +513,7 @@ interface Window {
       cancelGeneration(jobId: string): Promise<GenerationJob>
       removeGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
+      removeGenerationBranchContext(jobId: string, branchId: string): Promise<GenerationJob>
       continueGeneration(jobId: string): Promise<GenerationJob>
       resumeGenerationQueue(designId: string): Promise<OmniDesignDocument>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>

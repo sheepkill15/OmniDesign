@@ -866,6 +866,22 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('removes an unavailable branch reference from stopped work before retry', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const revised = store.addRevision(created.id, 'First')
+    const source = store.createDesignBranch(created.id, 'Editorial direction', revised.activeRevisionId)
+    const reference = { designId: created.id, branchId: source.id, title: source.title, status: 'available' as const }
+    const queued = store.enqueueGenerationJob(created.id, 'Borrow the strongest typography', 'mock', 'mock-v1', null, [], 'fresh', null, null, [], null, [reference])
+    store.setGenerationJobState(queued.id, 'running')
+    store.setGenerationJobState(queued.id, 'failed', 'The attached branch is unavailable.')
+
+    expect(store.removeGenerationBranchContext(queued.id, source.id).branchContexts).toEqual([])
+    expect(store.getDesign(created.id)?.messages.at(-1)?.branchContexts).toEqual([])
+    expect(store.retryGenerationJob(queued.id).branchContexts).toEqual([])
+    store.close()
+  })
+
   it('associates a standalone design with a linked project without changing its history', () => {
     const { store } = createStore()
     const standalone = store.createStandaloneDesign('First', 'Standalone')

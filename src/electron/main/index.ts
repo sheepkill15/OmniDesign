@@ -38,6 +38,7 @@ import {
   exportRequestSchema,
   generateRequestSchema,
   generationJobIdRequestSchema,
+  generationJobBranchContextRequestSchema,
   generationSelectionSchema,
   generationStageLabel,
   lastOpenDesignSchema,
@@ -89,7 +90,7 @@ const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS ===
 // hidden prevents repeated launches and pop-outs from stealing focus from the user's desktop.
 const automatedTestWindowsHidden = process.env.OMNIDESIGN_E2E_HIDE_WINDOWS === '1'
 const providers = new ProviderService()
-const developmentProviderStatus = { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Available for local development and automated testing.', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] } as const
+const developmentProviderStatus = { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Available for local development and automated testing.', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }, { id: 'mock-v2', name: 'Mock v2', effortLevels: [] }] } as const
 let mainWindow: BrowserWindow | null = null
 let previewServer: PreviewContentServer | null = null
 let thumbnailCapturer: ThumbnailCapturer | null = null
@@ -773,6 +774,11 @@ function registerIpc(): void {
     authorize(event)
     const request = compareRevisionsRequestSchema.parse(value)
     return requireWorkspace().compareRevisions(request.designId, request.baseRevisionId, request.targetRevisionId)
+  })
+  ipcMain.handle('workspace:remove-generation-branch-context', (event, value: unknown) => {
+    authorize(event)
+    const request = generationJobBranchContextRequestSchema.parse(value)
+    return requireWorkspaceStore().removeGenerationBranchContext(request.jobId, request.branchId)
   })
   ipcMain.handle('workspace:compare-branches', (event, value: unknown) => {
     authorize(event)

@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('omnidesign', {
     cancelGeneration: (jobId: string) => ipcRenderer.invoke('workspace:cancel-generation', { jobId }),
     removeGeneration: (jobId: string) => ipcRenderer.invoke('workspace:remove-generation', { jobId }),
     retryGeneration: (jobId: string) => ipcRenderer.invoke('workspace:retry-generation', { jobId }),
+    removeGenerationBranchContext: (jobId: string, branchId: string) => ipcRenderer.invoke('workspace:remove-generation-branch-context', { jobId, branchId }),
     continueGeneration: (jobId: string) => ipcRenderer.invoke('workspace:continue-generation', { jobId }),
     resumeGenerationQueue: (designId: string) => ipcRenderer.invoke('workspace:resume-generation-queue', { designId }),
     selectRevision: (designId: string, revisionId: string) => ipcRenderer.invoke('workspace:select-revision', { designId, revisionId }),

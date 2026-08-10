@@ -485,6 +485,10 @@ export const generationJobIdRequestSchema = z.object({
   jobId: z.string().uuid(),
 })
 
+export const generationJobBranchContextRequestSchema = generationJobIdRequestSchema.extend({
+  branchId: z.string().min(1).max(100),
+})
+
 export const generateRequestSchema = designIdRequestSchema.extend({
   prompt: z.string().trim().min(1).max(100_000),
   providerId: z.enum(['mock', 'codex', 'claude']).default('mock'),

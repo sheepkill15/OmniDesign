@@ -194,6 +194,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       cancelGeneration: vi.fn().mockResolvedValue(undefined),
       removeGeneration: vi.fn().mockResolvedValue(undefined),
       retryGeneration: vi.fn().mockResolvedValue(undefined),
+      removeGenerationBranchContext: vi.fn().mockResolvedValue(undefined),
       continueGeneration: vi.fn().mockResolvedValue(undefined),
       resumeGenerationQueue: vi.fn().mockResolvedValue(design),
       selectRevision: vi.fn().mockResolvedValue(design),
@@ -2098,6 +2099,7 @@ describe('Phase 1 walking skeleton UI', () => {
       generationJobs: [{
         id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Try again', providerId: 'mock', modelId: 'mock-v1', state: 'interrupted',
         createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'OmniDesign closed before this generation completed.', attachments: [],
+        branchContexts: [{ designId: 'design-1', branchId: 'missing-branch', title: 'Missing direction', status: 'unavailable' }],
       }],
     }
     const bridge = installBridge([], interruptedDesign)
@@ -2107,9 +2109,13 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Design conversation' })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Missing direction reference' }))
+    expect(bridge.workspace.removeGenerationBranchContext).toHaveBeenCalledWith('e0684c4c-0d07-4ece-9d6f-22c2f523e399', 'missing-branch')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
     expect(bridge.workspace.retryGeneration).toHaveBeenCalledWith('e0684c4c-0d07-4ece-9d6f-22c2f523e399')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel prompt' }))
+    expect(bridge.workspace.resumeGenerationQueue).toHaveBeenCalledWith('design-1')
   })
 
   it('turns provider failures into actionable recovery while retaining diagnostics', async () => {

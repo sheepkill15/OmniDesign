@@ -21,7 +21,7 @@ const developmentProvider: ProviderStatus = {
   installed: true,
   authenticated: true,
   detail: 'Available for local development and automated testing.',
-  models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }],
+  models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }, { id: 'mock-v2', name: 'Mock v2', effortLevels: [] }],
 }
 
 function useProviders(): { readonly providers: readonly ProviderStatus[]; readonly loading: boolean; readonly error: string | null; readonly refresh: () => void } {

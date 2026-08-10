@@ -618,6 +618,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     const completed = await runWorkspaceAction(() => api.finishCombination(design.id, combinationAttempt.id), 'The combination still needs attention.')
     if (!completed) return
     setCombinationAttempt(null)
+    setBranchComparison(null)
     setCompletedCombination(completed)
     const updated = completed.destinationBranchId ? await api.switchBranch(design.id, completed.destinationBranchId) : await api.get(design.id)
     if (updated) onChange(updated)
@@ -638,7 +639,10 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     const attempt = refreshed ? await runWorkspaceAction(() => api.combineBranches(design.id, refreshed.comparisonId, previous.prompt, selection), 'The branches could not be retried.') : undefined
     setCombiningBranches(false)
     if (attempt) setCombinationAttempt(attempt.state === 'completed' ? null : attempt)
-    if (attempt?.state === 'completed') setCompletedCombination(attempt)
+    if (attempt?.state === 'completed') {
+      setBranchComparison(null)
+      setCompletedCombination(attempt)
+    }
   }
   const fixQualityIssues = async () => {
     if (!api || !qualityDiagnostics.length || busy || !selectedIsHead || !hasUsableSelection) return
@@ -713,6 +717,18 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     const retry = await runWorkspaceAction(() => api.retryGeneration(retryableJob.id), 'Generation could not be retried.')
     if (!retry) return
     const updated = await runWorkspaceAction(() => api.get(design.id), 'The retried generation could not be refreshed.')
+    if (updated) onChange(updated)
+  }
+  const removeStoppedBranchContext = async (branchId: string) => {
+    if (!api || !retryableJob) return
+    const changed = await runWorkspaceAction(() => api.removeGenerationBranchContext(retryableJob.id, branchId), 'The branch reference could not be removed from this prompt.')
+    if (!changed) return
+    const updated = await api.get(design.id)
+    if (updated) onChange(updated)
+  }
+  const cancelStoppedPrompt = async () => {
+    if (!api || !retryableJob) return
+    const updated = await runWorkspaceAction(() => api.resumeGenerationQueue(design.id), 'The stopped prompt could not be dismissed.')
     if (updated) onChange(updated)
   }
   const removeGeneration = async (jobId: string) => {
@@ -814,6 +830,15 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const comparedPagePaths = branchComparison ? [...new Set([...branchComparison.destination.pages.map((page) => page.path), ...branchComparison.source.pages.map((page) => page.path)])] : []
   const comparisonPageUrl = (token: string, page: string) => `omnidesign-preview://revision/${token}/${page.split('/').map(encodeURIComponent).join('/')}`
   const visibleBranchSummary = branchComparison ? branchSummaries.find((summary) => summary.sourceBranchId === branchComparison.source.branchId && summary.destinationBranchId === branchComparison.destination.branchId) ?? null : null
+  const branchComparisonStale = branchComparison ? branchComparison.stale || [branchComparison.source, branchComparison.destination].some((side) => design.branches.find((branch) => branch.id === side.branchId)?.activeRevisionId !== side.revisionId) : false
+  const refreshBranchComparison = async () => {
+    if (!api || !branchComparison) return
+    const refreshed = await runWorkspaceAction(() => api.compareBranches(design.id, branchComparison.source.branchId, branchComparison.destination.branchId), 'The branch comparison could not be refreshed.')
+    if (!refreshed) return
+    setBranchComparison(refreshed)
+    setBranchComparisonTokens(null)
+    setBranchComparisonPage(refreshed.destination.entryPagePath ?? refreshed.source.entryPagePath ?? refreshed.destination.pages[0]?.path ?? refreshed.source.pages[0]?.path ?? null)
+  }
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
@@ -825,7 +850,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         {activity && (runningJob || (queuedJobs.length > 0 && !design.queuePaused)) && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{runningJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
         {queuedJobs.length > 0 && <section className="workspace-queue" aria-label="Queued prompts"><header><span><strong>{queuedJobs.length} queued prompt{queuedJobs.length === 1 ? '' : 's'}</strong><small>{design.queuePaused ? 'Waiting for you to resume generation' : runningJob ? 'Runs after the current request' : 'Waiting to start'}</small></span>{design.queuePaused && !retryableJob && <Button className="secondary-action" onPress={() => void resumeGenerationQueue()}>Resume queue</Button>}</header>{queuedJobs.map((job) => <article key={job.id}><span><strong>{job.prompt}</strong><small>{job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`}</small></span><Button className="text-button" onPress={() => void removeGeneration(job.id)}>Remove</Button></article>)}</section>}
         {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
-        {!runningJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
+        {!runningJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{(retryableJob.branchContexts ?? []).filter((context) => context.status === 'unavailable').map((context) => <Button key={context.branchId} className="secondary-action" onPress={() => void removeStoppedBranchContext(context.branchId)}>Remove {context.title} reference</Button>)}{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button><Button className="text-button" onPress={() => void cancelStoppedPrompt()}>Cancel prompt</Button></div>}
         {invalidCandidateVisible && <section className="invalid-candidate-notice" role="status">
           <strong>This version wasn’t applied</strong>
           <p>OmniDesign kept your last working design.</p>
@@ -994,13 +1019,14 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       </AppModal>
       <AppModal isOpen={branchComparison !== null} onOpenChange={(open) => { if (!open) { setBranchComparison(null); setBranchComparisonTokens(null) } }} className="branch-comparison-modal" title="Compare branches">
         {(close) => branchComparison && <>
+          {branchComparisonStale && <div className="generation-recovery" role="status"><span><strong>This comparison is stale.</strong>One of these branch heads changed after the evidence was captured. Refresh before summarizing or combining.</span><Button className="secondary-action" onPress={() => void refreshBranchComparison()}>Refresh comparison</Button></div>}
           <div className="branch-comparison-page-tabs" role="tablist" aria-label="Pages to compare">{comparedPagePaths.map((page) => <button type="button" key={page} role="tab" aria-selected={branchComparisonPage === page} data-active={branchComparisonPage === page || undefined} onClick={() => setBranchComparisonPage(page)}>{branchComparison.destination.pages.find((candidate) => candidate.path === page)?.title ?? branchComparison.source.pages.find((candidate) => candidate.path === page)?.title ?? page}</button>)}</div>
           <div className="branch-comparison-previews">
             {(['destination', 'source'] as const).map((side) => { const branch = branchComparison[side]; const token = branchComparisonTokens?.[side]; const hasPage = !!branchComparisonPage && branch.pages.some((page) => page.path === branchComparisonPage); return <article key={side}><header><span>{side === 'destination' ? 'Destination' : 'Source'}</span><strong>{branch.title}</strong></header>{token && branchComparisonPage && hasPage ? <iframe title={`${branch.title} · ${branchComparisonPage}`} src={comparisonPageUrl(token, branchComparisonPage)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">{hasPage ? 'Preview unavailable' : 'This page exists only in the other branch'}</div>}</article> })}
           </div>
           <section className="revision-comparison-changes" aria-label="Branch authored file changes"><header><span><strong>{branchComparison.changes.files.length} authored file{branchComparison.changes.files.length === 1 ? '' : 's'} changed</strong><small>Destination compared with source. Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{branchComparison.changes.additions}</strong><strong>−{branchComparison.changes.deletions}</strong></span></header>{branchComparison.changes.files.length ? <ul>{branchComparison.changes.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files differ between these branch heads.</p>}</section>
-          <section className="branch-ai-summary" aria-label="AI branch summary"><header><span><strong>AI summary</strong><small>Generated only when requested and kept with the captured branch heads.</small></span><Button className="secondary-action" isDisabled={summarizingBranches || !hasUsableSelection} onPress={() => void summarizeBranches()}>{summarizingBranches ? 'Summarizing…' : visibleBranchSummary ? 'Generate a new summary' : 'Summarize differences'}</Button></header>{visibleBranchSummary ? <div><span className="branch-summary-meta">{visibleBranchSummary.providerId} · {new Date(visibleBranchSummary.createdAt).toLocaleString()}{visibleBranchSummary.stale ? ' · Stale' : ''}</span><Markdown text={visibleBranchSummary.summary} />{visibleBranchSummary.stale && <p className="branch-summary-stale" role="status">This summary describes older branch heads. It remains available as history and will not regenerate automatically.</p>}</div> : <p>No AI summary has been generated for these branch heads.</p>}</section>
-          <section className="combine-branches-composer" aria-label="Combine branches"><header><span><strong>Best of both directions</strong><small>Describe what the destination should keep and what it should adopt from the source.</small></span></header><TextField aria-label="Combination prompt"><TextArea value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Bring the best of ${branchComparison.source.title} into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" isDisabled={!combinationPrompt.trim() || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches ? 'Combining…' : 'Combine into destination'}</Button></div></section>
+          <section className="branch-ai-summary" aria-label="AI branch summary"><header><span><strong>AI summary</strong><small>Generated only when requested and kept with the captured branch heads.</small></span><Button className="secondary-action" isDisabled={branchComparisonStale || summarizingBranches || !hasUsableSelection} onPress={() => void summarizeBranches()}>{summarizingBranches ? 'Summarizing…' : visibleBranchSummary ? 'Generate a new summary' : 'Summarize differences'}</Button></header>{visibleBranchSummary ? <div><span className="branch-summary-meta">{visibleBranchSummary.providerId} · {new Date(visibleBranchSummary.createdAt).toLocaleString()}{visibleBranchSummary.stale ? ' · Stale' : ''}</span><Markdown text={visibleBranchSummary.summary} />{visibleBranchSummary.stale && <p className="branch-summary-stale" role="status">This summary describes older branch heads. It remains available as history and will not regenerate automatically.</p>}</div> : <p>No AI summary has been generated for these branch heads.</p>}</section>
+          <section className="combine-branches-composer" aria-label="Combine branches"><header><span><strong>Best of both directions</strong><small>Describe what the destination should keep and what it should adopt from the source.</small></span></header><TextField aria-label="Combination prompt"><TextArea value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Bring the best of ${branchComparison.source.title} into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" isDisabled={branchComparisonStale || !combinationPrompt.trim() || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches ? 'Combining…' : 'Combine into destination'}</Button></div></section>
           <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Close</Button></div>
         </>}
       </AppModal>

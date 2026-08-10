@@ -2155,6 +2155,20 @@ export class WorkspaceStore {
     return this.requireGenerationJob(retryId)
   }
 
+  public removeGenerationBranchContext(id: string, branchId: string): GenerationJob {
+    const job = this.requireGenerationJob(id)
+    if (!['failed', 'cancelled', 'interrupted'].includes(job.state)) throw new Error('Branch context can only be changed on a stopped generation job.')
+    const remaining = job.branchContexts.filter((context) => context.branchId !== branchId)
+    if (remaining.length === job.branchContexts.length) throw new Error('Branch context was not found on this generation job.')
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.database.prepare('UPDATE generation_jobs SET branch_contexts_json = ?, resolved_branch_contexts_json = ? WHERE id = ?').run(JSON.stringify(remaining), '[]', id)
+      this.database.prepare('UPDATE messages SET branch_contexts_json = ? WHERE generation_job_id = ?').run(JSON.stringify(remaining), id)
+      this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, job.designId)
+    })
+    return this.requireGenerationJob(id)
+  }
+
   public getNotificationsEnabled(): boolean {
     const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'notifications.enabled'").get() as { value: string } | undefined
     return setting?.value !== 'false'
