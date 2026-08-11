@@ -1,19 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
 import { ArrowRightIcon, PencilSquareIcon, SparklesIcon, SwatchIcon } from '@heroicons/react/24/outline'
 import { promptMentionsProject } from './promptMatch'
-import { Library } from './screens/Library'
 import { Sidebar } from './screens/Sidebar'
 import { Home } from './screens/Home'
-import { ProjectPage } from './screens/ProjectPage'
-import { Generations } from './screens/Generations'
-import { Providers } from './screens/Providers'
-import { Trash } from './screens/Trash'
-import { Settings } from './screens/Settings'
-import { DesignWorkspace } from './screens/DesignWorkspace'
-import { DesignDefinitions } from './screens/DesignDefinitions'
 import { AppModal } from './components/AppModal'
 import type { ProviderId } from './components/composer'
+
+const Library = lazy(async () => ({ default: (await import('./screens/Library')).Library }))
+const ProjectPage = lazy(async () => ({ default: (await import('./screens/ProjectPage')).ProjectPage }))
+const Generations = lazy(async () => ({ default: (await import('./screens/Generations')).Generations }))
+const Providers = lazy(async () => ({ default: (await import('./screens/Providers')).Providers }))
+const Trash = lazy(async () => ({ default: (await import('./screens/Trash')).Trash }))
+const Settings = lazy(async () => ({ default: (await import('./screens/Settings')).Settings }))
+const DesignWorkspace = lazy(async () => ({ default: (await import('./screens/DesignWorkspace')).DesignWorkspace }))
+const DesignDefinitions = lazy(async () => ({ default: (await import('./screens/DesignDefinitions')).DesignDefinitions }))
+
+function ScreenLoading() {
+  return <main className="screen-loading" aria-busy="true" aria-live="polite"><span className="spin" aria-hidden="true" />Loading view…</main>
+}
 
 const developmentProvider: ProviderStatus = {
   id: 'mock',
@@ -427,7 +432,8 @@ export function App() {
   return (
     <div className="app-frame">
       <Sidebar projects={projects} designs={designs} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} updateState={updateState} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen && !libraryOpen && !definitionsProject} libraryOpen={libraryOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onLibrary={openLibrary} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} onInstallUpdate={() => { void window.omnidesign?.updates.install().then(setUpdateState) }} onRetryUpdate={() => { void window.omnidesign?.updates.retry().then(setUpdateState) }} />
-      {libraryOpen
+      <Suspense fallback={<ScreenLoading />}>
+        {libraryOpen
         ? <Library projects={projects} designs={designs} folders={folders} tags={tags} onOpenProject={openProject} onOpenDesign={openDesign} onCreateFolder={createFolder} onRenameFolder={renameFolder} onDeleteFolder={deleteFolder} onMoveProjectToFolder={moveProjectToFolder} onCreateTag={createLibraryTag} onDeleteTag={deleteLibraryTag} onToggleTag={toggleLibraryTag} onDuplicateDesign={duplicateDesign} onMoveDesign={moveDesign} onTrashDesign={trashDesign} />
         : generationsOpen
         ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} onResume={resumeGenerationQueue} />
@@ -444,6 +450,7 @@ export function App() {
         : activeProject
         ? <ProjectPage project={activeProject} projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onRefresh={async () => { await refresh() }} onOpenProviders={openProviders} onOpenDefinitions={() => openDefinitions(activeProject)} />
         : <Home projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}
+      </Suspense>
       <AppModal isOpen={definitionPromptProject !== null} onOpenChange={(open) => { if (!open) setDefinitionPromptProject(null) }} className="definition-setup-modal" title={`Set up design definitions for ${definitionPromptProject?.name ?? 'this project'}?`}>
         {(close) => <>
           <div className="definition-setup-intro">
