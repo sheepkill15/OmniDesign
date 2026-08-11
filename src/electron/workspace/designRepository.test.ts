@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -26,7 +26,7 @@ describe('DesignRepositoryManager', () => {
     const branch = manager.createBranchWorktree('design-branches', 'branch-1', baseCommit)
 
     expect(branch).toMatchObject({
-      path: manager.getBranchPath('design-branches', 'branch-1'),
+      path: realpathSync.native(manager.getBranchPath('design-branches', 'branch-1')),
       head: baseCommit,
       branch: 'refs/heads/od/branch-1',
       locked: false,
