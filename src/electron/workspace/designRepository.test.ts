@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -36,6 +36,24 @@ describe('DesignRepositoryManager', () => {
     expect(manager.validateMainWorktree('design-branches').path).toBe(path.resolve(repositoryPath))
     writeFileSync(path.join(branch.path, 'branch-only.html'), '<html>Branch only</html>', 'utf8')
     expect(existsSync(path.join(repositoryPath, 'branch-only.html'))).toBe(false)
+  })
+
+  it('recognizes a registered worktree when Git canonicalizes an aliased artifacts path', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'omnidesign-repository-alias-'))
+    directories.push(root)
+    const actualArtifacts = path.join(root, 'actual')
+    const aliasedArtifacts = path.join(root, 'alias')
+    mkdirSync(actualArtifacts)
+    symlinkSync(actualArtifacts, aliasedArtifacts, process.platform === 'win32' ? 'junction' : 'dir')
+    const manager = new DesignRepositoryManager(aliasedArtifacts)
+    const repositoryPath = manager.initialize('design-alias')
+    const baseCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath, encoding: 'utf8' }).trim()
+
+    const branch = manager.createBranchWorktree('design-alias', 'branch-alias', baseCommit)
+
+    expect(branch.branch).toBe('refs/heads/od/branch-alias')
+    expect(existsSync(branch.path)).toBe(true)
+    expect(manager.getWorkingPath('design-alias', 'branch-alias')).toBe(branch.path)
   })
 
   it('uses Git lifecycle removal and requires confirmation for dirty branch files', () => {

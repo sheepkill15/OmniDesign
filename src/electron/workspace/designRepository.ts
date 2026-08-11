@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { alpineRuntimeBase64 } from './alpineRuntime.js'
@@ -384,8 +384,13 @@ export class DesignRepositoryManager {
   }
 
   private samePath(left: string, right: string): boolean {
-    const normalizedLeft = path.resolve(left)
-    const normalizedRight = path.resolve(right)
+    const canonicalize = (value: string) => {
+      const resolved = path.resolve(value)
+      try { return realpathSync.native(resolved) }
+      catch { return resolved }
+    }
+    const normalizedLeft = canonicalize(left)
+    const normalizedRight = canonicalize(right)
     return process.platform === 'win32' ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight
   }
 
