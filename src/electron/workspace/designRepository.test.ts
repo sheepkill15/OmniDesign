@@ -17,6 +17,10 @@ function newManager(): DesignRepositoryManager {
   return new DesignRepositoryManager(artifactsDirectory)
 }
 
+function canonicalPath(value: string): string {
+  return realpathSync.native(path.resolve(value))
+}
+
 describe('DesignRepositoryManager', () => {
   it('creates a persistent linked worktree from a verified base commit', () => {
     const manager = newManager()
@@ -26,14 +30,14 @@ describe('DesignRepositoryManager', () => {
     const branch = manager.createBranchWorktree('design-branches', 'branch-1', baseCommit)
 
     expect(branch).toMatchObject({
-      path: realpathSync.native(manager.getBranchPath('design-branches', 'branch-1')),
+      path: canonicalPath(manager.getBranchPath('design-branches', 'branch-1')),
       head: baseCommit,
       branch: 'refs/heads/od/branch-1',
       locked: false,
       prunable: false,
     })
     expect(manager.listWorktrees('design-branches')).toHaveLength(2)
-    expect(manager.validateMainWorktree('design-branches').path).toBe(path.resolve(repositoryPath))
+    expect(manager.validateMainWorktree('design-branches').path).toBe(canonicalPath(repositoryPath))
     writeFileSync(path.join(branch.path, 'branch-only.html'), '<html>Branch only</html>', 'utf8')
     expect(existsSync(path.join(repositoryPath, 'branch-only.html'))).toBe(false)
   })
