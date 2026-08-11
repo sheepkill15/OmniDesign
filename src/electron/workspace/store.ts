@@ -990,6 +990,19 @@ export class WorkspaceStore {
     return this.listDesignBranches(designId).find((branch) => branch.id === branchId)!
   }
 
+  public renameDesignBranch(designId: string, branchId: string, requestedTitle: string): DesignBranch {
+    const branch = this.listDesignBranches(designId).find((candidate) => candidate.id === branchId)
+    if (!branch) throw new Error('Design branch not found.')
+    if (branch.isMain) throw new Error('Main cannot be renamed.')
+    const title = this.uniqueBranchTitle(designId, requestedTitle, branchId)
+    const now = new Date().toISOString()
+    this.transaction(() => {
+      this.database.prepare('UPDATE design_branches SET title = ? WHERE id = ? AND design_id = ?').run(title, branchId, designId)
+      this.database.prepare('UPDATE designs SET updated_at = ? WHERE id = ?').run(now, designId)
+    })
+    return this.listDesignBranches(designId).find((candidate) => candidate.id === branchId)!
+  }
+
   public switchDesignBranch(designId: string, branchId: string): Design {
     const branch = this.database.prepare(`
       SELECT id, active_revision_id, selected_revision_id, draft, draft_attachments_json,
@@ -2337,9 +2350,9 @@ export class WorkspaceStore {
     this.database.prepare('UPDATE designs SET active_branch_id = ? WHERE id = ?').run(designId, designId)
   }
 
-  private uniqueBranchTitle(designId: string, requestedTitle: string): string {
+  private uniqueBranchTitle(designId: string, requestedTitle: string, excludedBranchId?: string): string {
     const base = requestedTitle.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180) || 'Alternative direction'
-    const existing = new Set(this.listDesignBranches(designId).map((branch) => branch.title.toLocaleLowerCase()))
+    const existing = new Set(this.listDesignBranches(designId).filter((branch) => branch.id !== excludedBranchId).map((branch) => branch.title.toLocaleLowerCase()))
     if (!existing.has(base.toLocaleLowerCase())) return base
     for (let suffix = 2; suffix < 10_000; suffix += 1) {
       const candidate = `${base} ${suffix}`.slice(0, 200)

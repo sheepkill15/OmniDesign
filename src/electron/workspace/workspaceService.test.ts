@@ -27,6 +27,9 @@ describe('WorkspaceService', () => {
     const branchPath = service.getDesignRepositoryPath(main.id, branchId)
     expect(branchId).not.toBe(main.id)
     expect(existsSync(branchPath)).toBe(true)
+    expect(service.renameDesignBranch(main.id, branchId, 'Editorial direction')).toMatchObject({ id: branchId, title: 'Editorial direction' })
+    expect(service.getDesign(main.id)?.branches.find((candidate) => candidate.id === branchId)?.title).toBe('Editorial direction')
+    expect(() => service.renameDesignBranch(main.id, main.id, 'Renamed Main')).toThrow('Main cannot be renamed.')
     const revisedBranch = await service.generate(main.id, 'Use a warmer accent', () => undefined)
     expect(revisedBranch.activeRevisionId).not.toBe(mainHead)
     service.saveDraft(main.id, 'Branch-only draft')
@@ -103,6 +106,8 @@ describe('WorkspaceService', () => {
     await service.generate(main.id, 'Use a warmer accent', () => undefined)
     service.switchDesignBranch(main.id, main.id)
     const prepared = service.prepareBranchComparisonSummary(main.id, alternativeId, main.id)
+    expect(prepared.changedLineContext).toContain('index.html')
+    expect(prepared.changedLineContext).toMatch(/^[-+]/m)
     const saved = service.saveBranchComparisonSummary(main.id, alternativeId, main.id, prepared.sourceCommit, prepared.destinationCommit, 'The alternative introduces a warmer visual direction.', { providerId: 'mock', modelId: 'mock-v1', effort: null })
 
     expect(service.listBranchComparisonSummaries(main.id)).toEqual([expect.objectContaining({ id: saved.id, stale: false, summary: 'The alternative introduces a warmer visual direction.' })])

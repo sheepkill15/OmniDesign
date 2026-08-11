@@ -814,7 +814,8 @@ conversation continuation, and workspace state are branch-specific. This provide
 filesystem isolation for concurrent provider runs without copying repositories.
 
 OmniDesign owns stable internal branch IDs and maps them to validated refs and worktree
-paths. AI-generated immutable display titles are presentation only. Existing designs migrate
+paths. Prompt-derived provisional display titles may be replaced once by provider-generated titles;
+the resulting immutable titles remain presentation only. Existing designs migrate
 their current history and pointers to `Main` without manufacturing revisions. Worktree
 creation, inspection, repair, and removal use `git worktree` commands and machine-readable
 output. The privileged application must resolve every path inside the exact managed design
@@ -845,7 +846,8 @@ execution-time branch context, and branch-local page metadata.
 
 ### ADR 2026-08-10: Intelligent combination records two-parent destination commits (accepted, implemented)
 
-Phase 4 combination is source-to-destination and prompt-led. The primary path does not invoke
+Phase 4 combination is source-to-destination and AI-directed, with optional user guidance and a
+persisted default instruction when no prompt is supplied. The primary path does not invoke
 `git merge`: the provider reads the source branch folder and divergent conversation as
 reference, edits only the locked destination worktree, and returns an ordinary conversational
 response. OmniDesign independently validates the destination tree and, when changed and valid,

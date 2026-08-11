@@ -1464,7 +1464,9 @@ describe('Phase 1 walking skeleton UI', () => {
       ],
     }
     const bridge = installBridge()
-    vi.mocked(bridge.workspace.generate).mockResolvedValueOnce(branchedDesign)
+    let finishBranchCreation: ((value: OmniDesignDocument) => void) | undefined
+    const branchCreation = new Promise<OmniDesignDocument>((resolve) => { finishBranchCreation = resolve })
+    vi.mocked(bridge.workspace.generate).mockImplementationOnce(async () => branchCreation)
     render(<App />)
 
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -1484,7 +1486,10 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.change(followUp, { target: { value: 'Try a warmer hierarchy' } })
     fireEvent.keyDown(followUp, { key: 'Enter' })
+    expect(screen.getByText('Creating a separate branch…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Branch: Creating branch' })).toBeDisabled()
     await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith('design-1', 'Try a warmer hierarchy', 'mock', 'mock-v1', undefined, [], null, true, null))
+    await act(async () => finishBranchCreation?.(branchedDesign))
     const branchSelector = await screen.findByRole('button', { name: 'Branch: Warmer hierarchy' })
     fireEvent.click(branchSelector)
     expect(await screen.findByRole('menuitem', { name: /Warmer hierarchy/ })).toHaveTextContent('Queued')
@@ -1636,10 +1641,9 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Summarize differences' }))
     expect(await screen.findByText(/Editorial direction adds a denser typographic hierarchy/)).toBeInTheDocument()
     await waitFor(() => expect(bridge.workspace.summarizeBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Combination prompt' }), { target: { value: 'Keep Main and adopt the editorial typography' } })
     fireEvent.click(screen.getByRole('button', { name: 'Combine into destination' }))
     expect(await screen.findByRole('dialog', { name: 'Combination needs review' })).toBeInTheDocument()
-    await waitFor(() => expect(bridge.workspace.combineBranches).toHaveBeenCalledWith('design-1', '00000000-0000-4000-8000-000000000010', 'Keep Main and adopt the editorial typography', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
+    await waitFor(() => expect(bridge.workspace.combineBranches).toHaveBeenCalledWith('design-1', '00000000-0000-4000-8000-000000000010', '', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
     expect(await screen.findByTitle('Unresolved destination preview')).toHaveAttribute('sandbox', 'allow-scripts')
   })
 

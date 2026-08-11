@@ -299,7 +299,7 @@ The product owner accepted the Quiet Studio home direction on 2026-07-20. It is 
 ### Branch Context and Lineage
 
 - Branch navigation belongs in the existing composer footer, not in a dedicated workspace strip or the already dense workspace and preview toolbars.
-- Use one compact accessible selector in place of the separate-branch toggle. Its trigger shows the current immutable AI-generated branch name; its menu switches directions and offers **New branch** for the next prompt without creating an empty branch.
+- Use one compact accessible selector in place of the separate-branch toggle. Its trigger shows the current branch title; its menu switches directions and offers **New branch** for the next prompt without creating an empty branch. Submission immediately shows an announced creating state, then the provisional title while provider-backed naming finishes in the background.
 - Put comparison, combination, and permanent removal in **Manage branches**, reached from the selector. Keep destructive controls out of everyday switching.
 - The lineage view emphasizes branches, fork points, and successful combinations. Reveal ordinary revisions on demand instead of drawing every commit permanently.
 - Use product language such as `Main`, source, destination, direction, combining, and manual resolution. Do not expose ahead/behind, dirty, detached, ref, index, or other Git implementation terms.
@@ -318,7 +318,7 @@ The product owner accepted the Quiet Studio home direction on 2026-07-20. It is 
 - Compare branch pages in paired, equally weighted preview regions with a shared page selector. Clearly mark a page that exists on only one branch instead of showing an empty lookalike as if it were a failed render.
 - Label source and destination persistently through comparison and combination. Their roles cannot depend on left/right position or color alone.
 - An AI-generated comparison summary is secondary evidence, explicitly requested, labeled as generated interpretation, and visually subordinate to the rendered designs.
-- Combination uses an ordinary substantial prompt rather than a dense merge-control panel. The recovery UI presents intelligent attempt, fallback, manual resolution, Check resolution, and Abort in calm product language.
+- Combination offers an ordinary substantial prompt as optional guidance rather than requiring a dense merge-control panel. With no prompt, the primary action clearly means combine the strongest source qualities into the destination. The recovery UI presents intelligent attempt, fallback, manual resolution, Check resolution, and Abort in calm product language.
 
 ### Definitions and Updates
 

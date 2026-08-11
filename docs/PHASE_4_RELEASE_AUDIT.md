@@ -17,7 +17,7 @@ The accepted standalone-design, updater, and message-action refinements are also
 - Migrations 42-48 create protected Main records, branch-owned workspace and conversation state, durable combination locks/attempts, persisted summaries and comparisons, branch context evidence, and branch-local page metadata.
 - Alternative branches use validated internal IDs, refs, and persistent linked worktrees. Startup verifies associations; removal uses the Git worktree lifecycle and requires explicit confirmation for dirty state.
 - Revisions, export, preview, project-definition application, generation, recovery, selected revision, page metadata, and provider session resolve through the active branch.
-- Main cannot be removed. Product titles are immutable, AI-derived, and collision-safe without becoming filesystem authority.
+- Main cannot be removed. Alternative branches appear immediately with collision-safe provisional titles; background provider naming may replace each once, after which product titles are immutable and never become filesystem authority.
 
 ### Conversation, Context, and Concurrency
 
@@ -29,9 +29,10 @@ The accepted standalone-design, updater, and message-action refinements are also
 ### Lineage, Comparison, and Combination
 
 - Manage branches shows fork ancestry, status, ordinary revisions on demand, and successful combination evidence. Failed attempts remain recovery/history records rather than lineage nodes.
-- Exact branch heads render in isolated comparison frames. Page tabs include one-sided pages and Git supplies authored-file evidence excluding managed build output.
+- Exact branch heads render in isolated comparison frames. Page tabs include one-sided pages, and Git supplies authored-file evidence plus bounded changed-line hunks excluding managed build output for requested AI summaries.
 - AI summaries run only on request, retain provider/model and exact head commits, persist after branch removal, and become stale without automatic regeneration.
 - Combination captures an opaque comparison record, locks source and destination, applies only to the destination on the primary path, validates independently, and creates a destination commit with destination and source parents.
+- Combination guidance is optional; an omitted prompt resolves to a persisted default instruction rather than blocking the action.
 - Failure restores the exact destination before Git merge fallback. A second failure persists manual resolution across restart with allow-listed editor opening, unresolved preview, Check resolution, Retry, and Abort. Success advances only the destination and asks whether to keep or remove the source.
 
 ### Trusted Application Refinements
@@ -73,6 +74,8 @@ Post-audit branch-selector refinement on 2026-08-11:
 - `pnpm typecheck`, all 328 unit/component tests, and `pnpm build` passed. The renderer bundle remains above Vite's advisory threshold at 582.88 kB (166.08 kB gzip).
 - The focused Phase 4 principal and manual-recovery Electron journeys both passed in 95.3 seconds total.
 - `git diff --check` passed.
+- Follow-up responsiveness work creates and opens provisional branches before provider title generation, announces the creating state immediately, and refreshes the collision-safe final title in the background.
+- The same follow-up passed `pnpm typecheck`, all 328 unit/component tests, `pnpm build`, the focused principal and manual-recovery Phase 4 Electron journeys in 109.7 seconds, and `git diff --check`. The renderer bundle advisory remains at 583.45 kB (166.24 kB gzip).
 
 ## Residual Notes
 

@@ -291,6 +291,13 @@ export class DesignRepositoryManager {
     }
   }
 
+  public getRevisionDiffContext(designId: string, baseCommit: string, targetCommit: string): string {
+    const repositoryPath = this.initialize(designId)
+    const diff = this.run(repositoryPath, ['diff', '--no-ext-diff', '--no-renames', '--unified=3', baseCommit, targetCommit, '--', '.', `:(exclude)${BUILD_DIR}/**`])
+    const limit = 60_000
+    return diff.length <= limit ? diff : `${diff.slice(0, limit)}\n\n[Changed-line context truncated after ${limit} characters.]`
+  }
+
   /**
    * Restore a past revision as a new head commit on the main timeline: return to main, bring that
    * commit's tree into the working tree, and commit it forward. Earlier revisions are preserved.

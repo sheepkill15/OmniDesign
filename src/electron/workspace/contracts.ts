@@ -615,7 +615,7 @@ export const saveDraftRequestSchema = designIdRequestSchema.extend({
 
 export const combineDesignBranchesRequestSchema = designIdRequestSchema.extend({
   comparisonId: z.string().uuid(),
-  prompt: z.string().trim().min(1).max(100_000),
+  prompt: z.string().trim().max(100_000),
   providerId: z.enum(['mock', 'codex', 'claude']),
   modelId: z.string().trim().min(1).max(200),
   effort: z.string().trim().min(1).max(100).nullable(),

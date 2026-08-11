@@ -779,9 +779,12 @@ test('recovers a manual Phase 4 combination across restart and aborts safely', a
     await manager.getByRole('checkbox', { name: `Select ${source.title} for comparison` }).check()
     await manager.getByRole('button', { name: 'Compare branches' }).click()
     const comparison = firstRun.window.getByRole('dialog', { name: 'Compare branches' })
-    await comparison.getByRole('textbox', { name: 'Combination prompt' }).fill('Adopt the sharper direction while preserving Main navigation')
     await comparison.getByRole('button', { name: 'Combine into destination' }).click()
     await expect(firstRun.window.getByRole('dialog', { name: 'Combination needs review' })).toBeVisible({ timeout: 20_000 })
+    await expect.poll(() => firstRun.window.evaluate(async () => {
+      const current = (await window.omnidesign!.workspace.list())[0]
+      return (await window.omnidesign!.workspace.listCombinations(current.id)).at(-1)?.prompt
+    })).toContain('Combine the strongest parts of the source direction')
 
     await firstRun.app.close()
     activeApp = null

@@ -107,6 +107,10 @@ export class WorkspaceService {
     return this.store.switchDesignBranch(designId, branchId)
   }
 
+  public renameDesignBranch(designId: string, branchId: string, title: string): DesignBranch {
+    return this.store.renameDesignBranch(designId, branchId, title)
+  }
+
   public removeDesignBranch(designId: string, branchId: string, force = false): DesignBranch[] {
     const branch = this.store.listDesignBranches(designId).find((candidate) => candidate.id === branchId)
     if (!branch) throw new Error('Design branch not found.')
@@ -404,7 +408,7 @@ export class WorkspaceService {
     }
   }
 
-  public prepareBranchComparisonSummary(designId: string, sourceBranchId: string, destinationBranchId: string): { readonly comparison: BranchComparison; readonly sourceCommit: string; readonly destinationCommit: string; readonly sourcePath: string; readonly destinationPath: string; readonly conversationContext: string } {
+  public prepareBranchComparisonSummary(designId: string, sourceBranchId: string, destinationBranchId: string): { readonly comparison: BranchComparison; readonly sourceCommit: string; readonly destinationCommit: string; readonly sourcePath: string; readonly destinationPath: string; readonly changedLineContext: string; readonly conversationContext: string } {
     const comparison = this.compareDesignBranches(designId, sourceBranchId, destinationBranchId)
     const source = this.store.getDesignAtBranch(designId, sourceBranchId)
     const destination = this.store.getDesignAtBranch(designId, destinationBranchId)
@@ -418,6 +422,7 @@ export class WorkspaceService {
       destinationCommit: comparison.destinationCommit,
       sourcePath: this.repositories.getWorkingPath(designId, sourceBranchId),
       destinationPath: this.repositories.getWorkingPath(designId, destinationBranchId),
+      changedLineContext: this.repositories.getRevisionDiffContext(designId, destinationRevision.gitCommit, sourceRevision.gitCommit),
       conversationContext: `${formatConversation('Source conversation', source?.messages ?? [])}\n\n${formatConversation('Destination conversation', destination?.messages ?? [])}`,
     }
   }

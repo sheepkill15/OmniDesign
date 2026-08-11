@@ -223,6 +223,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [comparison, setComparison] = useState<RevisionComparison | null>(null)
   const [comparisonLoading, setComparisonLoading] = useState(false)
   const [separateBranch, setSeparateBranch] = useState(design.separateBranchMode)
+  const [creatingBranch, setCreatingBranch] = useState(false)
   const [manageBranchesOpen, setManageBranchesOpen] = useState(false)
   const [replyMessageId, setReplyMessageId] = useState<string | null>(design.replyMessageId)
   const [forkTarget, setForkTarget] = useState<DesignMessage | null>(null)
@@ -449,10 +450,12 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
 
   const submit = async () => {
-    if (!api || !draft.trim() || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection) return
+    if (!api || !draft.trim() || creatingBranch || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection) return
     const prompt = draft.trim()
     const submittedAttachments = attachments
     const submittedBranchContexts = branchContexts
+    const creatingSeparateBranch = separateBranch
+    if (creatingSeparateBranch) setCreatingBranch(true)
     setDraft('')
     setAttachments([])
     setBranchContexts([])
@@ -460,6 +463,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     const updated = await runWorkspaceAction(() => submittedBranchContexts.length
       ? api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, null, separateBranch, replyMessageId, submittedBranchContexts)
       : api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, null, separateBranch, replyMessageId), separateBranch ? 'The separate branch could not be created. Your draft has been restored.' : 'The prompt could not be submitted. Your draft has been restored.')
+    if (creatingSeparateBranch) setCreatingBranch(false)
     if (updated) { setReplyMessageId(null); onChange(updated) }
     else {
       setDraft(prompt)
@@ -601,7 +605,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     return () => { cancelled = true }
   }, [combinationAttempt, design.id])
   const beginCombination = async () => {
-    if (!api || !branchComparison || !combinationPrompt.trim() || combiningBranches || !hasUsableSelection) return
+    if (!api || !branchComparison || combiningBranches || !hasUsableSelection) return
     setCombiningBranches(true)
     const attempt = await runWorkspaceAction(() => api.combineBranches(design.id, branchComparison.comparisonId, combinationPrompt.trim(), selection), 'The branches could not be combined.')
     setCombiningBranches(false)
@@ -884,15 +888,16 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
         {branchContexts.length > 0 && <div className="attachment-list" aria-label="Attached branch context">{branchContexts.map((context) => <span className="attachment-chip" data-status={context.status} key={context.branchId}><ShareIcon aria-hidden="true" />{context.title}{context.status === 'unavailable' ? ' (unavailable)' : ''}<Button aria-label={`Remove ${context.title} branch context`} onPress={() => setBranchContexts((current) => current.filter((candidate) => candidate.branchId !== context.branchId))}>×</Button></span>)}</div>}
-        {separateBranch && <div className="separate-branch-notice" role="status"><ShareIcon aria-hidden="true" /><span>This change will happen in a separate branch</span><button type="button" className="branch-info-button" aria-label="About separate branches" title="A branch is a separate design direction. Your current branch stays unchanged while OmniDesign explores this prompt in a new one."><InformationCircleIcon aria-hidden="true" /></button></div>}
+        {separateBranch && <div className="separate-branch-notice" role="status" aria-busy={creatingBranch}>{creatingBranch ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ShareIcon aria-hidden="true" />}<span>{creatingBranch ? 'Creating a separate branch…' : 'This change will happen in a separate branch'}</span><button type="button" className="branch-info-button" aria-label="About separate branches" title="A branch is a separate design direction. Your current branch stays unchanged while OmniDesign explores this prompt in a new one."><InformationCircleIcon aria-hidden="true" /></button></div>}
         <div className="workspace-composer-footer">
           <AttachmentPicker placement="top" includeBranches={design.branches.length > 1} onChoose={(kind) => void chooseAttachments(kind)} />
           <DropdownButton
-            label={`Branch: ${separateBranch ? 'New branch' : activeBranch?.title ?? 'Main'}`}
+            label={`Branch: ${creatingBranch ? 'Creating branch' : separateBranch ? 'New branch' : activeBranch?.title ?? 'Main'}`}
             triggerClassName="composer-branch-selector"
             popoverClassName="project-popover branch-selector-popover"
             placement="top"
-            trigger={<><ShareIcon aria-hidden="true" /><span>{separateBranch ? 'New branch' : activeBranch?.title ?? 'Main'}</span></>}
+            isDisabled={creatingBranch}
+            trigger={<>{creatingBranch ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ShareIcon aria-hidden="true" />}<span>{creatingBranch ? 'Creating branch…' : separateBranch ? 'New branch' : activeBranch?.title ?? 'Main'}</span></>}
           >
             <Menu aria-label="Design branches" onAction={chooseBranch}>
               <MenuSection className="project-popover-section">
@@ -907,7 +912,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
             </Menu>
           </DropdownButton>
           <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} />
-          <Button className="submit-prompt" aria-label={separateBranch ? 'Send change in a separate branch' : 'Send change'} isDisabled={!draft.trim() || branchContexts.some((context) => context.status === 'unavailable') || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button>
+          <Button className="submit-prompt" aria-label={separateBranch ? 'Send change in a separate branch' : 'Send change'} isDisabled={creatingBranch || !draft.trim() || branchContexts.some((context) => context.status === 'unavailable') || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}>{creatingBranch ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}</Button>
         </div>
         {!hasUsableSelection && providersLoading && !readyProviders.length && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Your draft and design history remain available while provider status refreshes.</small></span></div>}
         {!hasUsableSelection && (!providersLoading || readyProviders.length > 0) && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
@@ -1044,7 +1049,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           </div>
           <section className="revision-comparison-changes" aria-label="Branch authored file changes"><header><span><strong>{branchComparison.changes.files.length} authored file{branchComparison.changes.files.length === 1 ? '' : 's'} changed</strong><small>Destination compared with source. Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{branchComparison.changes.additions}</strong><strong>−{branchComparison.changes.deletions}</strong></span></header>{branchComparison.changes.files.length ? <ul>{branchComparison.changes.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files differ between these branch heads.</p>}</section>
           <section className="branch-ai-summary" aria-label="AI branch summary"><header><span><strong>AI summary</strong><small>Generated only when requested and kept with the captured branch heads.</small></span><Button className="secondary-action" isDisabled={branchComparisonStale || summarizingBranches || !hasUsableSelection} onPress={() => void summarizeBranches()}>{summarizingBranches ? 'Summarizing…' : visibleBranchSummary ? 'Generate a new summary' : 'Summarize differences'}</Button></header>{visibleBranchSummary ? <div><span className="branch-summary-meta">{visibleBranchSummary.providerId} · {new Date(visibleBranchSummary.createdAt).toLocaleString()}{visibleBranchSummary.stale ? ' · Stale' : ''}</span><Markdown text={visibleBranchSummary.summary} />{visibleBranchSummary.stale && <p className="branch-summary-stale" role="status">This summary describes older branch heads. It remains available as history and will not regenerate automatically.</p>}</div> : <p>No AI summary has been generated for these branch heads.</p>}</section>
-          <section className="combine-branches-composer" aria-label="Combine branches"><header><span><strong>Best of both directions</strong><small>Describe what the destination should keep and what it should adopt from the source.</small></span></header><TextField aria-label="Combination prompt"><TextArea value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Bring the best of ${branchComparison.source.title} into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" isDisabled={branchComparisonStale || !combinationPrompt.trim() || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches ? 'Combining…' : 'Combine into destination'}</Button></div></section>
+          <section className="combine-branches-composer" aria-label="Combine branches"><header><span><strong>Best of both directions</strong><small>Combine automatically, or optionally describe what the destination should keep and adopt.</small></span></header><TextField aria-label="Combination prompt"><TextArea value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Optional: guide how ${branchComparison.source.title} should be combined into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" isDisabled={branchComparisonStale || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches ? 'Combining…' : 'Combine into destination'}</Button></div></section>
           <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Close</Button></div>
         </>}
       </AppModal>

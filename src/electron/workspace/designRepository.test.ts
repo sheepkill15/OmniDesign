@@ -151,6 +151,10 @@ describe('DesignRepositoryManager', () => {
       { path: 'new.js', status: 'added', additions: 1, deletions: 0 },
       { path: 'old.js', status: 'removed', additions: 0, deletions: 1 },
     ])
+    const changedLines = manager.getRevisionDiffContext('design-compare', first, second)
+    expect(changedLines).toContain('-<html>Home</html>')
+    expect(changedLines).toContain('+<html>Updated home</html>')
+    expect(changedLines).not.toContain('.build/tailwind.css')
   })
 
   it('reads the current working tree (all agent-authored files) before a commit', () => {

@@ -103,6 +103,7 @@ let updateService: UpdateService | null = null
 let closingAfterGenerationConfirmation = false
 const lastPersistedStageByDesign = new Map<string, string>()
 let providerRefresh: Promise<readonly (ProviderStatus | typeof developmentProviderStatus)[]> | null = null
+const DEFAULT_BRANCH_COMBINATION_PROMPT = 'Combine the strongest parts of the source direction into the destination while preserving the destination\'s coherent structure, intent, and working behavior.'
 
 // Designs, their Git repositories, and the SQLite database live under the app's userData directory
 // (on Windows that is %APPDATA%\Roaming\<app>\workspace). Tests point userData at a temp directory.
@@ -231,6 +232,13 @@ function sendGenerationActivity(activity: GenerationActivity): void {
 
 function sendWorkspaceChanged(designId: string): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { designId })
+}
+
+function generateBranchTitleInBackground(designId: string, branchId: string, initialTitle: string, prompt: string, providerId: 'codex' | 'claude', modelId: string, effort: string | null, attachments: readonly import('../workspace/contracts.js').Attachment[]): void {
+  void generateDesignTitle(prompt, providerId, modelId, effort, attachments).then((title) => {
+    const branch = workspace?.getDesign(designId)?.branches.find((candidate) => candidate.id === branchId)
+    if (branch?.title === initialTitle && title !== initialTitle) workspace?.renameDesignBranch(designId, branchId, title)
+  }).catch(() => undefined).finally(() => sendWorkspaceChanged(designId))
 }
 
 // Persist a permanent, chronological record of the major generation milestones for the design's
@@ -386,15 +394,15 @@ function registerIpc(): void {
     const message = source?.messages.find((candidate) => candidate.id === request.messageId)
     if (!source || !message || message.role !== 'user') throw new Error('Only a user prompt in the selected branch can be forked.')
     const baseRevision = [...source.revisions].reverse().find((revision) => revision.createdAt < message.createdAt) ?? null
-    const titles = await Promise.all(request.selections.map((selection) => selection.providerId === 'mock'
-      ? Promise.resolve(fallbackDesignTitle(message.text))
-      : generateDesignTitle(message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [])))
     const results: import('../workspace/contracts.js').Design[] = []
-    for (const [index, selection] of request.selections.entries()) {
+    for (const selection of request.selections) {
       if (requireWorkspace().getDesign(request.designId)?.activeBranchId !== source.activeBranchId) requireWorkspace().switchDesignBranch(request.designId, source.activeBranchId)
-      const branched = requireWorkspace().createDesignBranch(request.designId, titles[index]!, baseRevision?.id ?? null, message.id)
+      const provisionalTitle = fallbackDesignTitle(message.text)
+      const branched = requireWorkspace().createDesignBranch(request.designId, provisionalTitle, baseRevision?.id ?? null, message.id)
+      const branch = branched.branches.find((candidate) => candidate.id === branched.activeBranchId)!
       requireWorkspace().rememberSelection(request.designId, selection)
       requireGenerationQueue().enqueue(request.designId, message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [], null, message.focusedTarget ?? null, message.focusedFeedback ?? [], message.replyToMessageId ?? null, message.branchContexts ?? [])
+      if (selection.providerId !== 'mock') generateBranchTitleInBackground(request.designId, branch.id, branch.title, message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [])
       results.push(requireWorkspace().getDesign(request.designId) ?? branched)
     }
     return results
@@ -672,13 +680,13 @@ function registerIpc(): void {
     if (request.separateBranch) {
       const source = requireWorkspace().getDesign(request.designId)
       if (!source || source.selectedRevisionId !== source.activeRevisionId) throw new Error('Return to the branch head before creating a separate branch.')
-      const title = request.providerId === 'mock'
-        ? fallbackDesignTitle(request.prompt)
-        : await generateDesignTitle(request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments)
-      const branched = requireWorkspace().createDesignBranch(request.designId, title)
+      const provisionalTitle = fallbackDesignTitle(request.prompt)
+      const branched = requireWorkspace().createDesignBranch(request.designId, provisionalTitle)
+      const branch = branched.branches.find((candidate) => candidate.id === branched.activeBranchId)!
       requireWorkspaceStore().saveBranchComposerState(request.designId, false, null, source.activeBranchId)
       requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
       requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, null, [], request.replyMessageId, request.branchContexts)
+      if (request.providerId !== 'mock') generateBranchTitleInBackground(request.designId, branch.id, branch.title, request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments)
       return requireWorkspace().getDesign(request.designId) ?? branched
     }
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
@@ -804,7 +812,7 @@ function registerIpc(): void {
       referencePaths: [prepared.sourcePath],
       readOnly: true,
       prompt: 'Summarize the meaningful visual, structural, and interaction differences between these two design branches. Highlight strengths and tradeoffs without recommending a combination unless the evidence clearly supports it.',
-      instructions: `This is strictly read-only analysis. Do not create, edit, delete, or commit files. Compare the captured destination head ${prepared.destinationCommit} at ${prepared.destinationPath} with source head ${prepared.sourceCommit} at ${prepared.sourcePath}. Return a concise plain-text summary suitable for a designer.\n\nAuthored diff evidence:\n${JSON.stringify(prepared.comparison.changes)}\n\n${prepared.conversationContext}`,
+      instructions: `This is strictly read-only analysis. Do not create, edit, delete, or commit files. Compare the captured destination head ${prepared.destinationCommit} at ${prepared.destinationPath} with source head ${prepared.sourceCommit} at ${prepared.sourcePath}. Return a concise plain-text summary suitable for a designer.\n\nAuthored file evidence:\n${JSON.stringify(prepared.comparison.changes)}\n\nChanged-line context (destination to source):\n${prepared.changedLineContext || '[No authored text diff was available.]'}\n\n${prepared.conversationContext}`,
     }, (activity) => {
       if (!event.sender.isDestroyed()) event.sender.send('providers:activity', activity)
     })
@@ -817,7 +825,8 @@ function registerIpc(): void {
   ipcMain.handle('workspace:combine-branches', async (event, value: unknown) => {
     authorize(event)
     const request = combineDesignBranchesRequestSchema.parse(value)
-    const prepared = requireWorkspace().startCombination(request.designId, request.comparisonId, request.prompt, { providerId: request.providerId, modelId: request.modelId, effort: request.effort })
+    const prompt = request.prompt || DEFAULT_BRANCH_COMBINATION_PROMPT
+    const prepared = requireWorkspace().startCombination(request.designId, request.comparisonId, prompt, { providerId: request.providerId, modelId: request.modelId, effort: request.effort })
     if (request.providerId === 'mock') return requireWorkspace().beginCombinationFallback(prepared.attempt.id, 'The development provider uses the deterministic fallback merge for combination previews.')
     try {
       const reply = await providers.runAnalysisAgent({
@@ -825,8 +834,8 @@ function registerIpc(): void {
         ...(request.effort ? { effort: request.effort } : {}),
         workspacePath: prepared.destinationPath,
         referencePaths: [prepared.sourcePath],
-        prompt: request.prompt,
-        instructions: `Combine the source design direction into the destination design according to the user's prompt.\n\nDestination (the only writable branch): ${prepared.destinationPath}\nSource (reference only; do not modify it): ${prepared.sourcePath}\n\nWork only in the destination workspace. Preserve valid OmniDesign build references, do not commit, and return a concise summary of what you changed.\n\n${prepared.conversationContext}`,
+        prompt,
+        instructions: `Combine the source design direction into the destination design according to the resolved combination instruction.\n\nDestination (the only writable branch): ${prepared.destinationPath}\nSource (reference only; do not modify it): ${prepared.sourcePath}\n\nWork only in the destination workspace. Preserve valid OmniDesign build references, do not commit, and return a concise summary of what you changed.\n\n${prepared.conversationContext}`,
       }, (activity) => {
         if (!event.sender.isDestroyed()) event.sender.send('providers:activity', activity)
       })

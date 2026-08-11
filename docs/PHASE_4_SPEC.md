@@ -26,7 +26,7 @@ Phase 4 also completes three trusted-application refinements: message Reply/Copy
 - Branching remains prompt-led. Users do not create empty branches or manage raw Git state.
 - AI-directed combination is the primary path. Git merge is a recovery path, not the default combination mechanism.
 - `Main` is the stable default direction. Its name is fixed and it cannot be removed.
-- Branch names are concise, AI-generated, immutable, and disambiguated quietly when necessary.
+- Branches appear immediately with a concise prompt-derived provisional title. Provider-backed naming runs concurrently and may replace that provisional title once; the resulting title is immutable and disambiguated quietly when necessary.
 - Users may reason about direction, source, destination, comparison, and lineage without needing to understand Git worktrees, refs, indexes, conflicts, or detached heads.
 - Concurrent exploration must not permit two jobs to mutate the same branch worktree.
 - No branch operation may rewrite or delete an immutable completed revision.
@@ -40,7 +40,7 @@ Phase 4 also completes three trusted-application refinements: message Reply/Copy
 - **Branch conversation:** the inherited conversation through the fork point plus messages created on that branch after it diverges.
 - **Source:** the branch whose ideas and implementation are being brought into another branch.
 - **Destination:** the branch that receives a combination and advances to a new revision.
-- **Combination:** a prompted, AI-directed application of one whole source branch to a destination branch.
+- **Combination:** an AI-directed application of one whole source branch to a destination branch, optionally guided by a user prompt.
 - **Combination attempt:** one durable record of the intelligent attempt, Git fallback, validation, manual-resolution state, and outcome.
 - **Attached branch context:** one or more branch worktrees and their conversations since divergence supplied to a prompt through Add.
 - **Lineage:** successful fork and combination relationships between branch heads. Ordinary revisions remain available on demand but do not dominate this view.
@@ -60,7 +60,7 @@ Phase 4 also completes three trusted-application refinements: message Reply/Copy
 - A compact composer branch selector plus a branch-focused visual lineage view.
 - Explicit visual comparison and AI-generated comparison summaries.
 - Multi-page, side-by-side comparison with page selection and unmatched-page states.
-- AI-directed whole-branch combination through a user prompt.
+- AI-directed whole-branch combination with optional user guidance.
 - A Git merge plus AI conflict-resolution fallback.
 - Default-editor recovery, validation, completion, and abort for unresolved combinations.
 - Permanent branch removal with confirmation and protected `Main`.
@@ -134,7 +134,7 @@ Continuing the selected branch remains the composer default. The composer branch
 - The explanatory text is essential state and cannot exist only in a tooltip.
 - Submitting creates a child branch at the current head, creates its worktree, copies the inherited conversation boundary, and queues the prompt on the new branch.
 - The source branch remains unchanged.
-- The new branch receives one concise AI-generated title similar to design-title generation. Titles are immutable. A collision adds a quiet numeric suffix.
+- The new branch, worktree, conversation, and queued prompt appear before provider-backed title generation finishes. A concise prompt-derived title is shown immediately, then may be replaced once by the generated title. The resulting title is immutable, and a collision adds a quiet numeric suffix.
 - If initial generation fails, the branch remains visible with its failure state, Retry, and Remove actions.
 
 ### Message-Level Fork
@@ -148,7 +148,7 @@ Hovering or moving keyboard focus onto a user prompt reveals a Fork quick action
 - Simple Fork reuses the original provider and model.
 - Before submission, the user may change provider, model, or effort.
 - The user may add several provider/model selections. Each selection creates one independent child branch from the same base and replays the same message.
-- Every result receives its own AI-generated immutable title and worktree.
+- Every result receives its own immediate provisional title and worktree. Provider-backed naming may replace each provisional title once in the background; the resulting titles are immutable.
 - An unavailable original attachment, branch reference, provider, or model produces an actionable preflight state rather than silently changing the replay.
 
 ### Queue and Concurrency
@@ -208,7 +208,7 @@ Reply adds precise conversational context without branching.
 
 Branch navigation reuses the branch control in the ordinary composer footer instead of reserving a separate workspace row or adding another control to the crowded header and preview toolbar.
 
-- The compact selector shows the current immutable branch name and remains available in the composer wherever conversation controls are shown.
+- The compact selector shows the current branch title and remains available in the composer wherever conversation controls are shown. Submission immediately changes it to a clearly announced creating state, then opens the provisional branch while provider-backed naming continues.
 - Its menu supports ordinary keyboard navigation, switching among existing directions, clear busy/failure states, and recent branch scanning.
 - **New branch** activates separate-branch mode for the next prompt; it does not create an empty branch.
 - Choosing the current branch while **New branch** is selected returns the composer to continuing that branch.
@@ -260,6 +260,7 @@ The visual lineage view focuses on decisions rather than every commit.
 - Preserve the existing isolated-preview restrictions for comparison renders.
 - An AI-generated difference summary runs only after an explicit user request because it consumes provider time.
 - Summary generation receives both branch folders and the relevant conversations under the same instruction-only reference boundary.
+- Summary generation also receives bounded Git-authored diff hunks containing the actual changed lines and nearby context; OmniDesign-managed build output is excluded.
 - The summary is clearly labeled as AI-generated and cannot substitute for rendered review.
 - The comparison records the source and destination commits it inspected. If either head changes, the result becomes stale and must not be used for combination without refresh.
 
@@ -271,7 +272,7 @@ Comparison offers **Combine**. It opens a prompt with source and destination alr
 
 - The selected branch defaults to destination.
 - The compared branch defaults to source.
-- The user supplies an ordinary natural-language prompt describing what to carry over or preserve.
+- The user may supply an ordinary natural-language prompt describing what to carry over or preserve. When omitted, OmniDesign supplies a clear default instruction to combine the strongest source qualities while preserving the destination's coherent structure, intent, and working behavior.
 - Combination operates on the entire source branch as context. Phase 4 does not expose file-, page-, or element-level picking.
 - Source and destination must each be at a valid head and must be distinct branches of the same design.
 
@@ -305,7 +306,7 @@ The agent does not author commit ancestry or declare success. Git state and Omni
 If the intelligent combination fails for any reason, OmniDesign restores the destination worktree to its exact pre-attempt head and enters the fallback:
 
 1. Start a conventional Git merge of the captured source head into the destination without finalizing an invalid result.
-2. Give the merge state, conflicts, original source and destination roles, and combination prompt to the agent.
+2. Give the merge state, conflicts, original source and destination roles, and resolved combination instruction to the agent.
 3. Ask the agent to resolve conflicts and finish the requested combination in the destination.
 4. Validate the complete result independently.
 5. On success, finish one two-parent destination merge commit and immutable revision.
@@ -488,7 +489,7 @@ Implementation status: complete on `codex/feature/phase-4-foundation`. Requireme
 - Every existing and new design has one protected `Main` branch after migration.
 - Every alternative branch owns a persistent linked Git worktree for its lifetime.
 - Restart validates and restores branch-to-worktree associations and complete per-branch workspace state.
-- Branch names are AI-generated, immutable, and collision-safe.
+- Branch creation is immediately visible with a collision-safe provisional title; provider-backed naming may replace it once, after which the title is immutable.
 - `Main` cannot be renamed or removed through UI, IPC, or persistence calls.
 - Permanent removal safely removes only the selected managed branch and worktree after confirmation.
 
@@ -518,7 +519,7 @@ Implementation status: complete on `codex/feature/phase-4-foundation`. Requireme
 - Multi-page comparison identifies pages found in only one branch.
 - AI summary runs only after explicit request and is labeled as generated interpretation.
 - A changed head makes prior comparison evidence stale.
-- Combination clearly identifies source and destination and requires a prompt.
+- Combination clearly identifies source and destination and works with or without optional user guidance.
 - Source and destination reject new generation while combination or manual resolution is active.
 - The primary attempt edits only the destination, does not invoke Git merge, validates independently, and creates one two-parent destination revision on success.
 - Failure restores the destination before starting the Git merge plus agent-resolution fallback.
