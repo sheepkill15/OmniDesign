@@ -174,7 +174,7 @@ Build in the specification's testable tracks:
 
 - Migrate every design to protected `Main`, add one persistent linked Git worktree per alternative direction, and resolve revisions, conversations, queues, and workspace state through branches.
 - Add explicit composer branching, automatic immutable titles, message Reply/Fork actions, multi-provider/model fan-out, and manually attached parallel-branch context.
-- Add the branch context strip, branch-focused lineage, multi-page rendered comparison, and explicit AI-generated summaries.
+- Add the compact composer branch selector, branch-focused lineage, multi-page rendered comparison, and explicit AI-generated summaries.
 - Add intelligent destination-only combination, validated two-parent commits, conventional Git merge plus agent fallback, and default-editor manual resolution with Check resolution and Abort.
 - Hide definition controls for standalone designs, adapt project-definition warnings to divergent branches, move automatic-update progress and actions into the sidebar footer, and finish Copy/Read aloud accessibility.
 

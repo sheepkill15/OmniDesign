@@ -666,7 +666,8 @@ test('completes the Phase 4 branching, context, comparison, combination, and exp
 
     const change = firstRun.window.getByRole('textbox', { name: 'Request a design change' })
     await change.fill('Explore a warmer editorial direction')
-    await firstRun.window.getByRole('button', { name: 'Separate branch' }).click()
+    await firstRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await firstRun.window.getByRole('menuitem', { name: 'New branch' }).click()
     await change.press('Enter')
     await expect.poll(() => firstRun.window.evaluate(async () => {
       const design = (await window.omnidesign!.workspace.list())[0]
@@ -687,7 +688,7 @@ test('completes the Phase 4 branching, context, comparison, combination, and exp
     const secondRun = await launchWorkspace(userDataDirectory)
     activeApp = secondRun.app
     await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
-    await secondRun.window.getByRole('button', { name: 'Switch design branch' }).click()
+    await secondRun.window.getByRole('button', { name: /^Branch: / }).click()
     await secondRun.window.getByRole('menuitem', { name: /Main/ }).click()
     const snapshot = await secondRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0])
     const source = snapshot.branches.filter((branch) => !branch.isMain).at(-1)!
@@ -706,7 +707,7 @@ test('completes the Phase 4 branching, context, comparison, combination, and exp
       return { state: job?.state, branchId: job?.resolvedBranchContexts?.[0]?.branchId, commit: job?.resolvedBranchContexts?.[0]?.commit?.length }
     }), { timeout: 30_000 }).toEqual({ state: 'completed', branchId: source.id, commit: 40 })
 
-    await secondRun.window.getByRole('button', { name: 'Switch design branch' }).click()
+    await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
     await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
     const manager = secondRun.window.getByRole('dialog', { name: 'Manage branches' })
     await manager.getByRole('checkbox', { name: `Select ${source.title} for comparison` }).check()
@@ -754,14 +755,15 @@ test('recovers a manual Phase 4 combination across restart and aborts safely', a
     await expect(firstRun.window.getByText('Local · quality checked')).toBeVisible({ timeout: 20_000 })
     const change = firstRun.window.getByRole('textbox', { name: 'Request a design change' })
     await change.fill('Create a sharper alternative direction')
-    await firstRun.window.getByRole('button', { name: 'Separate branch' }).click()
+    await firstRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await firstRun.window.getByRole('menuitem', { name: 'New branch' }).click()
     await change.press('Enter')
     await expect.poll(() => firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].branches.every((branch) => branch.status === 'ready')), { timeout: 30_000 }).toBe(true)
     const design = await firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0])
     const source = design.branches.find((branch) => !branch.isMain)!
-    await firstRun.window.getByRole('button', { name: 'Switch design branch' }).click()
+    await firstRun.window.getByRole('button', { name: /^Branch: / }).click()
     await firstRun.window.getByRole('menuitem', { name: /Main/ }).click()
-    await firstRun.window.getByRole('button', { name: 'Switch design branch' }).click()
+    await firstRun.window.getByRole('button', { name: 'Branch: Main' }).click()
     await firstRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
     const manager = firstRun.window.getByRole('dialog', { name: 'Manage branches' })
     await manager.getByRole('checkbox', { name: `Select ${source.title} for comparison` }).check()

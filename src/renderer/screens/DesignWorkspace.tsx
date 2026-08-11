@@ -17,6 +17,7 @@ import {
   ExclamationTriangleIcon,
   FolderIcon,
   InformationCircleIcon,
+  PlusIcon,
   ArrowUturnLeftIcon,
   QueueListIcon,
   ShareIcon,
@@ -466,9 +467,9 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       setBranchContexts(submittedBranchContexts)
     }
   }
-  const toggleSeparateBranch = async () => {
+  const setSeparateBranchChoice = async (next: boolean) => {
     if (!api || !selectedIsHead) return
-    const next = !separateBranch
+    if (next === separateBranch) return
     setSeparateBranch(next)
     const saved = await runWorkspaceAction(() => api.saveBranchComposerState(design.id, next, design.replyMessageId).then(() => true), 'The branch choice could not be saved.')
     if (saved === undefined && next !== design.separateBranchMode) setSeparateBranch(!next)
@@ -477,6 +478,13 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     if (!api || branchId === design.activeBranchId) return
     const updated = await runWorkspaceAction(() => api.switchBranch(design.id, branchId), 'That branch could not be opened.')
     if (updated) onChange(updated)
+  }
+  const chooseBranch = (key: string | number) => {
+    const branchId = String(key)
+    if (branchId === '__new__') { void setSeparateBranchChoice(true); return }
+    if (branchId === '__manage__') { setLineageSelection([design.activeBranchId]); setManageBranchesOpen(true); return }
+    if (branchId === design.activeBranchId) { void setSeparateBranchChoice(false); return }
+    void switchBranch(branchId)
   }
   const chooseReply = async (message: DesignMessage) => {
     if (!api || !selectedIsHead) return
@@ -877,7 +885,30 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
         {branchContexts.length > 0 && <div className="attachment-list" aria-label="Attached branch context">{branchContexts.map((context) => <span className="attachment-chip" data-status={context.status} key={context.branchId}><ShareIcon aria-hidden="true" />{context.title}{context.status === 'unavailable' ? ' (unavailable)' : ''}<Button aria-label={`Remove ${context.title} branch context`} onPress={() => setBranchContexts((current) => current.filter((candidate) => candidate.branchId !== context.branchId))}>×</Button></span>)}</div>}
         {separateBranch && <div className="separate-branch-notice" role="status"><ShareIcon aria-hidden="true" /><span>This change will happen in a separate branch</span><button type="button" className="branch-info-button" aria-label="About separate branches" title="A branch is a separate design direction. Your current branch stays unchanged while OmniDesign explores this prompt in a new one."><InformationCircleIcon aria-hidden="true" /></button></div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" includeBranches={design.branches.length > 1} onChoose={(kind) => void chooseAttachments(kind)} /><Button className="separate-branch-toggle" aria-pressed={separateBranch} isDisabled={!selectedIsHead} onPress={() => void toggleSeparateBranch()}><ShareIcon aria-hidden="true" />Separate branch</Button><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="submit-prompt" aria-label={separateBranch ? 'Send change in a separate branch' : 'Send change'} isDisabled={!draft.trim() || branchContexts.some((context) => context.status === 'unavailable') || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        <div className="workspace-composer-footer">
+          <AttachmentPicker placement="top" includeBranches={design.branches.length > 1} onChoose={(kind) => void chooseAttachments(kind)} />
+          <DropdownButton
+            label={`Branch: ${separateBranch ? 'New branch' : activeBranch?.title ?? 'Main'}`}
+            triggerClassName="composer-branch-selector"
+            popoverClassName="project-popover branch-selector-popover"
+            placement="top"
+            trigger={<><ShareIcon aria-hidden="true" /><span>{separateBranch ? 'New branch' : activeBranch?.title ?? 'Main'}</span></>}
+          >
+            <Menu aria-label="Design branches" onAction={chooseBranch}>
+              <MenuSection className="project-popover-section">
+                <Header className="project-popover-header">Directions</Header>
+                {design.branches.map((branch) => <MenuItem id={branch.id} key={branch.id} textValue={branch.title}><span><strong>{branch.title}</strong><small>{branch.status === 'generating' ? 'Generating' : branch.status === 'queued' ? 'Queued' : branch.status === 'failed' ? 'Needs attention' : 'Ready'}</small></span>{!separateBranch && branch.id === design.activeBranchId && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+              </MenuSection>
+              <MenuSection className="project-popover-section">
+                <Header className="project-popover-header">Actions</Header>
+                <MenuItem id="__new__" className="branch-create-option" textValue="New branch" isDisabled={!selectedIsHead}><span><PlusIcon aria-hidden="true" /><span><strong>New branch</strong><small>{selectedIsHead ? 'Created with your next prompt' : 'Return to the current head first'}</small></span></span>{separateBranch && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+                <MenuItem id="__manage__" textValue="Manage branches"><span>Manage branches</span></MenuItem>
+              </MenuSection>
+            </Menu>
+          </DropdownButton>
+          <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} />
+          <Button className="submit-prompt" aria-label={separateBranch ? 'Send change in a separate branch' : 'Send change'} isDisabled={!draft.trim() || branchContexts.some((context) => context.status === 'unavailable') || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button>
+        </div>
         {!hasUsableSelection && providersLoading && !readyProviders.length && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Your draft and design history remain available while provider status refreshes.</small></span></div>}
         {!hasUsableSelection && (!providersLoading || readyProviders.length > 0) && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
@@ -978,19 +1009,6 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
         </div>
       </header>
-      <section className="branch-context-strip" aria-label="Design branch">
-        <ShareIcon aria-hidden="true" />
-        <span className="branch-context-current"><strong>{activeBranch?.title ?? 'Main'}</strong><small>{activeBranch?.status === 'generating' ? 'Generating' : activeBranch?.status === 'queued' ? 'Queued' : activeBranch?.status === 'failed' ? 'Needs attention' : 'Ready'}</small></span>
-        <DropdownButton label="Switch design branch" triggerClassName="branch-selector" popoverClassName="project-popover branch-selector-popover" placement="bottom" trigger={<span>Switch branch</span>}>
-          <Menu aria-label="Design branches" onAction={(key) => { const id = String(key); if (id === '__manage__') { setLineageSelection([design.activeBranchId]); setManageBranchesOpen(true) } else void switchBranch(id) }}>
-            <MenuSection className="project-popover-section">
-              <Header className="project-popover-header">Directions</Header>
-              {design.branches.map((branch) => <MenuItem id={branch.id} key={branch.id} textValue={branch.title}><span><strong>{branch.title}</strong><small>{branch.status === 'generating' ? 'Generating' : branch.status === 'queued' ? 'Queued' : branch.status === 'failed' ? 'Needs attention' : 'Ready'}</small></span>{branch.id === design.activeBranchId && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
-            </MenuSection>
-            <MenuItem id="__manage__" textValue="Manage branches"><span>Manage branches</span></MenuItem>
-          </Menu>
-        </DropdownButton>
-      </section>
       <AppModal isOpen={branchPickerOpen} onOpenChange={setBranchPickerOpen} className="branch-manager-modal" title="Attach branch context">
         {(close) => <><p>Select one or more parallel directions. Their latest worktree and conversation will be resolved when this prompt starts.</p><div className="fork-selection-list" role="group" aria-label="Branches to attach">{design.branches.filter((branch) => branch.id !== design.activeBranchId).map((branch) => <label key={branch.id}><input type="checkbox" checked={branchContexts.some((context) => context.branchId === branch.id)} onChange={(event) => setBranchContexts((current) => event.target.checked ? [...current.filter((context) => context.branchId !== branch.id), { designId: design.id, branchId: branch.id, title: branch.title, status: 'available' }] : current.filter((context) => context.branchId !== branch.id))} /><span>{branch.title}<small>{branch.status === 'ready' ? 'Latest state will be used at execution time' : `Currently ${branch.status}`}</small></span></label>)}</div><p className="clone-modal-note">Attached branch worktrees are given to provider-owned tools as instructed reference-only context; the current harness cannot enforce that boundary at the filesystem level.</p><div className="clone-modal-actions"><Button className="clone-confirm-action" onPress={close}>Done</Button></div></>}
       </AppModal>

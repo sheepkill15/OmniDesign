@@ -57,7 +57,7 @@ Phase 4 also completes three trusted-application refinements: message Reply/Copy
 - Independent sequential queues per branch with concurrency across branches under the existing global limit.
 - Branch-specific conversations and complete workspace restoration.
 - Manual attachment of several branch folders and conversations through Add.
-- A compact branch context strip and selector plus a branch-focused visual lineage view.
+- A compact composer branch selector plus a branch-focused visual lineage view.
 - Explicit visual comparison and AI-generated comparison summaries.
 - Multi-page, side-by-side comparison with page selection and unmatched-page states.
 - AI-directed whole-branch combination through a user prompt.
@@ -126,7 +126,7 @@ Product branch IDs are authoritative. User-facing titles are not used as filesys
 
 ### Ordinary Composer Branching
 
-Continuing the selected branch remains the composer default. The user explicitly activates separate-branch mode for one prompt.
+Continuing the selected branch remains the composer default. The composer branch selector shows the current branch and lets the user explicitly choose **New branch** for one prompt.
 
 - Separate-branch mode is available only while the current branch head is selected.
 - Selecting a historical revision disables the mode and explains that the user must return to the branch head.
@@ -204,16 +204,16 @@ Reply adds precise conversational context without branching.
 
 ## Branch Navigation and Workspace State
 
-### Branch Context Strip
+### Composer Branch Selector
 
-Branch navigation does not add another control to the crowded workspace or preview toolbar. A slim branch context strip sits directly below the main workspace header and above the conversation/preview region.
+Branch navigation reuses the branch control in the ordinary composer footer instead of reserving a separate workspace row or adding another control to the crowded header and preview toolbar.
 
-- The strip remains visible in Split, Conversation-only, and Preview-only layouts.
-- It shows a branch icon, immutable branch name, simple status, and an accessible branch selector.
-- It remains compact and low-chrome; it is workspace context rather than a second toolbar full of commands.
-- The selector supports ordinary keyboard navigation, clear busy/failure states, and recent branch scanning.
-- A **Manage branches** action opens the visual lineage view.
-- Project-definition warnings do not appear in the strip or selector.
+- The compact selector shows the current immutable branch name and remains available in the composer wherever conversation controls are shown.
+- Its menu supports ordinary keyboard navigation, switching among existing directions, clear busy/failure states, and recent branch scanning.
+- **New branch** activates separate-branch mode for the next prompt; it does not create an empty branch.
+- Choosing the current branch while **New branch** is selected returns the composer to continuing that branch.
+- **Manage branches** opens the visual lineage view from the same menu.
+- Project-definition warnings do not appear in the selector.
 
 ### Per-Branch Restoration
 
@@ -451,7 +451,7 @@ Status never relies on color alone. Lineage, menus, dialogs, quick actions, comp
 
 ### Track B: Branching and Conversation UX
 
-1. Add the branch context strip, selector, complete restoration, and simple statuses.
+1. Add the composer branch selector, complete restoration, and simple statuses.
 2. Add ordinary composer separate-branch mode and automatic branch titles.
 3. Add message hover/focus actions, Reply, and message-level Fork.
 4. Add multi-provider/model Fork fan-out and concurrent per-branch orchestration.
@@ -506,7 +506,7 @@ Implementation status: complete on `codex/feature/phase-4-foundation`. Requireme
 
 ### Navigation and Lineage
 
-- The dedicated branch context strip works in every workspace layout without crowding the existing toolbars.
+- The composer branch selector switches existing directions, exposes prompt-led **New branch**, and removes the need for a dedicated branch workspace row.
 - Switching branches restores selected revision, draft, attachments, settings, layout, preview state, and queue state.
 - Lineage shows branches, fork points, successful combinations, and simple statuses with revisions available on demand.
 - Failed combinations do not appear as lineage nodes.

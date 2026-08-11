@@ -21,7 +21,7 @@ The accepted standalone-design, updater, and message-action refinements are also
 
 ### Conversation, Context, and Concurrency
 
-- The ordinary composer continues the current branch unless Separate branch is explicitly enabled.
+- The ordinary composer branch selector shows the current direction, switches existing branches, and activates prompt-led **New branch** without creating an empty branch.
 - Reply, Copy, Fork, and Read aloud are keyboard-accessible message actions. Fork replays a user prompt and may fan out to several provider/model selections.
 - Queues remain sequential within one branch and run concurrently across branches under the global limit.
 - Branch attachments persist with drafts and messages, resolve the latest commit and bounded conversation at execution time, disclose summarization, and pause safely when unavailable. Recovery offers Remove reference, Retry, Continue, or Cancel prompt.
@@ -49,7 +49,7 @@ The accepted standalone-design, updater, and message-action refinements are also
 
 ## Automated Journeys
 
-The principal Phase 4 Electron journey covers creation, separate branching, two-model Fork fan-out, independent branch settlement, restart, Main switching, execution-time branch context, persisted comparison summary, manual combination completion, source retention, and selected-branch export.
+The principal Phase 4 Electron journey covers creation, prompt-led **New branch** selection, two-model Fork fan-out, independent branch settlement, restart, Main switching, execution-time branch context, persisted comparison summary, manual combination completion, source retention, and selected-branch export.
 
 The recovery journey covers a failed intelligent combination, Git fallback, durable manual-resolution state, restart, Abort, and exact destination recovery.
 
@@ -66,6 +66,13 @@ Local Windows verification on 2026-08-10:
 - `git diff --check` — passed before and after the documentation closeout.
 
 Native Windows/macOS worktree coverage also runs on every pull request through the platform matrix; its hosted result is expected when this branch is opened as a pull request.
+
+Post-audit branch-selector refinement on 2026-08-11:
+
+- Removed the dedicated branch workspace row and consolidated switching, prompt-led **New branch**, and **Manage branches** into the existing composer branch control.
+- `pnpm typecheck`, all 328 unit/component tests, and `pnpm build` passed. The renderer bundle remains above Vite's advisory threshold at 582.88 kB (166.08 kB gzip).
+- The focused Phase 4 principal and manual-recovery Electron journeys both passed in 95.3 seconds total.
+- `git diff --check` passed.
 
 ## Residual Notes
 

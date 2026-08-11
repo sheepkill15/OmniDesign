@@ -1471,15 +1471,23 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
     const followUp = await screen.findByRole('textbox', { name: 'Request a design change' })
-    fireEvent.click(screen.getByRole('button', { name: 'Separate branch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: Main' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /New branch/ }))
     expect(screen.getByText('This change will happen in a separate branch')).toBeInTheDocument()
     await waitFor(() => expect(bridge.workspace.saveBranchComposerState).toHaveBeenCalledWith('design-1', true, null))
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: New branch' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Main/ }))
+    expect(screen.queryByText('This change will happen in a separate branch')).not.toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.saveBranchComposerState).toHaveBeenCalledWith('design-1', false, null))
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: Main' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /New branch/ }))
 
     fireEvent.change(followUp, { target: { value: 'Try a warmer hierarchy' } })
     fireEvent.keyDown(followUp, { key: 'Enter' })
     await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith('design-1', 'Try a warmer hierarchy', 'mock', 'mock-v1', undefined, [], null, true, null))
-    expect(await screen.findByText('Warmer hierarchy')).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Design branch' })).toHaveTextContent('Queued')
+    const branchSelector = await screen.findByRole('button', { name: 'Branch: Warmer hierarchy' })
+    fireEvent.click(branchSelector)
+    expect(await screen.findByRole('menuitem', { name: /Warmer hierarchy/ })).toHaveTextContent('Queued')
   })
 
   it('replies to a precise message and carries the reference into generation', async () => {
@@ -1597,7 +1605,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Switch design branch' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Branch: Main' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage branches' }))
     const editorialBranch = screen.getByText('Editorial direction').closest('article')!
     fireEvent.click(within(editorialBranch).getByRole('button', { name: 'Show revisions' }))
