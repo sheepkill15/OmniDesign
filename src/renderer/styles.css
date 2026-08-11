@@ -1410,6 +1410,7 @@ button:not(:disabled):active {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
+  cursor: pointer;
 }
 .clone-confirm-action:hover:not([data-disabled]) { border-color: var(--accent-strong); background: var(--accent-strong); }
 .clone-confirm-action[data-focus-visible] { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -2021,6 +2022,11 @@ button:not(:disabled):active {
 .combine-branches-composer header > span { display: grid; gap: 2px; }
 .combine-branches-composer header strong { color: var(--text); font-size: 12px; }
 .combine-branches-composer header small { color: var(--text-faint); font-size: 10px; }
+.combination-progress { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 9px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: var(--radius-control); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
+.combination-progress > svg { width: 18px; color: var(--accent); }
+.combination-progress > span { display: grid; gap: 3px; }
+.combination-progress strong { color: var(--text); font-size: 11px; }
+.combination-progress small { color: var(--text-muted); font-size: 10px; line-height: 1.45; }
 .combine-branches-composer textarea { width: 100%; min-height: 78px; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-1); color: var(--text); font: inherit; }
 .combine-branches-composer > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .combination-recovery-preview { height: min(52vh, 520px); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--surface-2); }

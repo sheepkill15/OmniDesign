@@ -826,8 +826,10 @@ Conversations form immutable shared ancestry through a fork point and branch-spe
 after divergence. Provider continuation must also diverge; concurrent branches cannot resume
 one mutable provider session. Revisions, drafts, attachments, reply references, generation
 settings, layouts, preview viewports, focused-feedback state, and queues resolve through a
-branch rather than one design-global head. Pending feedback and queued work are not copied
-when a branch is created.
+branch rather than one design-global head. The design-level active-branch pointer durably records
+the last branch selected for that design, so navigation and application restart restore the same
+branch without introducing a second preference authority. Pending feedback and queued work are
+not copied when a branch is created.
 
 Official Git documentation confirms that one repository may have multiple linked worktrees,
 each with per-worktree state, and that clean linked worktrees should be removed through the
@@ -861,8 +863,10 @@ conventional Git merge, and asks the provider to resolve conflicts under the ori
 If that also fails, the destination remains in a durable manual-resolution state with
 allow-listed default-editor opening, independent validation, a complete action, and a safe
 abort back to the captured destination head. Source and destination reject other generation
-until the attempt completes or aborts. The current provider-owned harness cannot make the
-source worktree enforceably read-only, so source immutability remains an honest instruction and
+until the attempt completes or aborts. The trusted comparison surface remains open with an
+announced source-to-destination progress state throughout provider application and independent
+validation. The current provider-owned harness cannot make the source worktree enforceably
+read-only, so source immutability remains an honest instruction and
 application-orchestration boundary rather than a claimed filesystem sandbox.
 
 ### ADR 2026-08-10: Phase 4 moves automatic-update state into the trusted sidebar (accepted, implemented)

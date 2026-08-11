@@ -22,6 +22,7 @@ The accepted standalone-design, updater, and message-action refinements are also
 ### Conversation, Context, and Concurrency
 
 - The ordinary composer branch selector shows the current direction, switches existing branches, and activates prompt-led **New branch** without creating an empty branch.
+- Each design's last selected branch persists through navigation and application restart using the existing active-branch authority.
 - Reply, Copy, Fork, and Read aloud are keyboard-accessible message actions. Fork replays a user prompt and may fan out to several provider/model selections.
 - Queues remain sequential within one branch and run concurrently across branches under the global limit.
 - Branch attachments persist with drafts and messages, resolve the latest commit and bounded conversation at execution time, disclose summarization, and pause safely when unavailable. Recovery offers Remove reference, Retry, Continue, or Cancel prompt.
@@ -33,6 +34,7 @@ The accepted standalone-design, updater, and message-action refinements are also
 - AI summaries run only on request, retain provider/model and exact head commits, persist after branch removal, and become stale without automatic regeneration.
 - Combination captures an opaque comparison record, locks source and destination, applies only to the destination on the primary path, validates independently, and creates a destination commit with destination and source parents.
 - Combination guidance is optional; an omitted prompt resolves to a persisted default instruction rather than blocking the action.
+- While the agent combines, the comparison remains visible and non-dismissible with an announced source-to-destination status covering application and validation. Completion presents source retention and removal as consistent neutral actions.
 - Failure restores the exact destination before Git merge fallback. A second failure persists manual resolution across restart with allow-listed editor opening, unresolved preview, Check resolution, Retry, and Abort. Success advances only the destination and asks whether to keep or remove the source.
 
 ### Trusted Application Refinements
@@ -76,6 +78,7 @@ Post-audit branch-selector refinement on 2026-08-11:
 - `git diff --check` passed.
 - Follow-up responsiveness work creates and opens provisional branches before provider title generation, announces the creating state immediately, and refreshes the collision-safe final title in the background.
 - The same follow-up passed `pnpm typecheck`, all 328 unit/component tests, `pnpm build`, the focused principal and manual-recovery Phase 4 Electron journeys in 109.7 seconds, and `git diff --check`. The renderer bundle advisory remains at 583.45 kB (166.24 kB gzip).
+- Selected-branch and combination-feedback refinement passed `pnpm typecheck`, all 328 unit/component tests, `pnpm build`, the principal Phase 4 Electron journey with an explicit selected-branch restart assertion in 1.1 minutes, and `git diff --check`. The renderer bundle advisory remains at 584.03 kB (166.39 kB gzip).
 
 ## Residual Notes
 

@@ -682,12 +682,17 @@ test('completes the Phase 4 branching, context, comparison, combination, and exp
       const design = (await window.omnidesign!.workspace.list())[0]
       return { count: design.branches.length, settled: design.branches.every((branch) => branch.status === 'ready') }
     }), { timeout: 40_000 }).toEqual({ count: 4, settled: true })
+    const selectedBranchTitle = await firstRun.window.evaluate(async () => {
+      const design = (await window.omnidesign!.workspace.list())[0]
+      return design.branches.find((branch) => branch.id === design.activeBranchId)!.title
+    })
 
     await firstRun.app.close()
     activeApp = null
     const secondRun = await launchWorkspace(userDataDirectory)
     activeApp = secondRun.app
     await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: `Branch: ${selectedBranchTitle}` })).toBeVisible()
     await secondRun.window.getByRole('button', { name: /^Branch: / }).click()
     await secondRun.window.getByRole('menuitem', { name: /Main/ }).click()
     const snapshot = await secondRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0])

@@ -1603,7 +1603,10 @@ describe('Phase 1 walking skeleton UI', () => {
       destination: { branchId: design.id, title: 'Main', revisionId: 'revision-1', pages: [{ path: 'index.html', title: 'Home', order: 0, isHome: true }], entryPagePath: 'index.html' },
       changes: { baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [{ path: 'index.html', status: 'modified', additions: 4, deletions: 1 }], additions: 4, deletions: 1 },
     })
-    vi.mocked(bridge.workspace.combineBranches).mockResolvedValue({ id: '00000000-0000-4000-8000-000000000001', designId: design.id, sourceBranchId: alternativeId, sourceBranchTitle: 'Editorial direction', destinationBranchId: design.id, destinationBranchTitle: 'Main', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), prompt: 'Keep Main and adopt the editorial typography', providerId: 'mock', modelId: 'mock-v1', effort: null, state: 'manual_resolution', response: null, fallbackPath: 'automatic_merge', diagnostic: 'Fallback merge is ready.', resultingRevisionId: null, mergeCommit: null, createdAt: '2026-07-20T10:08:00.000Z', completedAt: null })
+    const manualAttempt: CombinationAttempt = { id: '00000000-0000-4000-8000-000000000001', designId: design.id, sourceBranchId: alternativeId, sourceBranchTitle: 'Editorial direction', destinationBranchId: design.id, destinationBranchTitle: 'Main', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), prompt: 'Keep Main and adopt the editorial typography', providerId: 'mock', modelId: 'mock-v1', effort: null, state: 'manual_resolution', response: null, fallbackPath: 'automatic_merge', diagnostic: 'Fallback merge is ready.', resultingRevisionId: null, mergeCommit: null, createdAt: '2026-07-20T10:08:00.000Z', completedAt: null }
+    let finishCombineRequest: ((attempt: CombinationAttempt) => void) | undefined
+    vi.mocked(bridge.workspace.combineBranches).mockImplementationOnce(async () => new Promise<CombinationAttempt>((resolve) => { finishCombineRequest = resolve }))
+    vi.mocked(bridge.workspace.finishCombination).mockResolvedValue({ ...manualAttempt, state: 'completed', fallbackPath: 'automatic_merge', diagnostic: null, resultingRevisionId: 'revision-3', mergeCommit: 'c'.repeat(40), completedAt: '2026-07-20T10:09:00.000Z' })
     vi.mocked(bridge.workspace.summarizeBranches).mockResolvedValue({ id: '00000000-0000-4000-8000-000000000002', designId: design.id, sourceBranchId: alternativeId, sourceBranchTitle: 'Editorial direction', destinationBranchId: design.id, destinationBranchTitle: 'Main', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), summary: 'Editorial direction adds a denser typographic hierarchy while Main stays quieter.', providerId: 'mock', modelId: 'mock-v1', effort: null, stale: false, createdAt: '2026-07-20T10:07:00.000Z' })
     render(<App />)
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
@@ -1642,9 +1645,17 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByText(/Editorial direction adds a denser typographic hierarchy/)).toBeInTheDocument()
     await waitFor(() => expect(bridge.workspace.summarizeBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
     fireEvent.click(screen.getByRole('button', { name: 'Combine into destination' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Combining Editorial direction into Main')
+    expect(screen.getByRole('textbox', { name: 'Combination prompt' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled()
+    await act(async () => finishCombineRequest?.(manualAttempt))
     expect(await screen.findByRole('dialog', { name: 'Combination needs review' })).toBeInTheDocument()
     await waitFor(() => expect(bridge.workspace.combineBranches).toHaveBeenCalledWith('design-1', '00000000-0000-4000-8000-000000000010', '', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
     expect(await screen.findByTitle('Unresolved destination preview')).toHaveAttribute('sandbox', 'allow-scripts')
+    fireEvent.click(screen.getByRole('button', { name: 'Check resolution' }))
+    const removeSource = await screen.findByRole('button', { name: 'Remove source branch' })
+    expect(removeSource).toHaveClass('clone-confirm-action')
+    expect(removeSource).not.toHaveClass('danger-action')
   })
 
   it('does not carry a popped preview into the next design while its docked layout loads', async () => {

@@ -210,6 +210,7 @@ Branch navigation reuses the branch control in the ordinary composer footer inst
 
 - The compact selector shows the current branch title and remains available in the composer wherever conversation controls are shown. Submission immediately changes it to a clearly announced creating state, then opens the provisional branch while provider-backed naming continues.
 - Its menu supports ordinary keyboard navigation, switching among existing directions, clear busy/failure states, and recent branch scanning.
+- The last branch selected in each design persists. Returning to the design or reopening OmniDesign restores that branch rather than defaulting to Main.
 - **New branch** activates separate-branch mode for the next prompt; it does not create an empty branch.
 - Choosing the current branch while **New branch** is selected returns the composer to continuing that branch.
 - **Manage branches** opens the visual lineage view from the same menu.
@@ -281,6 +282,7 @@ Comparison offers **Combine**. It opens a prompt with source and destination alr
 When combination begins:
 
 - Source and destination are locked against new OmniDesign generations and additional combinations.
+- The comparison remains visible with an immediate announced progress state naming the source and destination. It cannot be dismissed while the agent is applying and validating the combination.
 - Existing queued work on either branch does not start until the attempt resolves or aborts.
 - The source worktree is treated as immutable by product orchestration and by an explicit provider instruction.
 - The destination is the only worktree the intelligent attempt may edit.

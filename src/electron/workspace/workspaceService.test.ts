@@ -38,12 +38,11 @@ describe('WorkspaceService', () => {
     const restoredMain = service.switchDesignBranch(main.id, main.id)
     expect(restoredMain).toMatchObject({ activeBranchId: main.id, activeRevisionId: mainHead, draft: '' })
     expect(service.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft', separateBranchMode: true })
-    service.switchDesignBranch(main.id, main.id)
     store.close()
 
     const reopenedStore = new WorkspaceStore(directory)
     const reopenedService = new WorkspaceService(reopenedStore)
-    expect(reopenedService.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft', separateBranchMode: true })
+    expect(reopenedService.getDesign(main.id)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft', separateBranchMode: true })
     reopenedService.switchDesignBranch(main.id, main.id)
     expect(reopenedService.removeDesignBranch(main.id, branchId)).toHaveLength(1)
     expect(existsSync(branchPath)).toBe(false)
