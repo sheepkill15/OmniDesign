@@ -5,7 +5,7 @@ import { ArrowPathIcon, PaperClipIcon } from '@heroicons/react/24/outline'
 import { DropdownButton } from './DropdownButton'
 
 export type Icon = ComponentType<SVGProps<SVGSVGElement>>
-export type AttachmentPickerKind = 'files' | 'folder'
+export type AttachmentPickerKind = 'files' | 'folder' | 'branches'
 
 export const terminalGenerationStages = ['queued', 'complete', 'failed', 'cancelled', 'interrupted']
 
@@ -87,12 +87,13 @@ export function EditableTitle({ value, label, variant, pending = false, onSave }
   )
 }
 
-export function AttachmentPicker({ onChoose, placement = 'top' }: { readonly onChoose: (kind: AttachmentPickerKind) => void; readonly placement?: 'top' | 'bottom' }) {
+export function AttachmentPicker({ onChoose, placement = 'top', includeBranches = false }: { readonly onChoose: (kind: AttachmentPickerKind) => void; readonly placement?: 'top' | 'bottom'; readonly includeBranches?: boolean }) {
   return (
     <DropdownButton label="Attach files or folders" triggerClassName="icon-button attachment-picker" popoverClassName="project-popover attachment-picker-popover" placement={placement} trigger={<PaperClipIcon aria-hidden="true" />}>
       <Menu aria-label="Choose attachment type" onAction={(key) => onChoose(String(key) as AttachmentPickerKind)}>
         <MenuItem id="files">Choose files…</MenuItem>
         <MenuItem id="folder">Choose folder…</MenuItem>
+        {includeBranches && <MenuItem id="branches">Attach branches…</MenuItem>}
       </Menu>
     </DropdownButton>
   )

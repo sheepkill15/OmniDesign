@@ -19,6 +19,10 @@ function contentTypeFor(relativePath: string): string {
 // time, but keeping a few lets quick history hops and canvas re-renders avoid re-registering.
 const MAX_REGISTERED_REVISIONS = 16
 
+function continuityIdFor(location: FocusedSourceLocation): string | null {
+  return location.stableId ? null : `focused-${location.id}`
+}
+
 /**
  * Serves previewed design files over the privileged `omnidesign-preview://` scheme so the trusted
  * renderer can embed each page in a sandboxed, opaque-origin iframe. Each registered revision gets an
@@ -73,6 +77,9 @@ export class PreviewContentServer {
       endLine: location.endLine,
       label: location.label,
       stableId: location.stableId,
+      domId: location.domId,
+      structuralPath: location.structuralPath,
+      continuityId: continuityIdFor(location),
       excerpt: location.excerpt,
       dynamicDescription: input.usedAncestor ? input.clickedLabel : null,
     })
@@ -93,8 +100,28 @@ export class PreviewContentServer {
         const stableMatches = locations.filter((location) => location.stableId === target.stableId)
         if (stableMatches.length === 1) return [{ id, locationId: stableMatches[0].id }]
       }
+      if (target.continuityId) {
+        const continuityMatches = locations.filter((location) => location.stableId === target.continuityId)
+        if (continuityMatches.length === 1) return [{ id, locationId: continuityMatches[0].id }]
+      }
+      const originalToken = this.byKey.get(`${target.designId}\0${target.revisionId}`)
+      const originalLocation = originalToken
+        ? this.tokens.get(originalToken)?.locations.get(target.path)?.get(target.locationId ?? '')
+        : undefined
+      const domId = target.domId ?? originalLocation?.domId
+      if (domId) {
+        const domMatches = locations.filter((location) => location.domId === domId)
+        if (domMatches.length === 1) return [{ id, locationId: domMatches[0].id }]
+      }
+      const structuralPath = target.structuralPath ?? originalLocation?.structuralPath
+      if (structuralPath) {
+        const structuralMatches = locations.filter((location) => location.structuralPath === structuralPath)
+        if (structuralMatches.length === 1) return [{ id, locationId: structuralMatches[0].id }]
+      }
       const sourceMatches = locations.filter((location) => location.label === target.label && location.excerpt === target.excerpt)
-      return sourceMatches.length === 1 ? [{ id, locationId: sourceMatches[0].id }] : []
+      if (sourceMatches.length === 1) return [{ id, locationId: sourceMatches[0].id }]
+      const labelMatches = locations.filter((location) => location.label === target.label)
+      return labelMatches.length === 1 ? [{ id, locationId: labelMatches[0].id }] : []
     })
   }
 
@@ -111,6 +138,9 @@ export class PreviewContentServer {
       && location.endLine === target.endLine
       && location.label === target.label
       && location.stableId === target.stableId
+      && (target.domId === undefined || location.domId === target.domId)
+      && (target.structuralPath === undefined || location.structuralPath === target.structuralPath)
+      && (target.continuityId === undefined || continuityIdFor(location) === target.continuityId)
       && location.excerpt === target.excerpt)
   }
 

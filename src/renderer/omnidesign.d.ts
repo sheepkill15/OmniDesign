@@ -35,6 +35,7 @@ interface ProviderActivity {
 
 interface DesignRevision {
   readonly id: string
+  readonly ownerBranchId?: string | null
   readonly parentRevisionId: string | null
   readonly prompt: string
   readonly providerId: string
@@ -59,11 +60,14 @@ interface PreviewDiagnostic {
 
 interface DesignMessage {
   readonly id: string
+  readonly ownerBranchId?: string | null
   readonly role: 'user' | 'assistant' | 'system'
   readonly text: string
   readonly attachments?: readonly DesignAttachment[]
+  readonly branchContexts?: readonly BranchContextReference[]
   readonly focusedTarget?: FocusedTarget | null
   readonly focusedFeedback?: readonly FocusedFeedback[]
+  readonly replyToMessageId?: string | null
   readonly createdAt: string
 }
 
@@ -89,6 +93,9 @@ interface FocusedTarget {
   readonly endLine: number
   readonly label: string
   readonly stableId: string | null
+  readonly domId?: string | null
+  readonly structuralPath?: string | null
+  readonly continuityId?: string | null
   readonly excerpt: string
   readonly dynamicDescription: string | null
 }
@@ -164,11 +171,14 @@ interface GenerationStep {
 interface GenerationJob {
   readonly id: string
   readonly designId: string
+  readonly branchId?: string
   readonly prompt: string
   readonly providerId: 'mock' | 'codex' | 'claude'
   readonly modelId: string
   readonly effort?: string | null
   readonly attachments: readonly DesignAttachment[]
+  readonly branchContexts?: readonly BranchContextReference[]
+  readonly resolvedBranchContexts?: readonly ResolvedBranchContext[]
   readonly mode?: 'fresh' | 'continue'
   readonly providerSessionId?: string | null
   readonly definitionTargetVersion?: number | null
@@ -181,6 +191,72 @@ interface GenerationJob {
   readonly error: string | null
 }
 
+interface BranchComparison {
+  readonly comparisonId: string
+  readonly sourceCommit: string
+  readonly destinationCommit: string
+  readonly stale: boolean
+  readonly source: { readonly branchId: string; readonly title: string; readonly revisionId: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null }
+  readonly destination: { readonly branchId: string; readonly title: string; readonly revisionId: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null }
+  readonly changes: RevisionComparison
+}
+
+interface BranchComparisonSummary {
+  readonly id: string
+  readonly designId: string
+  readonly sourceBranchId: string | null
+  readonly sourceBranchTitle: string
+  readonly destinationBranchId: string | null
+  readonly destinationBranchTitle: string
+  readonly sourceCommit: string
+  readonly destinationCommit: string
+  readonly summary: string
+  readonly providerId: 'mock' | 'codex' | 'claude'
+  readonly modelId: string
+  readonly effort: string | null
+  readonly stale: boolean
+  readonly createdAt: string
+}
+
+interface CombinationAttempt {
+  readonly id: string
+  readonly designId: string
+  readonly sourceBranchId: string | null
+  readonly sourceBranchTitle: string
+  readonly destinationBranchId: string | null
+  readonly destinationBranchTitle: string
+  readonly sourceCommit: string
+  readonly destinationCommit: string
+  readonly prompt: string
+  readonly providerId: 'mock' | 'codex' | 'claude'
+  readonly modelId: string
+  readonly effort: string | null
+  readonly state: 'applying' | 'manual_resolution' | 'completed' | 'failed' | 'aborted'
+  readonly response: string | null
+  readonly fallbackPath: 'none' | 'automatic_merge' | 'manual_resolution' | null
+  readonly diagnostic: string | null
+  readonly resultingRevisionId: string | null
+  readonly mergeCommit: string | null
+  readonly createdAt: string
+  readonly completedAt: string | null
+}
+
+interface DesignBranch {
+  readonly id: string
+  readonly designId: string
+  readonly title: string
+  readonly gitRef: string
+  readonly worktreePath: string
+  readonly isMain: boolean
+  readonly parentBranchId: string | null
+  readonly forkRevisionId: string | null
+  readonly forkMessageId: string | null
+  readonly activeRevisionId: string | null
+  readonly selectedRevisionId: string | null
+  readonly status: 'ready' | 'generating' | 'queued' | 'failed' | 'combining' | 'manual_resolution'
+  readonly createdAt: string
+}
+
 interface OmniDesignDocument {
   readonly id: string
   readonly projectId: string
@@ -189,6 +265,10 @@ interface OmniDesignDocument {
   readonly title: string
   readonly createdAt: string
   readonly updatedAt: string
+  readonly activeBranchId: string
+  readonly separateBranchMode: boolean
+  readonly replyMessageId: string | null
+  readonly branches: readonly DesignBranch[]
   readonly activeRevisionId: string | null
   readonly selectedRevisionId: string | null
   readonly definitionVersion?: number | null
@@ -198,6 +278,7 @@ interface OmniDesignDocument {
   readonly definitionApplicationError?: string | null
   readonly draft: string
   readonly draftAttachments: readonly DesignAttachment[]
+  readonly draftBranchContexts: readonly BranchContextReference[]
   readonly thumbnailDataUrl: string | null
   readonly queuePaused: boolean
   readonly titlePending: boolean
@@ -317,6 +398,21 @@ interface DesignAttachment {
   readonly status: 'available' | 'changed' | 'missing'
 }
 
+interface BranchContextReference {
+  readonly designId: string
+  readonly branchId: string
+  readonly title: string
+  readonly status: 'available' | 'unavailable'
+}
+
+interface ResolvedBranchContext extends BranchContextReference {
+  readonly commit: string
+  readonly conversationCutoffMessageId: string | null
+  readonly conversation: string
+  readonly summarized: boolean
+  readonly disclosure: string | null
+}
+
 interface CreateDesignTarget {
   readonly sourceProjectPath?: string | null
   readonly projectId?: string | null
@@ -329,6 +425,13 @@ interface GenerationActivity {
   readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'repairing' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
   readonly detail: string
 }
+
+type UpdateState =
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'idle' | 'checking' }
+  | { readonly kind: 'downloading'; readonly percent: number }
+  | { readonly kind: 'ready'; readonly version: string; readonly blockedReason: string | null }
+  | { readonly kind: 'failed'; readonly message: string }
 
 interface PreviewBounds {
   readonly x: number
@@ -352,6 +455,12 @@ interface Window {
       readonly platform: string
       discover(): Promise<LocalDependencyStatus[]>
       openSetup(dependencyId: 'git'): Promise<void>
+    }
+    readonly updates: {
+      getState(): Promise<UpdateState>
+      install(): Promise<UpdateState>
+      retry(): Promise<UpdateState>
+      onState(listener: (state: UpdateState) => void): () => void
     }
     readonly workspace: {
       list(): Promise<OmniDesignDocument[]>
@@ -387,10 +496,16 @@ interface Window {
       restoreTrash(kind: 'project' | 'design', id: string): Promise<ProjectSummary | OmniDesignDocument>
       purgeTrash(kind: 'project' | 'design', id: string): Promise<void>
       get(designId: string): Promise<OmniDesignDocument | null>
+      getBranch(designId: string, branchId: string): Promise<OmniDesignDocument>
+      createBranch(designId: string, title: string, baseRevisionId?: string | null, forkMessageId?: string | null): Promise<OmniDesignDocument>
+      switchBranch(designId: string, branchId: string): Promise<OmniDesignDocument>
+      removeBranch(designId: string, branchId: string, force?: boolean): Promise<readonly DesignBranch[]>
+      forkMessage(designId: string, messageId: string, selections: readonly GenerationSelection[]): Promise<readonly OmniDesignDocument[]>
       renameDesign(designId: string, title: string): Promise<OmniDesignDocument>
       renameProject(projectId: string, name: string): Promise<ProjectSummary>
       create(prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, target?: CreateDesignTarget | null, attachments?: readonly DesignAttachment[]): Promise<OmniDesignDocument>
-      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null): Promise<OmniDesignDocument>
+      generate(designId: string, prompt: string, providerId?: 'mock' | 'codex' | 'claude', modelId?: string, effort?: string, attachments?: readonly DesignAttachment[], focusedTarget?: FocusedTarget | null, separateBranch?: boolean, replyMessageId?: string | null, branchContexts?: readonly BranchContextReference[]): Promise<OmniDesignDocument>
+      saveBranchComposerState(designId: string, separateBranchMode: boolean, replyMessageId: string | null): Promise<void>
       listFocusedFeedback(designId: string): Promise<FocusedFeedback[]>
       queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): Promise<FocusedFeedback[]>
       removeFocusedFeedback(designId: string, feedbackId: string): Promise<FocusedFeedback[]>
@@ -401,12 +516,21 @@ interface Window {
       cancelGeneration(jobId: string): Promise<GenerationJob>
       removeGeneration(jobId: string): Promise<GenerationJob>
       retryGeneration(jobId: string): Promise<GenerationJob>
+      removeGenerationBranchContext(jobId: string, branchId: string): Promise<GenerationJob>
       continueGeneration(jobId: string): Promise<GenerationJob>
       resumeGenerationQueue(designId: string): Promise<OmniDesignDocument>
       selectRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
       compareRevisions(designId: string, baseRevisionId: string, targetRevisionId: string): Promise<RevisionComparison>
+      compareBranches(designId: string, sourceBranchId: string, destinationBranchId: string): Promise<BranchComparison>
+      summarizeBranches(designId: string, sourceBranchId: string, destinationBranchId: string, selection: GenerationSelection): Promise<BranchComparisonSummary>
+      listBranchSummaries(designId: string): Promise<readonly BranchComparisonSummary[]>
+      combineBranches(designId: string, comparisonId: string, prompt: string, selection: GenerationSelection): Promise<CombinationAttempt>
+      finishCombination(designId: string, attemptId: string): Promise<CombinationAttempt>
+      abortCombination(designId: string, attemptId: string): Promise<CombinationAttempt>
+      openCombinationEditor(designId: string, attemptId: string): Promise<void>
+      listCombinations(designId: string): Promise<readonly CombinationAttempt[]>
       restoreRevision(designId: string, revisionId: string): Promise<OmniDesignDocument>
-      saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[]): Promise<void>
+      saveDraft(designId: string, draft: string, attachments?: readonly DesignAttachment[], branchContexts?: readonly BranchContextReference[]): Promise<void>
       saveLayout(designId: string, layout: Layout): Promise<void>
       saveSelection(designId: string, selection: GenerationSelection): Promise<void>
       exportRevision(designId: string, revisionId: string): Promise<{ readonly canceled: boolean; readonly filePath?: string }>
@@ -431,6 +555,7 @@ interface Window {
     }
     readonly preview: {
       register(designId: string, revisionId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>
+      registerCombination(designId: string, attemptId: string): Promise<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null }>
       resolveFocusedTarget(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly page: string; readonly locationId: string; readonly clickedLabel: string; readonly usedAncestor: boolean }): Promise<FocusedTarget | null>
       locateFocusedTargets(request: { readonly designId: string; readonly revisionId: string; readonly token: string; readonly targets: readonly { readonly id: string; readonly target: FocusedTarget }[] }): Promise<readonly { readonly id: string; readonly locationId: string }[]>
       reportDiagnostic(designId: string, revisionId: string, diagnostic: { readonly level: 'warning' | 'error'; readonly message: string; readonly source: string | null; readonly line: number | null }): Promise<void>

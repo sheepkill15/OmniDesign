@@ -33,6 +33,26 @@ afterEach(() => {
 })
 
 describe('GenerationQueue', () => {
+  it('holds queued work behind durable combination locks and resumes it after release', async () => {
+    const store = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const revised = store.addRevision(design.id, 'First', 'mock', 'mock-v1', 'a'.repeat(40))
+    const source = store.createDesignBranch(design.id, 'Alternative', revised.activeRevisionId)
+    const queued = store.enqueueGenerationJob(design.id, 'Queued while combining')
+    const attempt = store.beginCombinationAttempt(design.id, source.id, design.id, 'a'.repeat(40), 'a'.repeat(40), 'Combine directions', { providerId: 'mock', modelId: 'mock-v1', effort: null })
+    const runner = vi.fn(async () => undefined)
+    const queue = new GenerationQueue(store, runner, () => undefined)
+
+    queue.refresh()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(runner).not.toHaveBeenCalled()
+    store.stopCombinationAttempt(attempt.id, 'aborted', 'Test release')
+    queue.refresh()
+    await waitFor(() => store.getGenerationJob(queued.id)?.state === 'completed')
+    expect(runner).toHaveBeenCalledOnce()
+    store.close()
+  })
+
   it('runs one job at a time for a design while allowing separate designs to run concurrently', async () => {
     const store = createStore()
     const firstDesign = store.createStandaloneDesign('First', 'First design')

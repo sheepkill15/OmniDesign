@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WorkspaceStore } from './store.js'
 
@@ -18,6 +19,102 @@ afterEach(() => {
 })
 
 describe('WorkspaceStore', () => {
+  it('migrates an existing design to Main without changing its revision history', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
+    const revised = store.addRevision(created.id, 'Create a calm dashboard', 'mock', 'mock-v1', 'a'.repeat(40))
+    store.close()
+
+    const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
+    database.exec(`
+      PRAGMA foreign_keys = OFF;
+      DROP TABLE branch_comparisons;
+      DROP TABLE branch_comparison_summaries;
+      DROP TABLE design_branch_locks;
+      DROP TABLE branch_combination_attempts;
+      DROP TABLE branch_messages;
+      DROP INDEX generation_jobs_by_branch;
+      DROP INDEX generation_steps_by_branch;
+      DROP INDEX invalid_candidates_by_branch;
+      DROP INDEX focused_feedback_queue_by_branch;
+      ALTER TABLE revisions DROP COLUMN owner_branch_id;
+      ALTER TABLE messages DROP COLUMN owner_branch_id;
+      ALTER TABLE messages DROP COLUMN reply_to_message_id;
+      ALTER TABLE messages DROP COLUMN branch_contexts_json;
+      ALTER TABLE generation_jobs DROP COLUMN branch_id;
+      ALTER TABLE generation_jobs DROP COLUMN branch_contexts_json;
+      ALTER TABLE generation_jobs DROP COLUMN resolved_branch_contexts_json;
+      ALTER TABLE generation_steps DROP COLUMN branch_id;
+      ALTER TABLE invalid_candidates DROP COLUMN branch_id;
+      ALTER TABLE focused_feedback_queue DROP COLUMN branch_id;
+      ALTER TABLE project_definition_application_attempts DROP COLUMN branch_id;
+      ALTER TABLE designs DROP COLUMN active_branch_id;
+      DROP TABLE design_branches;
+      DELETE FROM schema_migrations WHERE version >= 42;
+    `)
+    database.close()
+
+    const migrated = new WorkspaceStore(directory)
+    expect(migrated.getDesign(created.id)).toMatchObject({
+      activeBranchId: created.id,
+      activeRevisionId: revised.activeRevisionId,
+      selectedRevisionId: revised.selectedRevisionId,
+      branches: [{
+        id: created.id,
+        title: 'Main',
+        activeRevisionId: revised.activeRevisionId,
+        selectedRevisionId: revised.selectedRevisionId,
+      }],
+      revisions: [{ id: revised.activeRevisionId, gitCommit: 'a'.repeat(40) }],
+    })
+    migrated.close()
+  })
+
+  it('creates and restores one protected Main branch without manufacturing revisions', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
+
+    expect(created).toMatchObject({
+      activeBranchId: created.id,
+      activeRevisionId: null,
+      selectedRevisionId: null,
+      branches: [{
+        id: created.id,
+        designId: created.id,
+        title: 'Main',
+        gitRef: 'refs/heads/main',
+        worktreePath: 'repository',
+        isMain: true,
+        parentBranchId: null,
+        forkRevisionId: null,
+        forkMessageId: null,
+        activeRevisionId: null,
+        selectedRevisionId: null,
+        status: 'ready',
+      }],
+      revisions: [],
+    })
+
+    const first = store.addRevision(created.id, 'Create a calm dashboard', 'mock', 'mock-v1', 'a'.repeat(40))
+    const second = store.addRevision(created.id, 'Use a warmer accent', 'mock', 'mock-v1', 'b'.repeat(40))
+    store.selectRevision(created.id, first.activeRevisionId!)
+    expect(store.listDesignBranches(created.id)[0]).toMatchObject({
+      activeRevisionId: second.activeRevisionId,
+      selectedRevisionId: first.activeRevisionId,
+    })
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)).toMatchObject({
+      activeBranchId: created.id,
+      activeRevisionId: second.activeRevisionId,
+      selectedRevisionId: first.activeRevisionId,
+      branches: [{ title: 'Main', activeRevisionId: second.activeRevisionId, selectedRevisionId: first.activeRevisionId }],
+      revisions: [{ id: first.activeRevisionId }, { id: second.activeRevisionId }],
+    })
+    reopened.close()
+  })
+
   it('versions project design definitions and persists prompt suppression across reopen', () => {
     const { directory, store } = createStore()
     const design = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
@@ -766,6 +863,22 @@ describe('WorkspaceStore', () => {
 
     expect(store.getGenerationJob(queued.id)).toBeNull()
     expect(store.getDesign(created.id)?.messages.map((message) => message.text)).not.toContain('Remove this queued prompt')
+    store.close()
+  })
+
+  it('removes an unavailable branch reference from stopped work before retry', () => {
+    const { store } = createStore()
+    const created = store.createStandaloneDesign('First', 'Design')
+    const revised = store.addRevision(created.id, 'First')
+    const source = store.createDesignBranch(created.id, 'Editorial direction', revised.activeRevisionId)
+    const reference = { designId: created.id, branchId: source.id, title: source.title, status: 'available' as const }
+    const queued = store.enqueueGenerationJob(created.id, 'Borrow the strongest typography', 'mock', 'mock-v1', null, [], 'fresh', null, null, [], null, [reference])
+    store.setGenerationJobState(queued.id, 'running')
+    store.setGenerationJobState(queued.id, 'failed', 'The attached branch is unavailable.')
+
+    expect(store.removeGenerationBranchContext(queued.id, source.id).branchContexts).toEqual([])
+    expect(store.getDesign(created.id)?.messages.at(-1)?.branchContexts).toEqual([])
+    expect(store.retryGenerationJob(queued.id).branchContexts).toEqual([])
     store.close()
   })
 

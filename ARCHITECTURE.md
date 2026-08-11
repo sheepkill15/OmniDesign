@@ -798,13 +798,17 @@ do not intersect the iframe viewport.
 The renderer derives each element thread from persisted focused-target metadata on user
 messages plus pending queue records; it does not introduce a parallel conversation store.
 When displaying a later revision, the privileged preview service re-anchors a historical
-target only to one unique source-map entry on the same page: first by stable `data-od-*`
-identity, then by an unchanged label and exact source excerpt. Deleted, changed, foreign,
-or ambiguous targets remain in ordinary history and are not assigned a visual marker.
+target only to one unique source-map entry on the same page. Existing `data-od-*` identity
+is strongest; an unmarked focused target receives a privileged continuity identifier that
+the edit prompt asks the provider to retain on the element or its direct replacement. Exact
+DOM `id`, deterministic element-tree position, unchanged source, and a unique exact element
+label provide bounded fallbacks. These are deterministic source-map matches, not visual or
+text-similarity guesses. Deleted, foreign, or ambiguous targets remain in ordinary history
+and are not assigned a visual marker.
 
 ## Phase 4 Architecture Decisions
 
-### ADR 2026-08-10: Product branches use persistent Git worktrees (accepted, not implemented)
+### ADR 2026-08-10: Product branches use persistent Git worktrees (accepted, implemented)
 
 One OmniDesign design remains one Git repository. Its protected `Main` product branch uses
 the main worktree, and every alternative product branch uses one linked worktree stored for
@@ -814,7 +818,8 @@ conversation continuation, and workspace state are branch-specific. This provide
 filesystem isolation for concurrent provider runs without copying repositories.
 
 OmniDesign owns stable internal branch IDs and maps them to validated refs and worktree
-paths. AI-generated immutable display titles are presentation only. Existing designs migrate
+paths. Prompt-derived provisional display titles may be replaced once by provider-generated titles;
+the resulting immutable titles remain presentation only. Existing designs migrate
 their current history and pointers to `Main` without manufacturing revisions. Worktree
 creation, inspection, repair, and removal use `git worktree` commands and machine-readable
 output. The privileged application must resolve every path inside the exact managed design
@@ -825,16 +830,30 @@ Conversations form immutable shared ancestry through a fork point and branch-spe
 after divergence. Provider continuation must also diverge; concurrent branches cannot resume
 one mutable provider session. Revisions, drafts, attachments, reply references, generation
 settings, layouts, preview viewports, focused-feedback state, and queues resolve through a
-branch rather than one design-global head. Pending feedback and queued work are not copied
-when a branch is created.
+branch rather than one design-global head. The design-level active-branch pointer durably records
+the last branch selected for that design, so navigation and application restart restore the same
+branch without introducing a second preference authority. Pending feedback and queued work are
+not copied when a branch is created.
 
 Official Git documentation confirms that one repository may have multiple linked worktrees,
 each with per-worktree state, and that clean linked worktrees should be removed through the
 worktree lifecycle command: https://git-scm.com/docs/git-worktree.
 
-### ADR 2026-08-10: Intelligent combination records two-parent destination commits (accepted, not implemented)
+Track A began with migration 42. It creates one explicit protected `Main` branch record for every
+existing and new design, copies the existing active and selected revision pointers without making
+a revision, and retains the main repository worktree as `repository`. The repository manager now
+parses `git worktree list --porcelain -z`, validates managed identifiers, paths, refs, and base
+commits, and owns linked-worktree creation, repair, dirty-state confirmation, and Git lifecycle
+removal. Workspace startup validates the registered Main worktree for every active design. Branch-
+specific conversations, queues, worktree routing, and production branch creation now use the branch
+record as authority; design-level fields remain only the active-branch compatibility projection.
+Migrations through 48 add durable combination state, comparison summaries and opaque evidence,
+execution-time branch context, and branch-local page metadata.
 
-Phase 4 combination is source-to-destination and prompt-led. The primary path does not invoke
+### ADR 2026-08-10: Intelligent combination records two-parent destination commits (accepted, implemented)
+
+Phase 4 combination is source-to-destination and AI-directed, with optional user guidance and a
+persisted default instruction when no prompt is supplied. The primary path does not invoke
 `git merge`: the provider reads the source branch folder and divergent conversation as
 reference, edits only the locked destination worktree, and returns an ordinary conversational
 response. OmniDesign independently validates the destination tree and, when changed and valid,
@@ -848,11 +867,13 @@ conventional Git merge, and asks the provider to resolve conflicts under the ori
 If that also fails, the destination remains in a durable manual-resolution state with
 allow-listed default-editor opening, independent validation, a complete action, and a safe
 abort back to the captured destination head. Source and destination reject other generation
-until the attempt completes or aborts. The current provider-owned harness cannot make the
-source worktree enforceably read-only, so source immutability remains an honest instruction and
+until the attempt completes or aborts. The trusted comparison surface remains open with an
+announced source-to-destination progress state throughout provider application and independent
+validation. The current provider-owned harness cannot make the source worktree enforceably
+read-only, so source immutability remains an honest instruction and
 application-orchestration boundary rather than a claimed filesystem sandbox.
 
-### ADR 2026-08-10: Phase 4 moves automatic-update state into the trusted sidebar (accepted, not implemented)
+### ADR 2026-08-10: Phase 4 moves automatic-update state into the trusted sidebar (accepted, implemented)
 
 On platforms where automatic updates are enabled, the trusted renderer receives bounded update
 progress from the main process and shows the numeric download percentage in the bottom-left

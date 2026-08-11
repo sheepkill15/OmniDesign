@@ -298,8 +298,10 @@ The product owner accepted the Quiet Studio home direction on 2026-07-20. It is 
 
 ### Branch Context and Lineage
 
-- Branch navigation belongs in one slim context strip directly below the main workspace header, not in the already dense workspace or preview toolbar.
-- Keep the strip visible in Split, Conversation-only, and Preview-only layouts. It shows the immutable AI-generated branch name, one plain-language status, and an accessible selector without becoming a second command toolbar.
+- Branch navigation belongs in the existing composer footer, not in a dedicated workspace strip or the already dense workspace and preview toolbars.
+- Use one compact accessible selector in place of the separate-branch toggle. Its trigger shows the current branch title; its menu switches directions and offers **New branch** for the next prompt without creating an empty branch. Submission immediately shows an announced creating state, then the provisional title while provider-backed naming finishes in the background.
+- Composer popovers opened with a pointer restore the text input's real focus, caret, and selection when dismissed. The composer outline must never imply that typing will continue when focus actually remains on a popup trigger; keyboard-opened popovers retain normal trigger-focus semantics.
+- Persist the last branch selected for each design. Returning to or reopening a design restores that branch and its branch-local workspace state.
 - Put comparison, combination, and permanent removal in **Manage branches**, reached from the selector. Keep destructive controls out of everyday switching.
 - The lineage view emphasizes branches, fork points, and successful combinations. Reveal ordinary revisions on demand instead of drawing every commit permanently.
 - Use product language such as `Main`, source, destination, direction, combining, and manual resolution. Do not expose ahead/behind, dirty, detached, ref, index, or other Git implementation terms.
@@ -307,7 +309,7 @@ The product owner accepted the Quiet Studio home direction on 2026-07-20. It is 
 
 ### Branching Composer and Message Actions
 
-- Continuing the selected branch is the composer default. Separate-branch mode visibly changes the composer with an icon and the exact text **This change will happen in a separate branch**.
+- Continuing the selected branch is the composer default. Choosing **New branch** in the branch selector visibly changes the composer with an icon and the exact text **This change will happen in a separate branch**.
 - A hover/focus information control may explain branches, but the active branch-mode state cannot exist only in a tooltip.
 - Message quick actions stay visually quiet until pointer hover or keyboard focus. User prompts expose Copy, Fork, Reply, and later Phase 4 Read aloud; agent messages expose Copy, Reply, and Read aloud.
 - Reply appears as one removable, clearly attributed reference in the ordinary composer. It must not be mistaken for branch creation or historical restoration.
@@ -318,7 +320,7 @@ The product owner accepted the Quiet Studio home direction on 2026-07-20. It is 
 - Compare branch pages in paired, equally weighted preview regions with a shared page selector. Clearly mark a page that exists on only one branch instead of showing an empty lookalike as if it were a failed render.
 - Label source and destination persistently through comparison and combination. Their roles cannot depend on left/right position or color alone.
 - An AI-generated comparison summary is secondary evidence, explicitly requested, labeled as generated interpretation, and visually subordinate to the rendered designs.
-- Combination uses an ordinary substantial prompt rather than a dense merge-control panel. The recovery UI presents intelligent attempt, fallback, manual resolution, Check resolution, and Abort in calm product language.
+- Combination offers an ordinary substantial prompt as optional guidance rather than requiring a dense merge-control panel. With no prompt, the primary action clearly means combine the strongest source qualities into the destination. While the agent works, the comparison stays open with an announced, non-dismissible progress state that names the source and destination and explains that application and validation may take several minutes. The recovery UI presents intelligent attempt, fallback, manual resolution, Check resolution, and Abort in calm product language.
 
 ### Definitions and Updates
 

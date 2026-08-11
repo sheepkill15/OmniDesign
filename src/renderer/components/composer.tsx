@@ -199,6 +199,7 @@ export function NewDesignComposer({ providers, providersLoading = false, busy, f
     }
   }
   const chooseAttachments = async (kind: AttachmentPickerKind) => {
+    if (kind === 'branches') return
     setError(null)
     try {
       const selected = await window.omnidesign?.workspace.chooseAttachments(kind)

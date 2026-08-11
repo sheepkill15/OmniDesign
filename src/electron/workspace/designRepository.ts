@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { alpineRuntimeBase64 } from './alpineRuntime.js'
@@ -32,11 +32,38 @@ export interface RevisionFiles {
   readonly [relativePath: string]: string
 }
 
+export interface DesignWorktree {
+  readonly path: string
+  readonly head: string
+  readonly branch: string | null
+  readonly locked: boolean
+  readonly prunable: boolean
+}
+
+const managedIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/
+const commitPattern = /^[0-9a-f]{40}$/
+
 export class DesignRepositoryManager {
   public constructor(private readonly artifactsDirectory: string) {}
 
   public getPath(designId: string): string {
+    this.validateManagedId(designId, 'design')
     return path.join(this.artifactsDirectory, designId, 'repository')
+  }
+
+  public getBranchPath(designId: string, branchId: string): string {
+    this.validateManagedId(designId, 'design')
+    this.validateManagedId(branchId, 'branch')
+    return this.resolveInsideDesignRoot(designId, 'branches', branchId, 'worktree')
+  }
+
+  public getBranchRef(branchId: string): string {
+    this.validateManagedId(branchId, 'branch')
+    return `refs/heads/od/${branchId}`
+  }
+
+  public getWorkingPath(designId: string, branchId = designId): string {
+    return branchId === designId ? this.initialize(designId) : this.requireRegisteredBranchWorktree(designId, branchId).path
   }
 
   public initialize(designId: string): string {
@@ -61,14 +88,91 @@ export class DesignRepositoryManager {
     return repositoryPath
   }
 
+  public listWorktrees(designId: string): DesignWorktree[] {
+    const repositoryPath = this.initialize(designId)
+    const output = this.run(repositoryPath, ['worktree', 'list', '--porcelain', '-z'])
+    const worktrees: DesignWorktree[] = []
+    let current: { path?: string; head?: string; branch?: string | null; locked?: boolean; prunable?: boolean } = {}
+    const finish = () => {
+      if (!current.path) return
+      worktrees.push({
+        path: path.resolve(current.path),
+        head: current.head ?? '',
+        branch: current.branch ?? null,
+        locked: current.locked ?? false,
+        prunable: current.prunable ?? false,
+      })
+      current = {}
+    }
+    for (const field of output.split('\0')) {
+      if (!field) { finish(); continue }
+      const separator = field.indexOf(' ')
+      const key = separator === -1 ? field : field.slice(0, separator)
+      const value = separator === -1 ? '' : field.slice(separator + 1)
+      if (key === 'worktree') { finish(); current.path = value }
+      else if (key === 'HEAD') current.head = value
+      else if (key === 'branch') current.branch = value
+      else if (key === 'locked') current.locked = true
+      else if (key === 'prunable') current.prunable = true
+    }
+    finish()
+    return worktrees
+  }
+
+  public validateMainWorktree(designId: string): DesignWorktree {
+    const expectedPath = path.resolve(this.initialize(designId))
+    const association = this.listWorktrees(designId).find((candidate) => this.samePath(candidate.path, expectedPath))
+    if (!association || (association.branch !== null && association.branch !== 'refs/heads/main')) {
+      throw new Error('The Main branch worktree is not registered with its managed design repository.')
+    }
+    return association
+  }
+
+  public createBranchWorktree(designId: string, branchId: string, baseCommit: string): DesignWorktree {
+    if (!commitPattern.test(baseCommit)) throw new Error('The branch base revision is invalid.')
+    const repositoryPath = this.initialize(designId)
+    const worktreePath = this.getBranchPath(designId, branchId)
+    const branchName = `od/${branchId}`
+    if (existsSync(worktreePath)) throw new Error('The managed branch worktree already exists.')
+    if (this.runAllowingFailure(repositoryPath, ['show-ref', '--verify', '--quiet', this.getBranchRef(branchId)]).status === 0) {
+      throw new Error('The managed branch ref already exists.')
+    }
+    mkdirSync(path.dirname(worktreePath), { recursive: true })
+    this.run(repositoryPath, ['worktree', 'add', '-b', branchName, worktreePath, baseCommit])
+    return this.requireRegisteredBranchWorktree(designId, branchId)
+  }
+
+  public getInitialCommit(designId: string): string {
+    const commit = this.run(this.initialize(designId), ['rev-list', '--max-parents=0', 'main']).trim().split(/\s+/)[0] ?? ''
+    if (!commitPattern.test(commit)) throw new Error('The design repository has no valid initial commit.')
+    return commit
+  }
+
+  public repairBranchWorktree(designId: string, branchId: string): DesignWorktree {
+    const repositoryPath = this.initialize(designId)
+    const worktreePath = this.getBranchPath(designId, branchId)
+    if (!existsSync(worktreePath)) throw new Error('The managed branch worktree is missing and cannot be repaired automatically.')
+    this.run(repositoryPath, ['worktree', 'repair', worktreePath])
+    return this.requireRegisteredBranchWorktree(designId, branchId)
+  }
+
+  public removeBranchWorktree(designId: string, branchId: string, force = false): void {
+    const repositoryPath = this.initialize(designId)
+    const association = this.requireRegisteredBranchWorktree(designId, branchId)
+    const status = this.run(association.path, ['status', '--porcelain'])
+    if (status && !force) throw new Error('This branch has unresolved or uncommitted files. Confirm removal to discard them.')
+    this.run(repositoryPath, ['worktree', 'remove', ...(force ? ['--force'] : []), association.path])
+    this.run(repositoryPath, ['branch', '-D', `od/${branchId}`])
+  }
+
   /**
    * Persist a revision as a Git commit. `indexHtml` is written when provided (the mock provider owns
    * the whole document); agents author index.html themselves, so it is omitted and only the compiled
    * stylesheet is refreshed. Returns the resulting commit SHA, or null when nothing changed.
    */
-  public commitRevision(designId: string, indexHtml: string | null, tailwindCss: string, message: string): string | null {
-    if (indexHtml !== null) return this.commitGeneratedRevision(designId, { [ENTRY_HTML_PATH]: indexHtml }, tailwindCss, message)
-    const repositoryPath = this.initialize(designId)
+  public commitRevision(designId: string, indexHtml: string | null, tailwindCss: string, message: string, branchId = designId): string | null {
+    if (indexHtml !== null) return this.commitGeneratedRevision(designId, { [ENTRY_HTML_PATH]: indexHtml }, tailwindCss, message, branchId)
+    const repositoryPath = this.getWorkingPath(designId, branchId)
     this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
     this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
     if (!this.commit(repositoryPath, message)) return null
@@ -76,10 +180,10 @@ export class DesignRepositoryManager {
   }
 
   /** Replace the mock provider's authored source tree and commit it with the managed build outputs. */
-  public commitGeneratedRevision(designId: string, sourceFiles: RevisionFiles, tailwindCss: string, message: string): string | null {
-    const repositoryPath = this.initialize(designId)
+  public commitGeneratedRevision(designId: string, sourceFiles: RevisionFiles, tailwindCss: string, message: string, branchId = designId): string | null {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
     const normalizedFiles = new Map(Object.entries(sourceFiles).map(([relativePath, content]) => [this.normalizeGeneratedPath(relativePath), content]))
-    for (const relativePath of Object.keys(this.readWorkingTreeFiles(designId))) {
+    for (const relativePath of Object.keys(this.readWorkingTreeFiles(designId, branchId))) {
       if (relativePath.startsWith(`${BUILD_DIR}/`) || normalizedFiles.has(relativePath)) continue
       const target = path.resolve(repositoryPath, relativePath)
       if (path.dirname(target) === repositoryPath || target.startsWith(`${repositoryPath}${path.sep}`)) unlinkSync(target)
@@ -101,12 +205,12 @@ export class DesignRepositoryManager {
     cpSync(source, target, { recursive: true })
   }
 
-  public readIndexHtml(designId: string): string {
-    return readFileSync(path.join(this.initialize(designId), ENTRY_HTML_PATH), 'utf8')
+  public readIndexHtml(designId: string, branchId = designId): string {
+    return readFileSync(path.join(this.getWorkingPath(designId, branchId), ENTRY_HTML_PATH), 'utf8')
   }
 
-  public writeSourceFiles(designId: string, sourceFiles: RevisionFiles): void {
-    const repositoryPath = this.initialize(designId)
+  public writeSourceFiles(designId: string, sourceFiles: RevisionFiles, branchId = designId): void {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
     for (const [relativePath, content] of Object.entries(sourceFiles)) {
       if (relativePath === BUILD_DIR || relativePath.startsWith(`${BUILD_DIR}/`)) continue
       this.writeFile(repositoryPath, this.normalizeGeneratedPath(relativePath), content)
@@ -118,8 +222,8 @@ export class DesignRepositoryManager {
    * plus the managed build assets), keyed by relative path. Used to compile Tailwind across all pages
    * before a revision is committed. The .git directory is never included.
    */
-  public readWorkingTreeFiles(designId: string): RevisionFiles {
-    const repositoryPath = this.initialize(designId)
+  public readWorkingTreeFiles(designId: string, branchId = designId): RevisionFiles {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
     // -c lists tracked+untracked files while honouring .gitignore; -o adds untracked; --exclude-standard
     // keeps ignored noise out. Together they enumerate exactly the files a commit would capture.
     const listing = this.run(repositoryPath, ['ls-files', '--cached', '--others', '--exclude-standard'])
@@ -132,13 +236,18 @@ export class DesignRepositoryManager {
   }
 
   /** Check out an earlier revision's commit (detached HEAD) so the working tree reflects it. */
-  public checkoutRevision(designId: string, commit: string): void {
-    this.run(this.initialize(designId), ['checkout', '--force', commit])
+  public checkoutRevision(designId: string, commit: string, branchId = designId): void {
+    this.run(this.getWorkingPath(designId, branchId), ['checkout', '--force', commit])
   }
 
-  /** Return the working tree to the head of the main timeline, discarding any transient checkout. */
+  /** Return one worktree to its product branch head, discarding any transient historical checkout. */
+  public checkoutBranchHead(designId: string, branchId = designId): void {
+    const branchName = branchId === designId ? 'main' : `od/${branchId}`
+    this.run(this.getWorkingPath(designId, branchId), ['checkout', '--force', branchName])
+  }
+
   public checkoutMain(designId: string): void {
-    this.run(this.initialize(designId), ['checkout', '--force', 'main'])
+    this.checkoutBranchHead(designId, designId)
   }
 
   /**
@@ -182,13 +291,21 @@ export class DesignRepositoryManager {
     }
   }
 
+  public getRevisionDiffContext(designId: string, baseCommit: string, targetCommit: string): string {
+    const repositoryPath = this.initialize(designId)
+    const diff = this.run(repositoryPath, ['diff', '--no-ext-diff', '--no-renames', '--unified=3', baseCommit, targetCommit, '--', '.', `:(exclude)${BUILD_DIR}/**`])
+    const limit = 60_000
+    return diff.length <= limit ? diff : `${diff.slice(0, limit)}\n\n[Changed-line context truncated after ${limit} characters.]`
+  }
+
   /**
    * Restore a past revision as a new head commit on the main timeline: return to main, bring that
    * commit's tree into the working tree, and commit it forward. Earlier revisions are preserved.
    */
-  public restore(designId: string, commit: string, message: string): string {
-    const repositoryPath = this.initialize(designId)
-    this.run(repositoryPath, ['checkout', '--force', 'main'])
+  public restore(designId: string, commit: string, message: string, branchId = designId): string {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
+    const branchName = branchId === designId ? 'main' : `od/${branchId}`
+    this.run(repositoryPath, ['checkout', '--force', branchName])
     this.run(repositoryPath, ['checkout', commit, '--', '.'])
     this.commit(repositoryPath, message)
     return this.run(repositoryPath, ['rev-parse', 'HEAD'])
@@ -206,6 +323,75 @@ export class DesignRepositoryManager {
       throw new Error(`Invalid generated file path: ${relativePath}`)
     }
     return normalized
+  }
+
+  public restoreBranchToCommit(designId: string, branchId: string, commit: string): void {
+    if (!commitPattern.test(commit)) throw new Error('The destination commit is invalid.')
+    const repositoryPath = this.getWorkingPath(designId, branchId)
+    const branchName = branchId === designId ? 'main' : `od/${branchId}`
+    this.run(repositoryPath, ['checkout', '--force', branchName])
+    this.run(repositoryPath, ['reset', '--hard', commit])
+    this.run(repositoryPath, ['clean', '-fdx'])
+  }
+
+  public beginFallbackMerge(designId: string, destinationBranchId: string, destinationCommit: string, sourceCommit: string): { readonly clean: boolean; readonly conflicts: readonly string[] } {
+    if (!commitPattern.test(sourceCommit)) throw new Error('The source commit is invalid.')
+    this.restoreBranchToCommit(designId, destinationBranchId, destinationCommit)
+    const repositoryPath = this.getWorkingPath(designId, destinationBranchId)
+    const merged = this.runAllowingFailure(repositoryPath, ['merge', '--no-commit', '--no-ff', sourceCommit])
+    const conflicts = this.run(repositoryPath, ['diff', '--name-only', '--diff-filter=U']).split(/\r?\n/).filter(Boolean)
+    return { clean: merged.status === 0 && conflicts.length === 0, conflicts }
+  }
+
+  public commitCombinationRevision(designId: string, destinationBranchId: string, destinationCommit: string, sourceCommit: string, message: string): string {
+    if (!commitPattern.test(destinationCommit) || !commitPattern.test(sourceCommit)) throw new Error('Combination parent commit is invalid.')
+    const repositoryPath = this.getWorkingPath(designId, destinationBranchId)
+    this.run(repositoryPath, ['add', '--all'])
+    const tree = this.run(repositoryPath, ['write-tree']).trim()
+    const commit = this.run(repositoryPath, ['commit-tree', tree, '-p', destinationCommit, '-p', sourceCommit, '-m', message]).trim()
+    if (!commitPattern.test(commit)) throw new Error('Git did not create a valid combination commit.')
+    const branchRef = destinationBranchId === designId ? 'refs/heads/main' : this.getBranchRef(destinationBranchId)
+    this.run(repositoryPath, ['update-ref', branchRef, commit, destinationCommit])
+    this.run(repositoryPath, ['reset', '--hard', commit])
+    return commit
+  }
+
+  public writeManagedBuildOutputs(designId: string, branchId: string, tailwindCss: string): void {
+    const repositoryPath = this.getWorkingPath(designId, branchId)
+    this.writeFile(repositoryPath, TAILWIND_CSS_PATH, tailwindCss)
+    this.writeFile(repositoryPath, ALPINE_JS_PATH, alpineRuntime)
+  }
+
+  private requireRegisteredBranchWorktree(designId: string, branchId: string): DesignWorktree {
+    const expectedPath = this.getBranchPath(designId, branchId)
+    const expectedRef = this.getBranchRef(branchId)
+    const association = this.listWorktrees(designId).find((candidate) => this.samePath(candidate.path, expectedPath))
+    if (!association || association.branch !== expectedRef) {
+      throw new Error('The managed branch worktree does not match its registered Git association.')
+    }
+    return association
+  }
+
+  private validateManagedId(value: string, kind: 'design' | 'branch'): void {
+    if (!managedIdPattern.test(value)) throw new Error(`Invalid managed ${kind} identifier.`)
+  }
+
+  private resolveInsideDesignRoot(designId: string, ...segments: string[]): string {
+    const designRoot = path.resolve(this.artifactsDirectory, designId)
+    const target = path.resolve(designRoot, ...segments)
+    if (target === designRoot || !target.startsWith(`${designRoot}${path.sep}`)) throw new Error('Managed branch path escaped its design root.')
+    return target
+  }
+
+  private samePath(left: string, right: string): boolean {
+    const canonicalize = (value: string) => {
+      const resolved = path.resolve(value)
+      try { return realpathSync.native(resolved) }
+      catch { return resolved }
+    }
+    const normalizedLeft = canonicalize(left)
+    const normalizedRight = canonicalize(right)
+    return process.platform === 'win32' ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase() : normalizedLeft === normalizedRight
   }
 
   private showFileAtCommit(repositoryPath: string, commit: string, relativePath: string): string | null {
