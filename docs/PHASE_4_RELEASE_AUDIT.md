@@ -79,6 +79,7 @@ Post-audit branch-selector refinement on 2026-08-11:
 - Follow-up responsiveness work creates and opens provisional branches before provider title generation, announces the creating state immediately, and refreshes the collision-safe final title in the background.
 - The same follow-up passed `pnpm typecheck`, all 328 unit/component tests, `pnpm build`, the focused principal and manual-recovery Phase 4 Electron journeys in 109.7 seconds, and `git diff --check`. The renderer bundle advisory remains at 583.45 kB (166.24 kB gzip).
 - Selected-branch and combination-feedback refinement passed `pnpm typecheck`, all 328 unit/component tests, `pnpm build`, the principal Phase 4 Electron journey with an explicit selected-branch restart assertion in 1.1 minutes, and `git diff --check`. The renderer bundle advisory remains at 584.03 kB (166.39 kB gzip).
+- Shared composer-dropdown focus restoration retains the actual textarea caret and selection after pointer-opened branch and generation-settings menus are dismissed; the Electron journey covers both controls rather than relying on the surrounding `:focus-within` outline. `pnpm typecheck`, all 328 unit/component tests, `pnpm build`, the updated journey in 1.2 minutes, and `git diff --check` passed; the renderer bundle advisory remains at 584.87 kB (166.71 kB gzip).
 
 ## Residual Notes
 

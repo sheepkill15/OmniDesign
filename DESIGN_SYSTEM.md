@@ -300,6 +300,7 @@ The product owner accepted the Quiet Studio home direction on 2026-07-20. It is 
 
 - Branch navigation belongs in the existing composer footer, not in a dedicated workspace strip or the already dense workspace and preview toolbars.
 - Use one compact accessible selector in place of the separate-branch toggle. Its trigger shows the current branch title; its menu switches directions and offers **New branch** for the next prompt without creating an empty branch. Submission immediately shows an announced creating state, then the provisional title while provider-backed naming finishes in the background.
+- Composer popovers opened with a pointer restore the text input's real focus, caret, and selection when dismissed. The composer outline must never imply that typing will continue when focus actually remains on a popup trigger; keyboard-opened popovers retain normal trigger-focus semantics.
 - Persist the last branch selected for each design. Returning to or reopening a design restores that branch and its branch-local workspace state.
 - Put comparison, combination, and permanent removal in **Manage branches**, reached from the selector. Keep destructive controls out of everyday switching.
 - The lineage view emphasizes branches, fork points, and successful combinations. Reveal ordinary revisions on demand instead of drawing every commit permanently.
