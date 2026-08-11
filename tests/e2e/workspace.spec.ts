@@ -513,6 +513,10 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
   try {
     const firstRun = await launchWorkspace(userDataDirectory)
     activeApp = firstRun.app
+    const passiveWheelErrors: string[] = []
+    firstRun.window.on('console', (message) => {
+      if (message.type() === 'error' && message.text().includes('passive event listener')) passiveWheelErrors.push(message.text())
+    })
     const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
     await prompt.fill('A multi-page product site')
     await prompt.press('Enter')
@@ -562,8 +566,9 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
     const contentScrollY = await canvasFrame.locator('body').evaluate(() => window.scrollY)
     await canvasSurface.hover({ position: { x: 40, y: 40 } })
     await firstRun.window.mouse.wheel(0, 120)
-    await expect.poll(() => firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].layout.previewPanY)).toBe(-120)
+    await expect.poll(() => firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].layout.previewZoom)).toBeCloseTo(0.67, 2)
     expect(await canvasFrame.locator('body').evaluate(() => window.scrollY)).toBe(contentScrollY)
+    expect(passiveWheelErrors).toEqual([])
 
     const exportPath = path.join(userDataDirectory, 'multi-page-design.zip')
     await firstRun.app.evaluate(({ dialog }, destination) => {
@@ -584,7 +589,7 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
     await expect(secondRun.window.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     await expect(secondRun.window.getByRole('button', { name: 'Device size' })).toContainText('Custom')
     await expect(secondRun.window.getByRole('button', { name: 'Fixed' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(secondRun.window.getByText('85%')).toBeVisible()
+    await expect(secondRun.window.getByText('67%')).toBeVisible()
     await expect(secondRun.window.locator('.preview-tile')).toHaveCount(2)
   } finally {
     await activeApp?.close().catch(() => undefined)

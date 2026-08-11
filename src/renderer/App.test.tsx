@@ -1730,7 +1730,7 @@ describe('Phase 1 walking skeleton UI', () => {
     })))
   })
 
-  it('keeps canvas frames inert while routing wheel gestures to canvas navigation or Shift-scroll', async () => {
+  it('keeps canvas frames inert while routing wheel gestures to canvas zoom or Shift-scroll', async () => {
     const restored: OmniDesignDocument = {
       ...design,
       layout: { ...design.layout, previewViewMode: 'canvas', previewZoom: 1.25, previewPanX: 84, previewPanY: -36 },
@@ -1749,7 +1749,7 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(frame).toHaveAttribute('inert')
     expect(frame).toHaveAttribute('tabindex', '-1')
     expect(frame).toHaveAttribute('aria-hidden', 'true')
-    expect(await screen.findByText('Shift + scroll page')).toBeInTheDocument()
+    expect(await screen.findByText('Scroll to zoom · Shift + scroll page')).toBeInTheDocument()
 
     await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalled())
     vi.mocked(bridge.workspace.saveLayout).mockClear()
@@ -1766,7 +1766,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.wheel(frameSurface, { deltaX: 12, deltaY: 100 })
     expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'omnidesign-scroll' }), '*')
     await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({
-      previewZoom: 1.25, previewPanX: 72, previewPanY: -136,
+      previewZoom: 1.1,
     })))
   })
 

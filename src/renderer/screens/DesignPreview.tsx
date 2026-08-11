@@ -258,13 +258,15 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
       .finally(() => { capturingRef.current = false })
   }, [designId, revisionId, captureNeeded])
 
-  const onWheel = (event: React.WheelEvent) => {
-    if (viewMode !== 'canvas') return
-    event.preventDefault()
-    if (event.shiftKey) {
-      const target = event.target instanceof Element ? event.target : null
-      const frame = target?.closest('.preview-tile-frame')?.querySelector('iframe')
-      if (frame instanceof HTMLIFrameElement) {
+  useEffect(() => {
+    const surface = viewport.current
+    if (viewMode !== 'canvas' || !surface) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      if (event.shiftKey) {
+        const target = event.target instanceof Element ? event.target : null
+        const frame = target?.closest('.preview-tile-frame')?.querySelector('iframe')
+        if (!(frame instanceof HTMLIFrameElement)) return
         const bounds = frame.getBoundingClientRect()
         const scale = Math.max(0.2, canvasViewport.zoom)
         try {
@@ -276,10 +278,27 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
             y: (event.clientY - bounds.top) / scale,
           }, '*')
         } catch { /* opaque frame not ready */ }
+        return
       }
-    } else if (event.ctrlKey || event.metaKey) onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, Math.max(0.2, current.zoom - event.deltaY * 0.0015)) }))
-    else onCanvasViewportChange((current) => ({ ...current, panX: current.panX - event.deltaX, panY: current.panY - event.deltaY }))
-  }
+      const delta = event.deltaY || event.deltaX
+      if (!delta) return
+      const bounds = surface.getBoundingClientRect()
+      const pointerX = event.clientX - bounds.left
+      const pointerY = event.clientY - bounds.top
+      onCanvasViewportChange((current) => {
+        const zoom = Math.min(2, Math.max(0.2, current.zoom - delta * 0.0015))
+        if (zoom === current.zoom) return current
+        const ratio = zoom / current.zoom
+        return {
+          zoom,
+          panX: pointerX - (pointerX - current.panX) * ratio,
+          panY: pointerY - (pointerY - current.panY) * ratio,
+        }
+      })
+    }
+    surface.addEventListener('wheel', onWheel, { passive: false })
+    return () => surface.removeEventListener('wheel', onWheel)
+  }, [viewMode, canvasViewport.zoom, pages.length, onCanvasViewportChange])
   const panState = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
   const onPointerDown = (event: React.PointerEvent) => {
     if (viewMode !== 'canvas' || event.button !== 0) return
@@ -311,7 +330,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
 
   if (viewMode === 'canvas') {
     return (
-      <div className="preview-canvas" ref={viewport} data-panning={panState.current ? true : undefined} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}>
+      <div className="preview-canvas" ref={viewport} data-panning={panState.current ? true : undefined} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}>
         <div className="preview-board" style={{ transform: `translate(${canvasViewport.panX}px, ${canvasViewport.panY}px) scale(${canvasViewport.zoom})` }}>
           {pages.map((page) => {
             const isLive = page.path === livePath
@@ -332,8 +351,8 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
             )
           })}
         </div>
-        <div className="preview-canvas-controls" role="group" aria-label="Canvas zoom">
-          <span className="preview-canvas-scroll-hint">Shift + scroll page</span>
+        <div className="preview-canvas-controls" role="group" aria-label="Canvas navigation">
+          <span className="preview-canvas-scroll-hint">Scroll to zoom · Shift + scroll page</span>
           <IconButton label="Zoom out" icon={MinusIcon} onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.max(0.2, current.zoom - 0.1) }))} />
           <span className="preview-zoom-value">{Math.round(canvasViewport.zoom * 100)}%</span>
           <IconButton label="Zoom in" icon={PlusIcon} onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, current.zoom + 0.1) }))} />
