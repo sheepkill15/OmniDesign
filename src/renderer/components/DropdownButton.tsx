@@ -1,10 +1,16 @@
 import type { ComponentProps, ReactNode } from 'react'
-import { useContext } from 'react'
+import { useContext, useRef } from 'react'
 import { Button, MenuTrigger, Popover } from 'react-aria-components'
 import { ChevronDownIcon } from '@heroicons/react/24/outline'
 import { PreviewOverlayContext } from './PreviewOverlayContext'
 
 type Placement = ComponentProps<typeof Popover>['placement']
+type ComposerFocusSnapshot = {
+  readonly element: HTMLInputElement | HTMLTextAreaElement
+  readonly selectionStart: number | null
+  readonly selectionEnd: number | null
+  readonly selectionDirection: 'forward' | 'backward' | 'none' | null
+}
 
 // The shared button-with-dropdown for the trusted UI, built on React Aria's MenuTrigger: uncontrolled
 // and modal (the default). Modal is intentional — a modal popover dismisses on any outside click via
@@ -24,13 +30,44 @@ export function DropdownButton({ trigger, children, label, triggerClassName, pop
   readonly onOpenChange?: (isOpen: boolean) => void
 }) {
   const previewOverlay = useContext(PreviewOverlayContext)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const open = useRef(false)
+  const priorComposerFocus = useRef<ComposerFocusSnapshot | null>(null)
+
+  const rememberComposerFocus = (candidate: EventTarget | null) => {
+    const composer = triggerRef.current?.closest('.new-design-composer, .workspace-composer')
+    priorComposerFocus.current = (candidate instanceof HTMLInputElement || candidate instanceof HTMLTextAreaElement) && composer?.contains(candidate)
+      ? { element: candidate, selectionStart: candidate.selectionStart, selectionEnd: candidate.selectionEnd, selectionDirection: candidate.selectionDirection }
+      : null
+  }
+
+  const restoreComposerFocus = () => {
+    const prior = priorComposerFocus.current
+    priorComposerFocus.current = null
+    if (!prior) return
+    const restoreAfterTrigger = (framesRemaining: number) => requestAnimationFrame(() => {
+      if (!prior.element.isConnected || prior.element.disabled) return
+      if (document.activeElement !== triggerRef.current) {
+        if (framesRemaining > 0) restoreAfterTrigger(framesRemaining - 1)
+        return
+      }
+      prior.element.focus({ preventScroll: true })
+      if (prior.selectionStart !== null && prior.selectionEnd !== null) prior.element.setSelectionRange(prior.selectionStart, prior.selectionEnd, prior.selectionDirection ?? undefined)
+    })
+    restoreAfterTrigger(8)
+  }
+
   return (
     <MenuTrigger onOpenChange={(isOpen) => {
+      open.current = isOpen
       if (isOpen) previewOverlay?.open()
-      else previewOverlay?.close()
+      else {
+        previewOverlay?.close()
+        restoreComposerFocus()
+      }
       onOpenChange?.(isOpen)
     }}>
-      <Button className={triggerClassName} aria-label={label} isDisabled={isDisabled}>
+      <Button ref={triggerRef} className={triggerClassName} aria-label={label} isDisabled={isDisabled} onPointerDownCapture={() => { if (!open.current) rememberComposerFocus(document.activeElement) }} onKeyDown={() => { if (!open.current) priorComposerFocus.current = null }}>
         {trigger}
         <ChevronDownIcon className="dropdown-caret" aria-hidden="true" />
       </Button>

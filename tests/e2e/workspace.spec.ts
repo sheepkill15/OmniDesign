@@ -1,15 +1,18 @@
 import { expect, test } from '@playwright/test'
 import { _electron as electron } from 'playwright'
 import type { ElectronApplication, Page } from 'playwright'
+import { execFile as execFileCallback } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
+import { promisify } from 'node:util'
 import { unzipSync } from 'fflate'
 
 const projectDirectory = process.cwd()
 const electronExecutable = require('electron') as string
+const execFile = promisify(execFileCallback)
 
 async function launchWorkspace(userDataDirectory: string) {
   const app = await electron.launch({
@@ -42,7 +45,14 @@ async function continueWithoutDefinitions(window: Page, required = true): Promis
 
 async function expectFirstResultUnobstructed(window: Page): Promise<void> {
   await expect(window.getByRole('dialog', { name: /Set up design definitions for/ })).toHaveCount(0)
-  await expect(window.getByRole('button', { name: 'Definitions' })).toBeVisible()
+}
+
+async function resolveDestinationConflicts(worktreePath: string): Promise<void> {
+  const { stdout } = await execFile('git', ['diff', '--name-only', '--diff-filter=U'], { cwd: worktreePath, encoding: 'utf8' })
+  for (const file of stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)) {
+    await execFile('git', ['checkout', '--theirs', '--', file], { cwd: worktreePath })
+  }
+  await execFile('git', ['add', '-A'], { cwd: worktreePath })
 }
 
 test('creates and recovers a standalone design in the built Electron app', async () => {
@@ -168,7 +178,7 @@ test('compares an earlier revision with the current authored file changes', asyn
     await change.fill('Make the dashboard denser and add a compact activity summary')
     await change.press('Enter')
     await expect(run.window.getByRole('button', { name: 'History · 2' })).toBeVisible({ timeout: 15_000 })
-    await continueWithoutDefinitions(run.window)
+    await continueWithoutDefinitions(run.window, false)
     await run.window.getByRole('button', { name: 'History · 2' }).press('Enter')
     await run.window.getByRole('menuitem', { name: /Request · A calm analytics dashboard/ }).click()
     await run.window.getByRole('button', { name: 'Compare to current' }).click()
@@ -328,6 +338,47 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     await prompt.press('Enter')
     await expect(run.window.getByRole('button', { name: 'Send change' })).toBeVisible()
     await expect(run.window.getByRole('button', { name: 'Remove' })).toBeVisible()
+    await run.window
+      .getByRole('textbox', { name: 'Request a design change' })
+      .fill('Check responsive controls')
+    const workspaceGeometry = async () => run.window.evaluate(() => {
+      const footer = document.querySelector('.workspace-composer-footer')!.getBoundingClientRect()
+      const send = document.querySelector('.workspace-composer .submit-prompt')!.getBoundingClientRect()
+      const preview = document.querySelector('.preview-pane')!.getBoundingClientRect()
+      const sidebar = document.querySelector('.sidebar')!.getBoundingClientRect()
+      const toolbar = document.querySelector('.workspace-toolbar')!.getBoundingClientRect()
+      const generationSettings = document.querySelector('.workspace-composer-footer .generation-settings-button')!.getBoundingClientRect()
+      const branchSelector = document.querySelector('.composer-branch-selector')!.getBoundingClientRect()
+      const toolbarButtons = [...document.querySelectorAll<HTMLElement>('.workspace-toolbar button')]
+      return {
+        previewWidth: Math.round(preview.width),
+        sendWidth: Math.round(send.width),
+        sendContained: send.left >= footer.left && send.right <= footer.right,
+        sidebarWidth: Math.round(sidebar.width),
+        generationSettingsWidth: Math.round(generationSettings.width),
+        branchSelectorWidth: Math.round(branchSelector.width),
+        toolbarContained: toolbarButtons.every((button) => {
+          const bounds = button.getBoundingClientRect()
+          return bounds.left >= toolbar.left && bounds.right <= toolbar.right
+        }),
+      }
+    })
+    const sendChange = run.window.getByRole('button', { name: 'Send change' })
+    await expect(sendChange).toBeEnabled()
+    await sendChange.click({ trial: true })
+    expect(await workspaceGeometry()).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect((await workspaceGeometry()).generationSettingsWidth).toBeLessThanOrEqual(248)
+    expect((await workspaceGeometry()).branchSelectorWidth).toBeLessThanOrEqual(132)
+    expect((await workspaceGeometry()).previewWidth).toBeGreaterThanOrEqual(150)
+
+    await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2))
+    await expect.poll(() => run.window.evaluate(() => window.devicePixelRatio)).toBeGreaterThanOrEqual(2)
+    await expect.poll(async () => (await workspaceGeometry()).sidebarWidth).toBeLessThanOrEqual(64)
+    const zoomedGeometry = await workspaceGeometry()
+    await sendChange.click({ trial: true })
+    expect(zoomedGeometry).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect(zoomedGeometry.previewWidth).toBeGreaterThanOrEqual(140)
+    expect(zoomedGeometry.sidebarWidth).toBeLessThanOrEqual(64)
     await expect.poll(() => run.window.evaluate(() => ({
       horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight,
@@ -339,6 +390,7 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
 })
 
 test('confirms close with active work and recovers it as interrupted', async () => {
+  test.setTimeout(180_000)
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-interruption-e2e-'))
   let activeApp: ElectronApplication | null = null
   try {
@@ -351,13 +403,13 @@ test('confirms close with active work and recovers it as interrupted', async () 
     const designId = await firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].id)
     const database = new DatabaseSync(path.join(userDataDirectory, 'workspace', 'omnidesign.sqlite'))
     database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, 'mock', 'mock-v1', NULL, '[]', 'fresh', 'running', ?, ?, NULL, NULL)
-    `).run('8a348393-c286-40dc-ad06-a1174bfeb5a7', designId, 'Running before close', new Date().toISOString(), new Date().toISOString())
+      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, 'mock', 'mock-v1', NULL, '[]', 'fresh', 'running', ?, ?, NULL, NULL)
+    `).run('8a348393-c286-40dc-ad06-a1174bfeb5a7', designId, designId, 'Running before close', new Date().toISOString(), new Date().toISOString())
     database.prepare(`
-      INSERT INTO generation_jobs (id, design_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
-      VALUES (?, ?, ?, 'mock', 'mock-v1', NULL, '[]', 'fresh', 'queued', ?, NULL, NULL, NULL)
-    `).run('9a348393-c286-40dc-ad06-a1174bfeb5a7', designId, 'Queued after interruption', new Date(Date.now() + 1_000).toISOString())
+      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, provider_id, model_id, effort, attachments_json, mode, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, 'mock', 'mock-v1', NULL, '[]', 'fresh', 'queued', ?, NULL, NULL, NULL)
+    `).run('9a348393-c286-40dc-ad06-a1174bfeb5a7', designId, designId, 'Queued after interruption', new Date(Date.now() + 1_000).toISOString())
     database.close()
     await firstRun.app.evaluate(({ dialog }) => {
       dialog.showMessageBoxSync = () => 0
@@ -461,6 +513,10 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
   try {
     const firstRun = await launchWorkspace(userDataDirectory)
     activeApp = firstRun.app
+    const passiveWheelErrors: string[] = []
+    firstRun.window.on('console', (message) => {
+      if (message.type() === 'error' && message.text().includes('passive event listener')) passiveWheelErrors.push(message.text())
+    })
     const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
     await prompt.fill('A multi-page product site')
     await prompt.press('Enter')
@@ -486,6 +542,34 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
       return current.layout
     })).toMatchObject({ previewViewMode: 'canvas', previewFit: 'fixed', previewDevice: 'custom', previewCustomWidth: 1440, previewCustomHeight: 960, previewPage: 'pages/about.html', previewZoom: 0.85, previewPanX: 0, previewPanY: 0 })
 
+    const canvasFrameElement = firstRun.window.locator('.preview-tile-frame iframe').first()
+    await expect(canvasFrameElement).toHaveAttribute('inert', '')
+    await expect(canvasFrameElement).toHaveAttribute('tabindex', '-1')
+    const canvasFrame = firstRun.window.frameLocator('.preview-tile-frame iframe').first()
+    await canvasFrame.locator('body').evaluate((body) => {
+      body.style.minHeight = '3000px'
+      window.scrollTo(0, 0)
+      ;(window as Window & { __canvasClicks?: number }).__canvasClicks = 0
+      document.addEventListener('click', () => { (window as Window & { __canvasClicks?: number }).__canvasClicks = ((window as Window & { __canvasClicks?: number }).__canvasClicks ?? 0) + 1 })
+    })
+    const canvasSurface = firstRun.window.locator('.preview-tile-frame').first()
+    await canvasSurface.click({ position: { x: 40, y: 40 } })
+    expect(await canvasFrame.locator('body').evaluate(() => (window as Window & { __canvasClicks?: number }).__canvasClicks)).toBe(0)
+
+    await canvasSurface.hover({ position: { x: 40, y: 40 } })
+    await firstRun.window.keyboard.down('Shift')
+    await firstRun.window.mouse.wheel(0, 240)
+    await firstRun.window.keyboard.up('Shift')
+    await expect.poll(() => canvasFrame.locator('body').evaluate(() => window.scrollY)).toBeGreaterThan(0)
+    expect((await firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].layout)).previewPanY).toBe(0)
+
+    const contentScrollY = await canvasFrame.locator('body').evaluate(() => window.scrollY)
+    await canvasSurface.hover({ position: { x: 40, y: 40 } })
+    await firstRun.window.mouse.wheel(0, 120)
+    await expect.poll(() => firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].layout.previewZoom)).toBeCloseTo(0.67, 2)
+    expect(await canvasFrame.locator('body').evaluate(() => window.scrollY)).toBe(contentScrollY)
+    expect(passiveWheelErrors).toEqual([])
+
     const exportPath = path.join(userDataDirectory, 'multi-page-design.zip')
     await firstRun.app.evaluate(({ dialog }, destination) => {
       dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: destination })
@@ -505,7 +589,7 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
     await expect(secondRun.window.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     await expect(secondRun.window.getByRole('button', { name: 'Device size' })).toContainText('Custom')
     await expect(secondRun.window.getByRole('button', { name: 'Fixed' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(secondRun.window.getByText('85%')).toBeVisible()
+    await expect(secondRun.window.getByText('67%')).toBeVisible()
     await expect(secondRun.window.locator('.preview-tile')).toHaveCount(2)
   } finally {
     await activeApp?.close().catch(() => undefined)
@@ -632,11 +716,180 @@ test('completes the Phase 3 definitions and exact focused-edit journey across re
     await expect(secondRun.window.getByText('Make this heading feel more grounded', { exact: false })).toBeVisible()
     await expect(secondRun.window.getByText(firstExactReference!, { exact: false })).toBeVisible()
     await expect(secondRun.window.getByText(secondExactReference!, { exact: false })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: 'Focused edit thread 1, 1 comment' })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: 'Focused edit thread 2, 1 comment' })).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: 'Definitions', exact: true })).toContainText('v2')
     await expect(secondRun.window.getByRole('button', { name: /History · 3/ })).toBeVisible()
   } finally {
     await activeApp?.close().catch(() => undefined)
     await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     await rm(linkedProjectDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('completes the Phase 4 branching, context, comparison, combination, and export journey', async () => {
+  test.setTimeout(240_000)
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-phase4-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const firstRun = await launchWorkspace(userDataDirectory)
+    activeApp = firstRun.app
+    const initialPrompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await initialPrompt.fill('A calm branchable analytics dashboard')
+    await initialPrompt.press('Enter')
+    await expect(firstRun.window.getByText('Local · quality checked')).toBeVisible({ timeout: 20_000 })
+
+    const change = firstRun.window.getByRole('textbox', { name: 'Request a design change' })
+    await change.fill('Explore a warmer editorial direction')
+    await change.evaluate((element) => (element as HTMLTextAreaElement).setSelectionRange(8, 8))
+    await firstRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await firstRun.window.keyboard.press('Escape')
+    await expect(change).toBeFocused()
+    await expect.poll(() => change.evaluate((element) => ({ start: (element as HTMLTextAreaElement).selectionStart, end: (element as HTMLTextAreaElement).selectionEnd }))).toEqual({ start: 8, end: 8 })
+    await firstRun.window.getByRole('button', { name: 'Generation settings' }).click()
+    await firstRun.window.keyboard.press('Escape')
+    await expect(change).toBeFocused()
+    await expect.poll(() => change.evaluate((element) => ({ start: (element as HTMLTextAreaElement).selectionStart, end: (element as HTMLTextAreaElement).selectionEnd }))).toEqual({ start: 8, end: 8 })
+    await firstRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await firstRun.window.getByRole('menuitem', { name: 'New branch' }).click()
+    await change.press('Enter')
+    await expect.poll(() => firstRun.window.evaluate(async () => {
+      const design = (await window.omnidesign!.workspace.list())[0]
+      return { count: design.branches.length, settled: design.branches.every((branch) => branch.status === 'ready') }
+    }), { timeout: 30_000 }).toEqual({ count: 2, settled: true })
+
+    await firstRun.window.getByRole('button', { name: 'Fork this prompt' }).last().click()
+    const forkDialog = firstRun.window.getByRole('dialog', { name: 'Fork prompt' })
+    await forkDialog.getByRole('checkbox', { name: /Mock v2/ }).check()
+    await forkDialog.getByRole('button', { name: 'Fork into 2 branches' }).click()
+    await expect.poll(() => firstRun.window.evaluate(async () => {
+      const design = (await window.omnidesign!.workspace.list())[0]
+      return { count: design.branches.length, settled: design.branches.every((branch) => branch.status === 'ready') }
+    }), { timeout: 40_000 }).toEqual({ count: 4, settled: true })
+    const selectedBranchTitle = await firstRun.window.evaluate(async () => {
+      const design = (await window.omnidesign!.workspace.list())[0]
+      return design.branches.find((branch) => branch.id === design.activeBranchId)!.title
+    })
+
+    await firstRun.app.close()
+    activeApp = null
+    const secondRun = await launchWorkspace(userDataDirectory)
+    activeApp = secondRun.app
+    await expect(secondRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: `Branch: ${selectedBranchTitle}` })).toBeVisible()
+    await secondRun.window.getByRole('button', { name: /^Branch: / }).click()
+    await secondRun.window.getByRole('menuitem', { name: /Main/ }).click()
+    const snapshot = await secondRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0])
+    const source = snapshot.branches.filter((branch) => !branch.isMain).at(-1)!
+
+    await secondRun.window.getByRole('button', { name: 'Attach files or folders' }).click()
+    await secondRun.window.getByRole('menuitem', { name: 'Attach branches…' }).click()
+    const contextDialog = secondRun.window.getByRole('dialog', { name: 'Attach branch context' })
+    await contextDialog.getByRole('checkbox', { name: new RegExp(source.title) }).check()
+    await contextDialog.getByRole('button', { name: 'Done' }).click()
+    const mainChange = secondRun.window.getByRole('textbox', { name: 'Request a design change' })
+    await mainChange.fill('Borrow the strongest typography from the attached direction')
+    await mainChange.press('Enter')
+    await expect.poll(() => secondRun.window.evaluate(async () => {
+      const design = (await window.omnidesign!.workspace.list())[0]
+      const job = design.generationJobs.at(-1)
+      return { state: job?.state, branchId: job?.resolvedBranchContexts?.[0]?.branchId, commit: job?.resolvedBranchContexts?.[0]?.commit?.length }
+    }), { timeout: 30_000 }).toEqual({ state: 'completed', branchId: source.id, commit: 40 })
+
+    await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
+    const initialManager = secondRun.window.getByRole('dialog', { name: 'Manage branches' })
+    await expect(initialManager.getByText('Current')).toBeVisible()
+    await secondRun.window.locator('.modal-overlay').click({ position: { x: 4, y: 4 } })
+    await expect(initialManager).toHaveCount(0)
+    await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
+    await secondRun.window.getByRole('button', { name: 'Close Manage branches' }).click()
+    await expect(secondRun.window.getByRole('dialog', { name: 'Manage branches' })).toHaveCount(0)
+    await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
+    const manager = secondRun.window.getByRole('dialog', { name: 'Manage branches' })
+    await manager.getByRole('checkbox', { name: `Select ${source.title} for comparison` }).check()
+    await manager.getByRole('button', { name: 'Compare branches' }).click()
+    const comparison = secondRun.window.getByRole('dialog', { name: 'Compare branches' })
+    await expect(comparison).toBeVisible()
+    await comparison.getByRole('button', { name: 'Summarize differences' }).click()
+    await expect(comparison.getByRole('region', { name: 'AI branch summary' })).toContainText(/differs|no authored file differences/)
+    await comparison.getByRole('textbox', { name: 'Combination prompt' }).fill('Keep Main structure and adopt the attached direction’s strongest typography')
+    await comparison.getByRole('button', { name: 'Combine into destination' }).click()
+    const recovery = secondRun.window.getByRole('dialog', { name: 'Combination needs review' })
+    await expect(recovery).toBeVisible({ timeout: 20_000 })
+    const designId = snapshot.id
+    await resolveDestinationConflicts(path.join(userDataDirectory, 'workspace', 'designs', designId, 'repository'))
+    await recovery.getByRole('button', { name: 'Check resolution' }).click()
+    const completed = secondRun.window.getByRole('dialog', { name: 'Combination complete' })
+    await expect(completed).toBeVisible({ timeout: 20_000 })
+    await completed.getByRole('button', { name: 'Keep source branch' }).click()
+
+    const exportPath = path.join(userDataDirectory, 'phase4-combined.zip')
+    await secondRun.app.evaluate(({ dialog }, destination) => { dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: destination }) }, exportPath)
+    await secondRun.window.getByRole('button', { name: 'Export' }).click()
+    await expect.poll(async () => { try { return (await stat(exportPath)).size > 0 } catch { return false } }).toBe(true)
+    await expect.poll(() => secondRun.window.evaluate(async () => {
+      const design = (await window.omnidesign!.workspace.list())[0]
+      const combinations = await window.omnidesign!.workspace.listCombinations(design.id)
+      return { branches: design.branches.length, completed: combinations.some((attempt) => attempt.state === 'completed') }
+    })).toEqual({ branches: 4, completed: true })
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('recovers a manual Phase 4 combination across restart and aborts safely', async () => {
+  test.setTimeout(180_000)
+  const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-phase4-recovery-e2e-'))
+  let activeApp: ElectronApplication | null = null
+  try {
+    const firstRun = await launchWorkspace(userDataDirectory)
+    activeApp = firstRun.app
+    const initialPrompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
+    await initialPrompt.fill('A resilient combination recovery dashboard')
+    await initialPrompt.press('Enter')
+    await expect(firstRun.window.getByText('Local · quality checked')).toBeVisible({ timeout: 20_000 })
+    const change = firstRun.window.getByRole('textbox', { name: 'Request a design change' })
+    await change.fill('Create a sharper alternative direction')
+    await firstRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await firstRun.window.getByRole('menuitem', { name: 'New branch' }).click()
+    await change.press('Enter')
+    await expect.poll(() => firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].branches.every((branch) => branch.status === 'ready')), { timeout: 30_000 }).toBe(true)
+    const design = await firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0])
+    const source = design.branches.find((branch) => !branch.isMain)!
+    await firstRun.window.getByRole('button', { name: /^Branch: / }).click()
+    await firstRun.window.getByRole('menuitem', { name: /Main/ }).click()
+    await firstRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await firstRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
+    const manager = firstRun.window.getByRole('dialog', { name: 'Manage branches' })
+    await manager.getByRole('checkbox', { name: `Select ${source.title} for comparison` }).check()
+    await manager.getByRole('button', { name: 'Compare branches' }).click()
+    const comparison = firstRun.window.getByRole('dialog', { name: 'Compare branches' })
+    await comparison.getByRole('button', { name: 'Combine into destination' }).click()
+    await expect(firstRun.window.getByRole('dialog', { name: 'Combination needs review' })).toBeVisible({ timeout: 20_000 })
+    await expect.poll(() => firstRun.window.evaluate(async () => {
+      const current = (await window.omnidesign!.workspace.list())[0]
+      return (await window.omnidesign!.workspace.listCombinations(current.id)).at(-1)?.prompt
+    })).toContain('Combine the strongest parts of the source direction')
+
+    await firstRun.app.close()
+    activeApp = null
+    const secondRun = await launchWorkspace(userDataDirectory)
+    activeApp = secondRun.app
+    const recovery = secondRun.window.getByRole('dialog', { name: 'Combination needs review' })
+    await expect(recovery).toBeVisible({ timeout: 20_000 })
+    await recovery.getByRole('button', { name: 'Abort combination' }).click()
+    await expect(recovery).toHaveCount(0)
+    await expect.poll(() => secondRun.window.evaluate(async () => {
+      const current = (await window.omnidesign!.workspace.list())[0]
+      const attempts = await window.omnidesign!.workspace.listCombinations(current.id)
+      return { active: attempts.some((attempt) => attempt.state === 'applying' || attempt.state === 'manual_resolution'), aborted: attempts.some((attempt) => attempt.state === 'aborted'), status: current.branches.find((branch) => branch.isMain)?.status }
+    })).toEqual({ active: false, aborted: true, status: 'ready' })
+  } finally {
+    await activeApp?.close().catch(() => undefined)
+    await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

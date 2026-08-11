@@ -10,10 +10,186 @@ import { WorkspaceStore } from './store.js'
 const directories: string[] = []
 
 afterEach(() => {
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
-describe('WorkspaceService', () => {
+describe('WorkspaceService', { timeout: 30_000 }, () => {
+  it('coordinates branch records, linked worktrees, isolated state, restart, and removal', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const mainHead = main.activeRevisionId
+
+    const branch = service.createDesignBranch(main.id, 'Warmer direction')
+    const branchId = branch.activeBranchId
+    const branchPath = service.getDesignRepositoryPath(main.id, branchId)
+    expect(branchId).not.toBe(main.id)
+    expect(existsSync(branchPath)).toBe(true)
+    expect(service.renameDesignBranch(main.id, branchId, 'Editorial direction')).toMatchObject({ id: branchId, title: 'Editorial direction' })
+    expect(service.getDesign(main.id)?.branches.find((candidate) => candidate.id === branchId)?.title).toBe('Editorial direction')
+    expect(() => service.renameDesignBranch(main.id, main.id, 'Renamed Main')).toThrow('Main cannot be renamed.')
+    const revisedBranch = await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    expect(revisedBranch.activeRevisionId).not.toBe(mainHead)
+    service.saveDraft(main.id, 'Branch-only draft')
+    store.saveBranchComposerState(main.id, true, null)
+
+    const restoredMain = service.switchDesignBranch(main.id, main.id)
+    expect(restoredMain).toMatchObject({ activeBranchId: main.id, activeRevisionId: mainHead, draft: '' })
+    expect(service.switchDesignBranch(main.id, branchId)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft', separateBranchMode: true })
+    store.close()
+
+    const reopenedStore = new WorkspaceStore(directory)
+    const reopenedService = new WorkspaceService(reopenedStore)
+    expect(reopenedService.getDesign(main.id)).toMatchObject({ activeBranchId: branchId, draft: 'Branch-only draft', separateBranchMode: true })
+    reopenedService.switchDesignBranch(main.id, main.id)
+    expect(reopenedService.removeDesignBranch(main.id, branchId)).toHaveLength(1)
+    expect(existsSync(branchPath)).toBe(false)
+    expect(() => reopenedService.removeDesignBranch(main.id, main.id)).toThrow('Main cannot be removed.')
+    reopenedStore.close()
+  })
+
+  it('forks a historical prompt from the revision and conversation immediately before it', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const first = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const firstRevisionId = first.activeRevisionId!
+    const second = await service.generate(first.id, 'Use a warmer accent', () => undefined)
+    const forkMessage = second.messages.find((message) => message.role === 'user' && message.text === 'Use a warmer accent')!
+
+    const fork = service.createDesignBranch(first.id, 'Warmer alternative', firstRevisionId, forkMessage.id)
+    expect(fork).toMatchObject({ activeRevisionId: firstRevisionId, selectedRevisionId: firstRevisionId })
+    expect(fork.messages.map((message) => message.text)).not.toContain('Use a warmer accent')
+    const replay = store.enqueueGenerationJob(first.id, forkMessage.text, 'mock', 'mock-v1', null, forkMessage.attachments ?? [], 'fresh', null, forkMessage.focusedTarget ?? null, forkMessage.focusedFeedback ?? [], forkMessage.replyToMessageId ?? null)
+    expect(store.getDesign(first.id)?.messages.at(-1)).toMatchObject({ text: 'Use a warmer accent' })
+    store.cancelQueuedGenerationJob(replay.id)
+    store.close()
+  })
+
+  it('compares two committed branch heads without switching or mutating either branch', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const alternativeId = alternative.activeBranchId
+    await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+
+    const compared = service.compareDesignBranches(main.id, alternativeId, main.id)
+    expect(compared).toMatchObject({
+      source: { branchId: alternativeId, title: 'Warmer direction', pages: [{ path: 'index.html' }] },
+      destination: { branchId: main.id, title: 'Main', revisionId: main.activeRevisionId, pages: [{ path: 'index.html' }] },
+      changes: { baseRevisionId: main.activeRevisionId },
+    })
+    expect(service.getDesign(main.id)?.activeBranchId).toBe(main.id)
+    service.switchDesignBranch(main.id, alternativeId)
+    await service.generate(main.id, 'Make the accent more vivid', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+    expect(() => service.startCombination(main.id, compared.comparisonId, 'Use the compared direction', { providerId: 'mock', modelId: 'mock-v1', effort: null })).toThrow('comparison is stale')
+    store.close()
+  })
+
+  it('keeps requested branch summaries durable and marks captured heads stale without regenerating them', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const alternativeId = alternative.activeBranchId
+    await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+    const prepared = service.prepareBranchComparisonSummary(main.id, alternativeId, main.id)
+    expect(prepared.changedLineContext).toContain('index.html')
+    expect(prepared.changedLineContext).toMatch(/^[-+]/m)
+    const saved = service.saveBranchComparisonSummary(main.id, alternativeId, main.id, prepared.sourceCommit, prepared.destinationCommit, 'The alternative introduces a warmer visual direction.', { providerId: 'mock', modelId: 'mock-v1', effort: null })
+
+    expect(service.listBranchComparisonSummaries(main.id)).toEqual([expect.objectContaining({ id: saved.id, stale: false, summary: 'The alternative introduces a warmer visual direction.' })])
+    service.switchDesignBranch(main.id, alternativeId)
+    await service.generate(main.id, 'Increase the visual warmth', () => undefined)
+    expect(service.listBranchComparisonSummaries(main.id)[0]).toMatchObject({ id: saved.id, stale: true, sourceBranchId: alternativeId })
+    service.switchDesignBranch(main.id, main.id)
+    service.removeDesignBranch(main.id, alternativeId)
+    expect(service.listBranchComparisonSummaries(main.id)[0]).toMatchObject({ id: saved.id, stale: true, sourceBranchId: null, sourceBranchTitle: 'Warmer direction' })
+    store.close()
+  })
+
+  it('resolves attached branch context from the latest execution-time head and records the evidence', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const alternativeId = alternative.activeBranchId
+    await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+    const reference = { designId: main.id, branchId: alternativeId, title: 'Warmer direction', status: 'available' as const }
+    const job = store.enqueueGenerationJob(main.id, 'Borrow the strongest visual ideas', 'mock', 'mock-v1', null, [], 'fresh', null, null, [], null, [reference])
+    service.switchDesignBranch(main.id, alternativeId)
+    const latestAlternative = await service.generate(main.id, 'Increase the visual warmth', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+
+    store.setGenerationJobState(job.id, 'running')
+    const resolved = service.resolveBranchContextsForGeneration(main.id, main.id, job.branchContexts)
+    expect(resolved.contexts[0]).toMatchObject({ branchId: alternativeId, commit: latestAlternative.revisions.at(-1)?.gitCommit, conversationCutoffMessageId: expect.any(String), summarized: false })
+    store.saveResolvedBranchContexts(job.id, resolved.contexts)
+    expect(store.getGenerationJob(job.id)?.resolvedBranchContexts).toEqual(resolved.contexts)
+    store.setGenerationJobState(job.id, 'completed')
+    store.close()
+  })
+
+  it('forks page metadata and keeps later page preferences branch-local', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    service.saveDesignPageMetadata(main.id, 'index.html', 'Main home', 0)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    service.switchDesignBranch(main.id, alternative.activeBranchId)
+    expect(service.getDesign(main.id)?.pages).toEqual([expect.objectContaining({ path: 'index.html', title: 'Main home' })])
+    service.saveDesignPageMetadata(main.id, 'index.html', 'Warm home', 0)
+    service.switchDesignBranch(main.id, main.id)
+    expect(service.getDesign(main.id)?.pages).toEqual([expect.objectContaining({ path: 'index.html', title: 'Main home' })])
+    service.switchDesignBranch(main.id, alternative.activeBranchId)
+    expect(service.getDesign(main.id)?.pages).toEqual([expect.objectContaining({ path: 'index.html', title: 'Warm home' })])
+    store.close()
+  })
+
+  it('locks two branches and records a validated two-parent destination combination', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const sourceBranchId = alternative.activeBranchId
+    const source = await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    service.switchDesignBranch(main.id, main.id)
+    const comparison = service.compareDesignBranches(main.id, sourceBranchId, main.id)
+    const prepared = service.startCombination(main.id, comparison.comparisonId, 'Bring the warmer accent into Main', { providerId: 'mock', modelId: 'mock-v1', effort: null })
+    expect(store.isDesignBranchLocked(sourceBranchId)).toBe(true)
+    expect(store.isDesignBranchLocked(main.id)).toBe(true)
+    const destinationPath = service.getDesignRepositoryPath(main.id, main.id)
+    writeFileSync(path.join(destinationPath, 'index.html'), `${readFileSync(path.join(destinationPath, 'index.html'), 'utf8')}\n<!-- combined direction -->\n`)
+
+    const completed = await service.completeIntelligentCombination(prepared.attempt.id, 'Combined the warmer accent.')
+    expect(completed).toMatchObject({ state: 'completed', fallbackPath: 'none', sourceCommit: source.revisions.at(-1)?.gitCommit, destinationCommit: main.revisions.at(-1)?.gitCommit })
+    expect(store.isDesignBranchLocked(sourceBranchId)).toBe(false)
+    expect(store.isDesignBranchLocked(main.id)).toBe(false)
+    const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', completed.mergeCommit!], { cwd: destinationPath, encoding: 'utf8' }).trim().split(/\s+/)
+    expect(parents).toEqual([completed.mergeCommit, completed.destinationCommit, completed.sourceCommit])
+    expect(service.getDesign(main.id)?.activeRevisionId).toBe(completed.resultingRevisionId)
+    expect(service.switchDesignBranch(main.id, sourceBranchId).activeRevisionId).toBe(source.activeRevisionId)
+    store.close()
+  })
+
   it('materializes the captured project definitions and exposes first-prompt AI Agent instructions', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

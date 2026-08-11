@@ -11,6 +11,8 @@ export interface FocusedSourceLocation {
   readonly endLine: number
   readonly label: string
   readonly stableId: string | null
+  readonly domId: string | null
+  readonly structuralPath: string
   readonly excerpt: string
   readonly attributeStart: number | null
   readonly attributeEnd: number | null
@@ -45,7 +47,7 @@ function sourceLocationId(pagePath: string, startOffset: number, endOffset: numb
 export function buildFocusedSourceMap(html: string, pagePath: string): FocusedSourceLocation[] {
   const document = parse(html, { sourceCodeLocationInfo: true })
   const locations: FocusedSourceLocation[] = []
-  const visit = (node: Node) => {
+  const visit = (node: Node, structuralPath: readonly number[]) => {
     if (isElement(node)) {
       const location = node.sourceCodeLocation
       const startTag = location?.startTag
@@ -59,6 +61,8 @@ export function buildFocusedSourceMap(html: string, pagePath: string): FocusedSo
           endLine: Math.max(location.startLine, location.endLine - (html[location.endOffset - 1] === '\n' ? 1 : 0)),
           label: labelFor(node),
           stableId: stableId?.slice(0, 500) ?? null,
+          domId: attribute(node, 'id')?.slice(0, 500) ?? null,
+          structuralPath: structuralPath.map((index) => index.toString(36)).join('/'),
           excerpt: excerptFor(html, location.startOffset, location.endOffset),
           attributeStart: authoredAttribute?.startOffset ?? null,
           attributeEnd: authoredAttribute?.endOffset ?? null,
@@ -66,10 +70,16 @@ export function buildFocusedSourceMap(html: string, pagePath: string): FocusedSo
         })
       }
     }
-    if ('childNodes' in node) for (const child of node.childNodes) visit(child)
-    if ('content' in node) visit(node.content)
+    if ('childNodes' in node) {
+      let elementIndex = 0
+      for (const child of node.childNodes) {
+        const childPath = isElement(child) ? [...structuralPath, elementIndex++] : structuralPath
+        visit(child, childPath)
+      }
+    }
+    if ('content' in node) visit(node.content, structuralPath)
   }
-  visit(document)
+  visit(document, [])
   return locations
 }
 

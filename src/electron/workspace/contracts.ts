@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const revisionSchema = z.object({
   id: z.string().min(1),
+  ownerBranchId: z.string().min(1).max(100).nullable(),
   parentRevisionId: z.string().nullable(),
   prompt: z.string(),
   providerId: z.string().min(1),
@@ -12,6 +13,24 @@ export const revisionSchema = z.object({
   qualityCheckVersion: z.number().int().positive().nullable().optional(),
   createdAt: z.string().datetime(),
   thumbnailDataUrl: z.string().nullable(),
+})
+
+export const designBranchStatusSchema = z.enum(['ready', 'generating', 'queued', 'failed', 'combining', 'manual_resolution'])
+
+export const designBranchSchema = z.object({
+  id: z.string().min(1).max(100),
+  designId: z.string().min(1).max(100),
+  title: z.string().min(1).max(200),
+  gitRef: z.string().min(1).max(300),
+  worktreePath: z.string().min(1).max(2_000),
+  isMain: z.boolean(),
+  parentBranchId: z.string().min(1).max(100).nullable(),
+  forkRevisionId: z.string().min(1).max(100).nullable(),
+  forkMessageId: z.string().min(1).max(100).nullable(),
+  activeRevisionId: z.string().min(1).max(100).nullable(),
+  selectedRevisionId: z.string().min(1).max(100).nullable(),
+  status: designBranchStatusSchema,
+  createdAt: z.string().datetime(),
 })
 
 export const previewDiagnosticSchema = z.object({
@@ -175,6 +194,21 @@ export const attachmentSchema = z.object({
   status: z.enum(['available', 'changed', 'missing']),
 })
 
+export const branchContextReferenceSchema = z.object({
+  designId: z.string().min(1).max(100),
+  branchId: z.string().min(1).max(100),
+  title: z.string().min(1).max(200),
+  status: z.enum(['available', 'unavailable']).default('available'),
+})
+
+export const resolvedBranchContextSchema = branchContextReferenceSchema.extend({
+  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  conversationCutoffMessageId: z.string().min(1).max(100).nullable(),
+  conversation: z.string(),
+  summarized: z.boolean(),
+  disclosure: z.string().nullable(),
+})
+
 const repositoryRelativeHtmlPathSchema = z.string().min(1).max(2_000).refine((value) => !value.startsWith('/') && !value.includes('\\') && !value.split('/').includes('..') && /\.html?$/i.test(value), 'Use a repository-relative HTML path.')
 
 export const focusedTargetSchema = z.object({
@@ -186,6 +220,9 @@ export const focusedTargetSchema = z.object({
   endLine: z.number().int().positive(),
   label: z.string().min(1).max(200),
   stableId: z.string().max(500).nullable(),
+  domId: z.string().max(500).nullable().optional(),
+  structuralPath: z.string().max(4_000).nullable().optional(),
+  continuityId: z.string().max(100).nullable().optional(),
   excerpt: z.string().min(1).max(4_100),
   dynamicDescription: z.string().max(500).nullable(),
 }).refine((value) => value.endLine >= value.startLine, { message: 'Focused target line range is invalid.' })
@@ -219,11 +256,14 @@ export const locateFocusedTargetsRequestSchema = z.object({
 
 export const messageSchema = z.object({
   id: z.string().min(1),
+  ownerBranchId: z.string().min(1).max(100).nullable(),
   role: z.enum(['user', 'assistant', 'system']),
   text: z.string(),
   attachments: z.array(attachmentSchema).default([]),
+  branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
   focusedTarget: focusedTargetSchema.nullable().default(null),
   focusedFeedback: z.array(focusedFeedbackSchema).max(50).optional(),
+  replyToMessageId: z.string().min(1).max(100).nullable().default(null),
   createdAt: z.string().datetime(),
 })
 
@@ -339,11 +379,14 @@ export const generationJobModeSchema = z.enum(['fresh', 'continue'])
 export const generationJobSchema = z.object({
   id: z.string().min(1),
   designId: z.string().min(1),
+  branchId: z.string().min(1).max(100),
   prompt: z.string(),
   providerId: z.enum(['mock', 'codex', 'claude']),
   modelId: z.string().min(1),
   effort: z.string().min(1).nullable().optional(),
   attachments: z.array(attachmentSchema).default([]),
+  branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
+  resolvedBranchContexts: z.array(resolvedBranchContextSchema).max(20).default([]),
   mode: generationJobModeSchema.default('fresh'),
   providerSessionId: z.string().min(1).nullable().default(null),
   definitionTargetVersion: z.number().int().positive().nullable().default(null),
@@ -364,6 +407,10 @@ export const designSchema = z.object({
   title: z.string().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  activeBranchId: z.string().min(1).max(100),
+  separateBranchMode: z.boolean().default(false),
+  replyMessageId: z.string().min(1).max(100).nullable().default(null),
+  branches: z.array(designBranchSchema).min(1),
   activeRevisionId: z.string().nullable(),
   selectedRevisionId: z.string().nullable(),
   definitionVersion: z.number().int().positive().nullable().optional(),
@@ -373,6 +420,7 @@ export const designSchema = z.object({
   definitionApplicationError: z.string().nullable().optional(),
   draft: z.string(),
   draftAttachments: z.array(attachmentSchema),
+  draftBranchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
   thumbnailDataUrl: z.string().nullable(),
   queuePaused: z.boolean(),
   titlePending: z.boolean().default(false),
@@ -409,6 +457,29 @@ export const designIdRequestSchema = z.object({
   designId: z.string().min(1).max(100),
 })
 
+export const branchIdRequestSchema = designIdRequestSchema.extend({
+  branchId: z.string().min(1).max(100),
+})
+
+export const createDesignBranchRequestSchema = designIdRequestSchema.extend({
+  title: z.string().trim().min(1).max(80),
+  baseRevisionId: z.string().min(1).max(100).nullable().optional(),
+  forkMessageId: z.string().min(1).max(100).nullable().optional(),
+})
+
+export const removeDesignBranchRequestSchema = branchIdRequestSchema.extend({
+  force: z.boolean().default(false),
+})
+
+export const forkDesignMessageRequestSchema = designIdRequestSchema.extend({
+  messageId: z.string().min(1).max(100),
+  selections: z.array(z.object({
+    providerId: z.enum(['mock', 'codex', 'claude']),
+    modelId: z.string().trim().min(1).max(200),
+    effort: z.string().trim().min(1).max(100).nullable(),
+  })).min(1).max(12),
+})
+
 export const renameDesignRequestSchema = designIdRequestSchema.extend({
   title: z.string().trim().min(1).max(200),
 })
@@ -417,13 +488,25 @@ export const generationJobIdRequestSchema = z.object({
   jobId: z.string().uuid(),
 })
 
+export const generationJobBranchContextRequestSchema = generationJobIdRequestSchema.extend({
+  branchId: z.string().min(1).max(100),
+})
+
 export const generateRequestSchema = designIdRequestSchema.extend({
   prompt: z.string().trim().min(1).max(100_000),
   providerId: z.enum(['mock', 'codex', 'claude']).default('mock'),
   modelId: z.string().trim().min(1).max(200).default('mock-v1'),
   effort: z.string().trim().min(1).max(100).nullable().optional(),
   attachments: z.array(attachmentSchema).max(100).default([]),
+  branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
   focusedTarget: focusedTargetSchema.nullable().optional(),
+  separateBranch: z.boolean().default(false),
+  replyMessageId: z.string().min(1).max(100).nullable().default(null),
+})
+
+export const saveBranchComposerStateRequestSchema = designIdRequestSchema.extend({
+  separateBranchMode: z.boolean(),
+  replyMessageId: z.string().min(1).max(100).nullable(),
 })
 
 export const queueFocusedFeedbackRequestSchema = designIdRequestSchema.extend({
@@ -464,10 +547,90 @@ export const revisionComparisonSchema = z.object({
   deletions: z.number().int().nonnegative(),
 })
 
+const branchComparisonSideSchema = z.object({
+  branchId: z.string().min(1).max(100),
+  title: z.string().min(1).max(200),
+  revisionId: z.string().min(1).max(100),
+  pages: z.array(designPageSchema),
+  entryPagePath: z.string().min(1).nullable(),
+})
+
+export const branchComparisonSchema = z.object({
+  comparisonId: z.string().uuid(),
+  sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  destinationCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  stale: z.boolean(),
+  source: branchComparisonSideSchema,
+  destination: branchComparisonSideSchema,
+  changes: revisionComparisonSchema,
+})
+
+export const branchComparisonSummarySchema = z.object({
+  id: z.string().uuid(),
+  designId: z.string().min(1).max(100),
+  sourceBranchId: z.string().min(1).max(100).nullable(),
+  sourceBranchTitle: z.string().min(1).max(200),
+  destinationBranchId: z.string().min(1).max(100).nullable(),
+  destinationBranchTitle: z.string().min(1).max(200),
+  sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  destinationCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  summary: z.string().min(1),
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().min(1).max(200),
+  effort: z.string().min(1).max(100).nullable(),
+  stale: z.boolean(),
+  createdAt: z.string().datetime(),
+})
+
+export const combinationAttemptSchema = z.object({
+  id: z.string().uuid(),
+  designId: z.string().min(1).max(100),
+  sourceBranchId: z.string().min(1).max(100).nullable(),
+  sourceBranchTitle: z.string().min(1).max(200),
+  destinationBranchId: z.string().min(1).max(100).nullable(),
+  destinationBranchTitle: z.string().min(1).max(200),
+  sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  destinationCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  prompt: z.string().min(1).max(100_000),
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().min(1).max(200),
+  effort: z.string().min(1).max(100).nullable(),
+  state: z.enum(['applying', 'manual_resolution', 'completed', 'failed', 'aborted']),
+  response: z.string().nullable(),
+  fallbackPath: z.enum(['none', 'automatic_merge', 'manual_resolution']).nullable(),
+  diagnostic: z.string().nullable(),
+  resultingRevisionId: z.string().min(1).max(100).nullable(),
+  mergeCommit: z.string().regex(/^[0-9a-f]{40}$/).nullable(),
+  createdAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+})
+
+export const compareDesignBranchesRequestSchema = designIdRequestSchema.extend({
+  sourceBranchId: z.string().min(1).max(100),
+  destinationBranchId: z.string().min(1).max(100),
+}).refine((request) => request.sourceBranchId !== request.destinationBranchId, 'Choose two different branches.')
+
 export const saveDraftRequestSchema = designIdRequestSchema.extend({
   draft: z.string().max(100_000),
   attachments: z.array(attachmentSchema).max(100).default([]),
+  branchContexts: z.array(branchContextReferenceSchema).max(20).default([]),
 })
+
+export const combineDesignBranchesRequestSchema = designIdRequestSchema.extend({
+  comparisonId: z.string().uuid(),
+  prompt: z.string().trim().max(100_000),
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().trim().min(1).max(200),
+  effort: z.string().trim().min(1).max(100).nullable(),
+})
+
+export const summarizeDesignBranchesRequestSchema = compareDesignBranchesRequestSchema.extend({
+  providerId: z.enum(['mock', 'codex', 'claude']),
+  modelId: z.string().trim().min(1).max(200),
+  effort: z.string().trim().min(1).max(100).nullable(),
+})
+
+export const combinationAttemptRequestSchema = designIdRequestSchema.extend({ attemptId: z.string().uuid() })
 
 export const saveLayoutRequestSchema = designIdRequestSchema.extend({
   layout: layoutSchema,
@@ -566,7 +729,10 @@ export type RegisterLinkedProjectRequest = z.infer<typeof registerLinkedProjectR
 export type TrashItem = z.infer<typeof trashItemSchema>
 export type TrashItemRequest = z.infer<typeof trashItemRequestSchema>
 export type Design = z.infer<typeof designSchema>
+export type DesignBranch = z.infer<typeof designBranchSchema>
 export type Attachment = z.infer<typeof attachmentSchema>
+export type BranchContextReference = z.infer<typeof branchContextReferenceSchema>
+export type ResolvedBranchContext = z.infer<typeof resolvedBranchContextSchema>
 export type FocusedTarget = z.infer<typeof focusedTargetSchema>
 export type FocusedFeedback = z.infer<typeof focusedFeedbackSchema>
 export type Revision = z.infer<typeof revisionSchema> & { diagnostics: PreviewDiagnostic[] }
@@ -581,6 +747,9 @@ export type SubmitFocusedFeedbackBatchRequest = z.infer<typeof submitFocusedFeed
 export type SelectRevisionRequest = z.infer<typeof selectRevisionRequestSchema>
 export type CompareRevisionsRequest = z.infer<typeof compareRevisionsRequestSchema>
 export type RevisionComparison = z.infer<typeof revisionComparisonSchema>
+export type BranchComparison = z.infer<typeof branchComparisonSchema>
+export type BranchComparisonSummary = z.infer<typeof branchComparisonSummarySchema>
+export type CombinationAttempt = z.infer<typeof combinationAttemptSchema>
 export type RenameDesignRequest = z.infer<typeof renameDesignRequestSchema>
 export type SaveDraftRequest = z.infer<typeof saveDraftRequestSchema>
 export type Layout = z.infer<typeof layoutSchema>
@@ -610,6 +779,7 @@ export type SavePageMetadataRequest = z.infer<typeof savePageMetadataRequestSche
 
 export interface GenerationActivity {
   readonly designId: string
+  readonly branchId?: string
   readonly stage: 'queued' | 'generating' | 'compiling' | 'validating' | 'repairing' | 'saving' | 'complete' | 'failed' | 'cancelled' | 'interrupted'
   readonly detail: string
 }

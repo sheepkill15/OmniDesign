@@ -22,10 +22,19 @@ const design: OmniDesignDocument = {
   title: 'Calm dashboard',
   createdAt: '2026-07-20T10:00:00.000Z',
   updatedAt: '2026-07-20T10:00:00.000Z',
+  activeBranchId: 'design-1',
+  separateBranchMode: false,
+  replyMessageId: null,
+  branches: [{
+    id: 'design-1', designId: 'design-1', title: 'Main', gitRef: 'refs/heads/main', worktreePath: 'repository',
+    isMain: true, parentBranchId: null, forkRevisionId: null, forkMessageId: null,
+    activeRevisionId: 'revision-1', selectedRevisionId: 'revision-1', status: 'ready', createdAt: '2026-07-20T10:00:00.000Z',
+  }],
   activeRevisionId: 'revision-1',
   selectedRevisionId: 'revision-1',
   draft: '',
   draftAttachments: [],
+  draftBranchContexts: [],
   thumbnailDataUrl: null,
   queuePaused: false,
   titlePending: false,
@@ -36,10 +45,10 @@ const design: OmniDesignDocument = {
   lastSelection: { providerId: 'mock', modelId: 'mock-v1', effort: null },
   generationSteps: [],
   layout: { conversationWidth: 43, mode: 'split', previewViewMode: 'focused', previewFit: 'artboard', previewDevice: 'desktop', previewCustomWidth: 1280, previewCustomHeight: 800, previewPage: null, previewZoom: 0.75, previewPanX: 0, previewPanY: 0 },
-  messages: [{ id: 'message-1', role: 'user', text: 'A calm dashboard', createdAt: '2026-07-20T10:00:00.000Z' }],
+  messages: [{ id: 'message-1', ownerBranchId: 'design-1', role: 'user', text: 'A calm dashboard', replyToMessageId: null, createdAt: '2026-07-20T10:00:00.000Z' }],
   invalidCandidates: [],
   generationJobs: [],
-  revisions: [{ id: 'revision-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:00:02.000Z', qualityCheckVersion: 1, createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
+  revisions: [{ id: 'revision-1', ownerBranchId: 'design-1', parentRevisionId: null, prompt: 'A calm dashboard', providerId: 'mock', modelId: 'mock-v1', qualityCheckedAt: '2026-07-20T10:00:02.000Z', qualityCheckVersion: 1, createdAt: '2026-07-20T10:00:00.000Z', thumbnailDataUrl: null, diagnostics: [] }],
 }
 
 const engagedDesign: OmniDesignDocument = {
@@ -57,12 +66,22 @@ const engagedDesign: OmniDesignDocument = {
   ],
 }
 
+const linkedDesign: OmniDesignDocument = {
+  ...design,
+  sourceProjectPath: 'C:\\Projects\\Calm',
+}
+
+const linkedEngagedDesign: OmniDesignDocument = {
+  ...engagedDesign,
+  sourceProjectPath: 'C:\\Projects\\Calm',
+}
+
 function projectFromDesign(candidate: OmniDesignDocument): ProjectSummary {
   return {
     id: candidate.projectId,
     name: candidate.projectName,
-    kind: 'standalone',
-    sourceProjectPath: null,
+    kind: candidate.sourceProjectPath ? 'linked' : 'standalone',
+    sourceProjectPath: candidate.sourceProjectPath,
     sourceAvailable: true,
     designCount: 1,
     createdAt: candidate.createdAt,
@@ -110,6 +129,12 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       }]),
       openSetup: vi.fn().mockResolvedValue(undefined),
     },
+    updates: {
+      getState: vi.fn().mockResolvedValue({ kind: 'disabled' }),
+      install: vi.fn().mockResolvedValue({ kind: 'ready', version: '0.1.0', blockedReason: null }),
+      retry: vi.fn().mockResolvedValue({ kind: 'checking' }),
+      onState: vi.fn().mockReturnValue(() => undefined),
+    },
     workspace: {
       list: vi.fn().mockResolvedValue(initialDesigns),
       listProjects: vi.fn().mockResolvedValue(projects),
@@ -146,6 +171,11 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       restoreTrash: vi.fn().mockResolvedValue(undefined),
       purgeTrash: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockResolvedValue(createdDesign),
+      getBranch: vi.fn(async (_designId: string, branchId: string) => ({ ...createdDesign, activeBranchId: branchId })),
+      createBranch: vi.fn().mockResolvedValue(createdDesign),
+      switchBranch: vi.fn().mockResolvedValue(createdDesign),
+      removeBranch: vi.fn().mockResolvedValue(createdDesign.branches),
+      forkMessage: vi.fn().mockResolvedValue([createdDesign]),
       renameDesign: vi.fn(async (designId: string, title: string) => {
         const candidate = initialDesigns.find((item) => item.id === designId) ?? createdDesign
         return { ...candidate, title, ...(candidate.sourceProjectPath ? {} : { projectName: title }) }
@@ -153,6 +183,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       renameProject: vi.fn(async (projectId: string, name: string) => ({ ...(projects.find((project) => project.id === projectId) ?? projectFromDesign(createdDesign)), name })),
       create: vi.fn().mockResolvedValue(createdDesign),
       generate: vi.fn().mockResolvedValue(design),
+      saveBranchComposerState: vi.fn().mockResolvedValue(undefined),
       listFocusedFeedback: vi.fn().mockResolvedValue([]),
       queueFocusedFeedback: vi.fn().mockResolvedValue([]),
       removeFocusedFeedback: vi.fn().mockResolvedValue([]),
@@ -163,10 +194,19 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
       cancelGeneration: vi.fn().mockResolvedValue(undefined),
       removeGeneration: vi.fn().mockResolvedValue(undefined),
       retryGeneration: vi.fn().mockResolvedValue(undefined),
+      removeGenerationBranchContext: vi.fn().mockResolvedValue(undefined),
       continueGeneration: vi.fn().mockResolvedValue(undefined),
       resumeGenerationQueue: vi.fn().mockResolvedValue(design),
       selectRevision: vi.fn().mockResolvedValue(design),
       compareRevisions: vi.fn().mockResolvedValue({ baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [], additions: 0, deletions: 0 }),
+      compareBranches: vi.fn(),
+      summarizeBranches: vi.fn(),
+      listBranchSummaries: vi.fn().mockResolvedValue([]),
+      combineBranches: vi.fn(),
+      finishCombination: vi.fn(),
+      abortCombination: vi.fn(),
+      openCombinationEditor: vi.fn().mockResolvedValue(undefined),
+      listCombinations: vi.fn().mockResolvedValue([]),
       restoreRevision: vi.fn().mockResolvedValue(design),
       saveDraft: vi.fn().mockResolvedValue(undefined),
       saveLayout: vi.fn().mockResolvedValue(undefined),
@@ -180,6 +220,7 @@ function installBridge(initialDesigns: OmniDesignDocument[] = [], createdDesign:
     },
     preview: {
       register: vi.fn().mockResolvedValue({ token: 'token-1', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' }),
+      registerCombination: vi.fn().mockResolvedValue({ token: 'combination-token', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' }),
       resolveFocusedTarget: vi.fn().mockResolvedValue(null),
       locateFocusedTargets: vi.fn(async (request: { targets: readonly { id: string; target: FocusedTarget }[] }) => request.targets.flatMap(({ id, target }) => target.locationId ? [{ id, locationId: target.locationId }] : [])),
       reportDiagnostic: vi.fn().mockResolvedValue(undefined),
@@ -228,6 +269,24 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('region', { name: 'Create a design' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Continue designing' })).toBeInTheDocument()
     expect(screen.getByText('Your first design starts above')).toBeInTheDocument()
+  })
+
+  it('keeps update progress, blocked ready state, and retry actions compact in the sidebar', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.updates.getState).mockResolvedValue({ kind: 'downloading', percent: 42 })
+    render(<App />)
+
+    const sidebar = await screen.findByRole('complementary', { name: 'Primary navigation' })
+    expect(await within(sidebar).findByRole('progressbar', { name: 'Downloading OmniDesign update' })).toHaveAttribute('aria-valuenow', '42')
+    expect(within(sidebar).getByText('42%')).toBeInTheDocument()
+    const onState = vi.mocked(bridge.updates.onState).mock.calls[0]![0]
+    act(() => onState({ kind: 'ready', version: '0.1.0', blockedReason: 'A branch combination is still running.' }))
+    expect(within(sidebar).getByText('A branch combination is still running.')).toBeInTheDocument()
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Update' }))
+    await waitFor(() => expect(bridge.updates.install).toHaveBeenCalledTimes(1))
+    act(() => onState({ kind: 'failed', message: 'offline' }))
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(bridge.updates.retry).toHaveBeenCalledTimes(1))
   })
 
   it('keeps the development provider available when an installed provider has no selectable models', async () => {
@@ -854,14 +913,14 @@ describe('Phase 1 walking skeleton UI', () => {
 
     expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: /Set up design definitions/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Definitions' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Definitions' })).not.toBeInTheDocument()
   })
 
   it('offers design-definition setup after the user has iterated and can hide the prompt permanently', async () => {
-    const bridge = installBridge([engagedDesign], engagedDesign)
-    const project = { ...projectFromDesign(engagedDesign), currentDefinitionVersion: null }
+    const bridge = installBridge([linkedEngagedDesign], linkedEngagedDesign)
+    const project = { ...projectFromDesign(linkedEngagedDesign), currentDefinitionVersion: null }
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(engagedDesign.id)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedEngagedDesign.id)
     render(<App />)
 
     const dialog = await screen.findByRole('dialog', { name: 'Set up design definitions for Calm dashboard?' })
@@ -875,10 +934,10 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('offers proposal, manual, and continue setup paths and starts the chosen proposal for review', async () => {
-    const bridge = installBridge([engagedDesign], engagedDesign)
-    const project = { ...projectFromDesign(engagedDesign), currentDefinitionVersion: null }
+    const bridge = installBridge([linkedEngagedDesign], linkedEngagedDesign)
+    const project = { ...projectFromDesign(linkedEngagedDesign), currentDefinitionVersion: null }
     vi.mocked(bridge.workspace.listProjects).mockResolvedValue([project])
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(engagedDesign.id)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedEngagedDesign.id)
     vi.mocked(bridge.settings.getTheme).mockResolvedValue('light')
     render(<App />)
 
@@ -901,8 +960,8 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('edits and saves structured project definitions from a design workspace', async () => {
-    const bridge = installBridge([design], design)
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    const bridge = installBridge([linkedDesign], linkedDesign)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedDesign.id)
     vi.mocked(bridge.workspace.getProjectDesignDefinitions).mockResolvedValue({ current: null, promptSuppressed: false })
     render(<App />)
 
@@ -925,8 +984,8 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('shows field-level recovery for duplicate names and unsafe CSS values before saving definitions', async () => {
-    const bridge = installBridge([design], design)
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    const bridge = installBridge([linkedDesign], linkedDesign)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedDesign.id)
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
@@ -951,8 +1010,8 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('loads an AI-generated definition proposal for review without saving it', async () => {
-    const bridge = installBridge([design], design)
-    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(design.id)
+    const bridge = installBridge([linkedDesign], linkedDesign)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(linkedDesign.id)
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
@@ -965,7 +1024,7 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('persists a per-design definition decision and offers applying the version to all designs', async () => {
-    const pending = { ...design, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
+    const pending = { ...linkedDesign, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
     const bridge = installBridge([pending], pending)
     vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(pending.id)
     render(<App />)
@@ -978,7 +1037,7 @@ describe('Phase 1 walking skeleton UI', () => {
   })
 
   it('reports recoverable partial apply-to-all results without hiding successful designs', async () => {
-    const pending = { ...design, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
+    const pending = { ...linkedDesign, definitionVersion: 1, pendingDefinitionVersion: 2, definitionApplicationState: 'pending' as const }
     const sibling = { ...pending, id: 'design-2', title: 'Settings' }
     const bridge = installBridge([pending, sibling], pending)
     vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(pending.id)
@@ -1393,6 +1452,212 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
   })
 
+  it('creates a prompt-led separate branch and restores its branch context', async () => {
+    const branchId = 'branch-2'
+    const branchedDesign: OmniDesignDocument = {
+      ...design,
+      activeBranchId: branchId,
+      separateBranchMode: false,
+      branches: [
+        ...design.branches,
+        { id: branchId, designId: design.id, title: 'Warmer hierarchy', gitRef: `refs/heads/od/${branchId}`, worktreePath: `branches/${branchId}/worktree`, isMain: false, parentBranchId: design.id, forkRevisionId: design.activeRevisionId, forkMessageId: null, activeRevisionId: design.activeRevisionId, selectedRevisionId: design.selectedRevisionId, status: 'queued', createdAt: '2026-07-20T10:06:00.000Z' },
+      ],
+    }
+    const bridge = installBridge()
+    let finishBranchCreation: ((value: OmniDesignDocument) => void) | undefined
+    const branchCreation = new Promise<OmniDesignDocument>((resolve) => { finishBranchCreation = resolve })
+    vi.mocked(bridge.workspace.generate).mockImplementationOnce(async () => branchCreation)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    const followUp = await screen.findByRole('textbox', { name: 'Request a design change' })
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: Main' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /New branch/ }))
+    expect(screen.getByText('This change will happen in a separate branch')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.saveBranchComposerState).toHaveBeenCalledWith('design-1', true, null))
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: New branch' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Main/ }))
+    expect(screen.queryByText('This change will happen in a separate branch')).not.toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.saveBranchComposerState).toHaveBeenCalledWith('design-1', false, null))
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: Main' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /New branch/ }))
+
+    fireEvent.change(followUp, { target: { value: 'Try a warmer hierarchy' } })
+    fireEvent.keyDown(followUp, { key: 'Enter' })
+    expect(screen.getByText('Creating a separate branch…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Branch: Creating branch' })).toBeDisabled()
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith('design-1', 'Try a warmer hierarchy', 'mock', 'mock-v1', undefined, [], null, true, null))
+    await act(async () => finishBranchCreation?.(branchedDesign))
+    const branchSelector = await screen.findByRole('button', { name: 'Branch: Warmer hierarchy' })
+    fireEvent.click(branchSelector)
+    expect(await screen.findByRole('menuitem', { name: /Warmer hierarchy/ })).toHaveTextContent('Queued')
+  })
+
+  it('replies to a precise message and carries the reference into generation', async () => {
+    const bridge = installBridge()
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reply to your message' }))
+    expect(screen.getByText('Replying to your message')).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.saveBranchComposerState).toHaveBeenCalledWith('design-1', false, 'message-1'))
+    const followUp = screen.getByRole('textbox', { name: 'Request a design change' })
+    fireEvent.change(followUp, { target: { value: 'Keep this idea but simplify it' } })
+    fireEvent.keyDown(followUp, { key: 'Enter' })
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith('design-1', 'Keep this idea but simplify it', 'mock', 'mock-v1', undefined, [], null, false, 'message-1'))
+  })
+
+  it('copies messages and forks a user prompt with selected provider configurations', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const bridge = installBridge()
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy your message' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('A calm dashboard'))
+    fireEvent.click(screen.getByRole('button', { name: 'Fork this prompt' }))
+    expect(await screen.findByRole('dialog', { name: 'Fork prompt' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Fork into 1 branch' }))
+    await waitFor(() => expect(bridge.workspace.forkMessage).toHaveBeenCalledWith('design-1', 'message-1', [{ providerId: 'mock', modelId: 'mock-v1', effort: null }]))
+  })
+
+  it('reads user and assistant messages aloud and lets the user stop playback', async () => {
+    const speak = vi.fn()
+    const cancel = vi.fn()
+    class Utterance {
+      readonly text: string
+      onend: (() => void) | null = null
+      onerror: (() => void) | null = null
+      constructor(text: string) { this.text = text }
+    }
+    Object.defineProperty(window, 'speechSynthesis', { value: { speak, cancel }, configurable: true })
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', { value: Utterance, configurable: true })
+    const spokenDesign = {
+      ...design,
+      messages: [
+        design.messages[0]!,
+        { id: 'message-2', ownerBranchId: 'design-1', role: 'assistant' as const, text: 'The calmer dashboard is ready.', replyToMessageId: null, createdAt: '2026-07-20T10:01:00.000Z' },
+      ],
+    }
+    const bridge = installBridge([spokenDesign], spokenDesign)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(spokenDesign.id)
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Read aloud your message' }))
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'A calm dashboard' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop reading your message' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Read aloud OmniDesign message' }))
+    expect(speak).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'The calmer dashboard is ready.' }))
+    expect(cancel).toHaveBeenCalledTimes(3)
+  })
+
+  it('attaches several branch contexts, removes one, and submits the remaining product reference', async () => {
+    const firstBranchId = 'branch-2'
+    const secondBranchId = 'branch-3'
+    const branchedDesign: OmniDesignDocument = {
+      ...design,
+      branches: [
+        ...design.branches,
+        { id: firstBranchId, designId: design.id, title: 'Editorial direction', gitRef: `refs/heads/od/${firstBranchId}`, worktreePath: `branches/${firstBranchId}/worktree`, isMain: false, parentBranchId: design.id, forkRevisionId: design.activeRevisionId, forkMessageId: null, activeRevisionId: 'revision-2', selectedRevisionId: 'revision-2', status: 'ready', createdAt: '2026-07-20T10:06:00.000Z' },
+        { id: secondBranchId, designId: design.id, title: 'Compact direction', gitRef: `refs/heads/od/${secondBranchId}`, worktreePath: `branches/${secondBranchId}/worktree`, isMain: false, parentBranchId: design.id, forkRevisionId: design.activeRevisionId, forkMessageId: null, activeRevisionId: 'revision-3', selectedRevisionId: 'revision-3', status: 'ready', createdAt: '2026-07-20T10:07:00.000Z' },
+      ],
+    }
+    const bridge = installBridge([], branchedDesign)
+    render(<App />)
+    const initialPrompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(initialPrompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(initialPrompt, { key: 'Enter' })
+    await screen.findByRole('region', { name: 'Generated design preview' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files or folders' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Attach branches…' }))
+    const picker = await screen.findByRole('dialog', { name: 'Attach branch context' })
+    fireEvent.click(within(picker).getByRole('checkbox', { name: /Editorial direction/ }))
+    fireEvent.click(within(picker).getByRole('checkbox', { name: /Compact direction/ }))
+    fireEvent.click(within(picker).getByRole('button', { name: 'Done' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Compact direction branch context' }))
+
+    const prompt = screen.getByRole('textbox', { name: 'Request a design change' })
+    fireEvent.change(prompt, { target: { value: 'Borrow the strongest typography' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    await waitFor(() => expect(bridge.workspace.generate).toHaveBeenCalledWith('design-1', 'Borrow the strongest typography', 'mock', 'mock-v1', undefined, [], null, false, null, [{ designId: 'design-1', branchId: firstBranchId, title: 'Editorial direction', status: 'available' }]))
+  })
+
+  it('compares two branch heads in isolated previews and identifies unmatched pages', async () => {
+    const alternativeId = 'branch-2'
+    const branchedDesign: OmniDesignDocument = {
+      ...design,
+      branches: [...design.branches, { id: alternativeId, designId: design.id, title: 'Editorial direction', gitRef: `refs/heads/od/${alternativeId}`, worktreePath: `branches/${alternativeId}/worktree`, isMain: false, parentBranchId: design.id, forkRevisionId: design.activeRevisionId, forkMessageId: null, activeRevisionId: 'revision-2', selectedRevisionId: 'revision-2', status: 'ready', createdAt: '2026-07-20T10:06:00.000Z' }],
+    }
+    const bridge = installBridge([], branchedDesign)
+    vi.mocked(bridge.workspace.compareBranches).mockResolvedValue({
+      comparisonId: '00000000-0000-4000-8000-000000000010', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), stale: false,
+      source: { branchId: alternativeId, title: 'Editorial direction', revisionId: 'revision-2', pages: [{ path: 'index.html', title: 'Home', order: 0, isHome: true }, { path: 'about.html', title: 'About', order: 1, isHome: false }], entryPagePath: 'index.html' },
+      destination: { branchId: design.id, title: 'Main', revisionId: 'revision-1', pages: [{ path: 'index.html', title: 'Home', order: 0, isHome: true }], entryPagePath: 'index.html' },
+      changes: { baseRevisionId: 'revision-1', targetRevisionId: 'revision-2', files: [{ path: 'index.html', status: 'modified', additions: 4, deletions: 1 }], additions: 4, deletions: 1 },
+    })
+    const manualAttempt: CombinationAttempt = { id: '00000000-0000-4000-8000-000000000001', designId: design.id, sourceBranchId: alternativeId, sourceBranchTitle: 'Editorial direction', destinationBranchId: design.id, destinationBranchTitle: 'Main', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), prompt: 'Keep Main and adopt the editorial typography', providerId: 'mock', modelId: 'mock-v1', effort: null, state: 'manual_resolution', response: null, fallbackPath: 'automatic_merge', diagnostic: 'Fallback merge is ready.', resultingRevisionId: null, mergeCommit: null, createdAt: '2026-07-20T10:08:00.000Z', completedAt: null }
+    let finishCombineRequest: ((attempt: CombinationAttempt) => void) | undefined
+    vi.mocked(bridge.workspace.combineBranches).mockImplementationOnce(async () => new Promise<CombinationAttempt>((resolve) => { finishCombineRequest = resolve }))
+    vi.mocked(bridge.workspace.finishCombination).mockResolvedValue({ ...manualAttempt, state: 'completed', fallbackPath: 'automatic_merge', diagnostic: null, resultingRevisionId: 'revision-3', mergeCommit: 'c'.repeat(40), completedAt: '2026-07-20T10:09:00.000Z' })
+    vi.mocked(bridge.workspace.summarizeBranches).mockResolvedValue({ id: '00000000-0000-4000-8000-000000000002', designId: design.id, sourceBranchId: alternativeId, sourceBranchTitle: 'Editorial direction', destinationBranchId: design.id, destinationBranchTitle: 'Main', sourceCommit: 'b'.repeat(40), destinationCommit: 'a'.repeat(40), summary: 'Editorial direction adds a denser typographic hierarchy while Main stays quieter.', providerId: 'mock', modelId: 'mock-v1', effort: null, stale: false, createdAt: '2026-07-20T10:07:00.000Z' })
+    render(<App />)
+    const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
+    fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Branch: Main' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage branches' }))
+    const initialManager = await screen.findByRole('dialog', { name: 'Manage branches' })
+    expect(within(initialManager).getByText('Current')).toHaveClass('branch-current-label')
+    const modalOverlay = document.querySelector('.modal-overlay')!
+    fireEvent.pointerDown(modalOverlay)
+    fireEvent.pointerUp(modalOverlay)
+    fireEvent.click(modalOverlay)
+    expect(screen.queryByRole('dialog', { name: 'Manage branches' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: Main' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage branches' }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Manage branches' })).getByRole('button', { name: 'Close Manage branches' }))
+    expect(screen.queryByRole('dialog', { name: 'Manage branches' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: Main' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage branches' }))
+    const editorialBranch = screen.getByText('Editorial direction').closest('article')!
+    fireEvent.click(within(editorialBranch).getByRole('button', { name: 'Show revisions' }))
+    expect(await within(editorialBranch).findByRole('list', { name: 'Editorial direction revisions' })).toBeInTheDocument()
+    expect(bridge.workspace.getBranch).toHaveBeenCalledWith('design-1', alternativeId)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Editorial direction for comparison' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Compare branches' }))
+    expect(await screen.findByRole('dialog', { name: 'Compare branches' })).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.compareBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1'))
+    expect(screen.getByTitle('Main · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
+    expect(screen.getByTitle('Editorial direction · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
+    fireEvent.click(screen.getByRole('tab', { name: 'About' }))
+    expect(screen.getByText('This page exists only in the other branch')).toBeInTheDocument()
+    expect(screen.getByTitle('Editorial direction · about.html')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Summarize differences' }))
+    expect(await screen.findByText(/Editorial direction adds a denser typographic hierarchy/)).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.summarizeBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
+    fireEvent.click(screen.getByRole('button', { name: 'Combine into destination' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Combining Editorial direction into Main')
+    expect(screen.getByRole('textbox', { name: 'Combination prompt' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled()
+    await act(async () => finishCombineRequest?.(manualAttempt))
+    expect(await screen.findByRole('dialog', { name: 'Combination needs review' })).toBeInTheDocument()
+    await waitFor(() => expect(bridge.workspace.combineBranches).toHaveBeenCalledWith('design-1', '00000000-0000-4000-8000-000000000010', '', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
+    expect(await screen.findByTitle('Unresolved destination preview')).toHaveAttribute('sandbox', 'allow-scripts')
+    fireEvent.click(screen.getByRole('button', { name: 'Check resolution' }))
+    const removeSource = await screen.findByRole('button', { name: 'Remove source branch' })
+    expect(removeSource).toHaveClass('clone-confirm-action')
+    expect(removeSource).not.toHaveClass('danger-action')
+  })
+
   it('does not carry a popped preview into the next design while its docked layout loads', async () => {
     const secondDesign: OmniDesignDocument = {
       ...design,
@@ -1462,6 +1727,46 @@ describe('Phase 1 walking skeleton UI', () => {
 
     await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({
       previewPage: 'about.html', previewZoom: 1.35, previewPanX: 84, previewPanY: -36,
+    })))
+  })
+
+  it('keeps canvas frames inert while routing wheel gestures to canvas zoom or Shift-scroll', async () => {
+    const restored: OmniDesignDocument = {
+      ...design,
+      layout: { ...design.layout, previewViewMode: 'canvas', previewZoom: 1.25, previewPanX: 84, previewPanY: -36 },
+    }
+    const bridge = installBridge([restored], restored)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(restored.id)
+    vi.mocked(bridge.workspace.get).mockResolvedValue(restored)
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
+    const frame = await waitFor(() => {
+      const candidate = document.querySelector('.preview-tile-frame iframe') as HTMLIFrameElement | null
+      expect(candidate).toBeTruthy()
+      return candidate!
+    })
+    expect(frame).toHaveAttribute('inert')
+    expect(frame).toHaveAttribute('tabindex', '-1')
+    expect(frame).toHaveAttribute('aria-hidden', 'true')
+    expect(await screen.findByText('Scroll to zoom · Shift + scroll page')).toBeInTheDocument()
+
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalled())
+    vi.mocked(bridge.workspace.saveLayout).mockClear()
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage')
+    const frameSurface = frame.closest('.preview-tile-frame')!
+
+    fireEvent.wheel(frameSurface, { shiftKey: true, deltaX: 0, deltaY: 100, clientX: 25, clientY: 50 })
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'omnidesign-scroll', deltaX: 0, deltaY: 80, x: 20, y: 40,
+    }), '*')
+    expect(bridge.workspace.saveLayout).not.toHaveBeenCalled()
+
+    postMessage.mockClear()
+    fireEvent.wheel(frameSurface, { deltaX: 12, deltaY: 100 })
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'omnidesign-scroll' }), '*')
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({
+      previewZoom: 1.1,
     })))
   })
 
@@ -1664,10 +1969,18 @@ describe('Phase 1 walking skeleton UI', () => {
   it('keeps submitted focused edits grouped as a historical thread on their element', async () => {
     const historicalTarget: FocusedTarget = {
       designId: 'design-1', revisionId: 'revision-before-edit', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 12, endLine: 16,
-      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+      label: '<h1.hero-title>', stableId: null, continuityId: 'focused-6c81c254-bf06-4a04-8b3c-4c39779b2466', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const fixedTarget: FocusedTarget = {
+      ...historicalTarget,
+      revisionId: 'revision-after-edit',
+      label: '<h1.hero-title.quiet>',
+      stableId: historicalTarget.continuityId!,
+      continuityId: null,
+      excerpt: '<h1 data-od-id="focused-6c81c254-bf06-4a04-8b3c-4c39779b2466">Move calmly</h1>',
     }
     const submittedFeedback: FocusedFeedback = {
-      id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885', comment: 'Reduce the heading width.', target: historicalTarget, createdAt: '2026-07-27T10:01:00.000Z',
+      id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885', comment: 'Reduce the heading width.', target: fixedTarget, createdAt: '2026-07-27T10:01:00.000Z',
     }
     const pendingFeedback: FocusedFeedback = {
       id: 'a91b71b4-8a42-4fb8-b93e-bf398c19329d', comment: 'Try a softer weight next.', target: historicalTarget, createdAt: '2026-07-27T10:02:00.000Z',
@@ -1870,6 +2183,7 @@ describe('Phase 1 walking skeleton UI', () => {
       generationJobs: [{
         id: 'e0684c4c-0d07-4ece-9d6f-22c2f523e399', designId: 'design-1', prompt: 'Try again', providerId: 'mock', modelId: 'mock-v1', state: 'interrupted',
         createdAt: '2026-07-20T10:01:00.000Z', startedAt: '2026-07-20T10:01:01.000Z', completedAt: '2026-07-20T10:01:02.000Z', error: 'OmniDesign closed before this generation completed.', attachments: [],
+        branchContexts: [{ designId: 'design-1', branchId: 'missing-branch', title: 'Missing direction', status: 'unavailable' }],
       }],
     }
     const bridge = installBridge([], interruptedDesign)
@@ -1879,9 +2193,13 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.change(prompt, { target: { value: 'A calm dashboard' } })
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Design conversation' })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Missing direction reference' }))
+    expect(bridge.workspace.removeGenerationBranchContext).toHaveBeenCalledWith('e0684c4c-0d07-4ece-9d6f-22c2f523e399', 'missing-branch')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
     expect(bridge.workspace.retryGeneration).toHaveBeenCalledWith('e0684c4c-0d07-4ece-9d6f-22c2f523e399')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel prompt' }))
+    expect(bridge.workspace.resumeGenerationQueue).toHaveBeenCalledWith('design-1')
   })
 
   it('turns provider failures into actionable recovery while retaining diagnostics', async () => {

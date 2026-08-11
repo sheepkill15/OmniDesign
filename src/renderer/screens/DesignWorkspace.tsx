@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField } from 'react-aria-components'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import {
   ArrowDownTrayIcon,
   ArrowLeftIcon,
@@ -8,6 +8,7 @@ import {
   ArrowTopRightOnSquareIcon,
   ChatBubbleLeftRightIcon,
   CheckCircleIcon,
+  ClipboardDocumentIcon,
   ClockIcon,
   ComputerDesktopIcon,
   CursorArrowRaysIcon,
@@ -16,7 +17,11 @@ import {
   ExclamationTriangleIcon,
   FolderIcon,
   InformationCircleIcon,
+  PlusIcon,
+  ArrowUturnLeftIcon,
   QueueListIcon,
+  ShareIcon,
+  SpeakerWaveIcon,
   SparklesIcon,
   Squares2X2Icon,
   StopIcon,
@@ -29,7 +34,9 @@ import {
 import { AppModal } from '../components/AppModal'
 import { DropdownButton } from '../components/DropdownButton'
 import { Markdown } from '../components/Markdown'
-import { DesignPreview, type CanvasViewport, type FocusedEditThread } from './DesignPreview'
+import { DesignPreview, type FocusedEditThread } from './DesignPreview'
+import { useWorkspacePreviewState } from './useWorkspacePreviewState'
+import { useWorkspaceBranchState } from './useWorkspaceBranchState'
 import { AttachmentPicker, EditableTitle, GenerationActivitySection, IconButton, terminalGenerationStages, type AttachmentPickerKind, type Icon } from '../components/common'
 import { GenerationSettingsMenu, ProjectSelectionMenu } from '../components/composer'
 
@@ -41,8 +48,9 @@ type ConversationFeedItem =
 const REVISION_QUALITY_VERSION = 1
 
 function focusedThreadKey(target: FocusedTarget): string {
-  return target.stableId
-    ? `${target.path}\u0000stable\u0000${target.stableId}`
+  const stableId = target.stableId ?? target.continuityId
+  return stableId
+    ? `${target.path}\u0000stable\u0000${stableId}`
     : `${target.path}\u0000source\u0000${target.label}\u0000${target.excerpt}`
 }
 
@@ -95,7 +103,7 @@ function buildConversationFeed(design: OmniDesignDocument, detail: 'full' | 'con
 // One conversational turn. The user's prompt reads as a trailing-aligned bubble; OmniDesign's reply
 // reads as an avatar-led narrative, so the two sides of the exchange are distinguishable at a glance
 // without wrapping every generation event in a card.
-function ConversationMessage({ message, onOpenAttachment }: { readonly message: DesignMessage; readonly onOpenAttachment: (attachment: DesignAttachment) => void }) {
+function ConversationMessage({ message, replySource, canReply, speaking, onOpenAttachment, onReply, onCopy, onRead, onFork }: { readonly message: DesignMessage; readonly replySource: DesignMessage | null; readonly canReply: boolean; readonly speaking: boolean; readonly onOpenAttachment: (attachment: DesignAttachment) => void; readonly onReply: (message: DesignMessage) => void; readonly onCopy: (message: DesignMessage) => void; readonly onRead: (message: DesignMessage) => void; readonly onFork: (message: DesignMessage) => void }) {
   // System notices from OmniDesign itself read as a quiet inline note — visibly distinct from both the
   // user's prompt bubble and the design agent's reply, so it is clear the app is speaking, not the agent.
   if (message.role === 'system') {
@@ -113,11 +121,14 @@ function ConversationMessage({ message, onOpenAttachment }: { readonly message: 
       <div className="message-body">
         <span className="message-role">{isUser ? 'You' : 'OmniDesign'}</span>
         <div className="message-bubble">
+          {replySource && <div className="message-reply-reference"><ArrowUturnLeftIcon aria-hidden="true" /><span><strong>Reply to {replySource.role === 'user' ? 'You' : 'OmniDesign'}</strong>{replySource.text}</span></div>}
           {isUser ? <p>{message.text}</p> : <Markdown text={message.text} />}
           {message.attachments?.length ? <div className="message-attachments" aria-label="References supplied with this prompt">{message.attachments.map((attachment) => <Button className="attachment-chip attachment-link" data-status={attachment.status} key={attachment.id} isDisabled={attachment.status !== 'available'} onPress={() => onOpenAttachment(attachment)}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}</Button>)}</div> : null}
+          {message.branchContexts?.length ? <div className="message-attachments" aria-label="Branch context supplied with this prompt">{message.branchContexts.map((context) => <span className="attachment-chip" data-status={context.status} key={context.branchId}><ShareIcon aria-hidden="true" />{context.title}{context.status === 'unavailable' ? ' (unavailable)' : ''}</span>)}</div> : null}
           {message.focusedTarget && <div className="focused-target-reference">Target · {message.focusedTarget.path}:{message.focusedTarget.startLine}-{message.focusedTarget.endLine} · {message.focusedTarget.label}</div>}
           {message.focusedFeedback?.length ? <div className="focused-feedback-history" aria-label="Submitted focused feedback">{message.focusedFeedback.map((item, index) => <div key={item.id}><strong>{index + 1}. {item.comment}</strong><small>{item.target.path}:{item.target.startLine}-{item.target.endLine} · {item.target.label}</small></div>)}</div> : null}
         </div>
+        <div className="message-quick-actions"><Button aria-label={`Reply to ${isUser ? 'your message' : 'OmniDesign message'}`} isDisabled={!canReply} onPress={() => onReply(message)}><ArrowUturnLeftIcon aria-hidden="true" />Reply</Button><Button aria-label={`Copy ${isUser ? 'your message' : 'OmniDesign message'}`} onPress={() => onCopy(message)}><ClipboardDocumentIcon aria-hidden="true" />Copy</Button><Button aria-label={`${speaking ? 'Stop reading' : 'Read aloud'} ${isUser ? 'your message' : 'OmniDesign message'}`} onPress={() => onRead(message)}>{speaking ? <StopIcon aria-hidden="true" /> : <SpeakerWaveIcon aria-hidden="true" />}{speaking ? 'Stop' : 'Read aloud'}</Button>{isUser && <Button aria-label="Fork this prompt" onPress={() => onFork(message)}><ShareIcon aria-hidden="true" />Fork</Button>}</div>
       </div>
     </article>
   )
@@ -149,7 +160,7 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
       triggerClassName="toolbar-button"
       popoverClassName="project-popover layout-menu"
       placement="bottom"
-      trigger={<><CurrentIcon aria-hidden="true" />{current.label}</>}
+      trigger={<><CurrentIcon aria-hidden="true" /><span className="toolbar-label">{current.label}</span></>}
     >
       <Menu aria-label="Workspace layout" onAction={(key) => onChange(key as LayoutMode)}>
         {layoutModes.map((option) => {
@@ -180,8 +191,11 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   readonly onOpenProviders: () => void
   readonly onOpenDefinitions: () => void
 }) {
+  const definitionsVisible = projects.find((project) => project.id === design.projectId)?.kind === 'linked'
   const [draft, setDraft] = useState(design.draft)
   const [attachments, setAttachments] = useState<readonly DesignAttachment[]>(design.draftAttachments)
+  const [branchContexts, setBranchContexts] = useState<readonly BranchContextReference[]>(design.draftBranchContexts)
+  const [branchPickerOpen, setBranchPickerOpen] = useState(false)
   const [associateCloneOpen, setAssociateCloneOpen] = useState(false)
   const [associateCloneUrl, setAssociateCloneUrl] = useState('')
   const [associateCloneDestination, setAssociateCloneDestination] = useState('')
@@ -191,26 +205,30 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
-  const [revisionPages, setRevisionPages] = useState<RevisionPages | null>(null)
-  const [previewToken, setPreviewToken] = useState<string | null>(null)
-  const [previewPage, setPreviewPage] = useState<string | null>(design.layout.previewPage)
-  const [previewViewMode, setPreviewViewMode] = useState<PreviewViewMode>(design.layout.previewViewMode)
-  const [previewFit, setPreviewFit] = useState<PreviewFit>(design.layout.previewFit)
-  const [previewDevice, setPreviewDevice] = useState<PreviewDevice>(design.layout.previewDevice)
-  const [previewCustomWidth, setPreviewCustomWidth] = useState(design.layout.previewCustomWidth)
-  const [previewCustomHeight, setPreviewCustomHeight] = useState(design.layout.previewCustomHeight)
-  const [canvasViewport, setCanvasViewport] = useState<CanvasViewport>({ zoom: design.layout.previewZoom, panX: design.layout.previewPanX, panY: design.layout.previewPanY })
-  const [selectionActive, setSelectionActive] = useState(false)
-  const [focusedTarget, setFocusedTarget] = useState<FocusedTarget | null>(null)
-  const [focusedComment, setFocusedComment] = useState('')
+  const {
+    revisionPages, setRevisionPages, previewToken, setPreviewToken, previewPage, setPreviewPage,
+    previewViewMode, setPreviewViewMode, previewFit, setPreviewFit, previewDevice, setPreviewDevice,
+    previewCustomWidth, setPreviewCustomWidth, previewCustomHeight, setPreviewCustomHeight,
+    canvasViewport, setCanvasViewport, selectionActive, setSelectionActive, focusedTarget, setFocusedTarget,
+    focusedComment, setFocusedComment, customSizeOpen, setCustomSizeOpen, customWidthDraft, setCustomWidthDraft,
+    customHeightDraft, setCustomHeightDraft, pageRename, setPageRename, comparison, setComparison,
+    comparisonLoading, setComparisonLoading,
+  } = useWorkspacePreviewState(design)
   const [focusedFeedbackQueue, setFocusedFeedbackQueue] = useState<readonly FocusedFeedback[]>([])
   const focusedEditThreads = useMemo(() => buildFocusedEditThreads(design, focusedFeedbackQueue), [design, focusedFeedbackQueue])
-  const [customSizeOpen, setCustomSizeOpen] = useState(false)
-  const [customWidthDraft, setCustomWidthDraft] = useState(String(design.layout.previewCustomWidth))
-  const [customHeightDraft, setCustomHeightDraft] = useState(String(design.layout.previewCustomHeight))
-  const [pageRename, setPageRename] = useState<{ readonly path: string; readonly value: string } | null>(null)
-  const [comparison, setComparison] = useState<RevisionComparison | null>(null)
-  const [comparisonLoading, setComparisonLoading] = useState(false)
+  const {
+    separateBranch, setSeparateBranch, creatingBranch, setCreatingBranch, manageBranchesOpen, setManageBranchesOpen,
+    replyMessageId, setReplyMessageId, forkTarget, setForkTarget, forkSelectionKeys, setForkSelectionKeys,
+    removeBranchTarget, setRemoveBranchTarget, forceBranchRemoval, setForceBranchRemoval,
+    lineageSelection, setLineageSelection, revealedBranchRevisions, setRevealedBranchRevisions,
+    branchComparison, setBranchComparison, branchComparisonTokens, setBranchComparisonTokens,
+    branchComparisonPage, setBranchComparisonPage, combinationPrompt, setCombinationPrompt,
+    combinationAttempt, setCombinationAttempt, combinationHistory, setCombinationHistory,
+    branchSummaries, setBranchSummaries, summarizingBranches, setSummarizingBranches,
+    combinationPreview, setCombinationPreview, combiningBranches, setCombiningBranches,
+    completedCombination, setCompletedCombination,
+  } = useWorkspaceBranchState(design)
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -232,6 +250,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     return () => observer.disconnect()
   }, [mode])
   const selectedIsHead = design.selectedRevisionId === design.activeRevisionId
+  const activeBranch = design.branches.find((branch) => branch.id === design.activeBranchId) ?? design.branches[0]
+  const replyMessage = design.messages.find((message) => message.id === replyMessageId) ?? null
   const selectedRevision = design.revisions.find((revision) => revision.id === design.selectedRevisionId)
   const qualityCheckCurrent = selectedRevision?.qualityCheckVersion === REVISION_QUALITY_VERSION
   const qualityDiagnostics = qualityCheckCurrent ? selectedRevision?.diagnostics.filter((diagnostic) => diagnostic.kind === 'quality') ?? [] : []
@@ -293,7 +313,11 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
 
   useEffect(() => setDraft(design.draft), [design.id, design.draft])
+  useEffect(() => () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+  }, [design.id])
   useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
+  useEffect(() => setBranchContexts(design.draftBranchContexts), [design.id, design.draftBranchContexts])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
   useEffect(() => setSelection(design.lastSelection), [design.id, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort])
@@ -304,21 +328,6 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       .catch((reason: unknown) => { if (active) setFeedback({ tone: 'error', message: 'Queued feedback could not be loaded.', ...(reason instanceof Error ? { detail: reason.message } : {}) }) })
     return () => { active = false }
   }, [design.id, design.activeRevisionId])
-  useEffect(() => {
-    setPreviewViewMode(design.layout.previewViewMode)
-    setPreviewFit(design.layout.previewFit)
-    setPreviewDevice(design.layout.previewDevice)
-    setPreviewCustomWidth(design.layout.previewCustomWidth)
-    setPreviewCustomHeight(design.layout.previewCustomHeight)
-    setPreviewPage(design.layout.previewPage)
-    setCanvasViewport({ zoom: design.layout.previewZoom, panX: design.layout.previewPanX, panY: design.layout.previewPanY })
-  }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice, design.layout.previewCustomWidth, design.layout.previewCustomHeight, design.layout.previewPage, design.layout.previewZoom, design.layout.previewPanX, design.layout.previewPanY])
-  useEffect(() => setSelectionActive(false), [design.id])
-  useEffect(() => { setFocusedTarget(null); setFocusedComment('') }, [design.id, design.selectedRevisionId, previewPage])
-  useEffect(() => { setComparison(null); setComparisonLoading(false) }, [design.id, design.selectedRevisionId])
-  useEffect(() => {
-    if (previewViewMode === 'canvas') { setFocusedTarget(null); setFocusedComment('') }
-  }, [previewViewMode])
   // Register the selected revision's files with the preview server, which returns the opaque token the
   // iframes load from plus the discovered pages. The preview defaults to the home page.
   useEffect(() => {
@@ -380,9 +389,9 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
   useEffect(() => {
     if (!api) return
-    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft, attachments).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Your draft could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 300)
+    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft, attachments, branchContexts).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Your draft could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 300)
     return () => window.clearTimeout(timer)
-  }, [api, design.id, draft, attachments])
+  }, [api, design.id, draft, attachments, branchContexts])
   useEffect(() => {
     if (!api) return
     const layout: Layout = { conversationWidth, mode, previewViewMode, previewFit, previewDevice, previewCustomWidth, previewCustomHeight, previewPage, previewZoom: canvasViewport.zoom, previewPanX: canvasViewport.panX, previewPanY: canvasViewport.panY }
@@ -411,17 +420,210 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
 
   const submit = async () => {
-    if (!api || !draft.trim() || busy || !selectedIsHead || !hasUsableSelection) return
+    if (!api || !draft.trim() || creatingBranch || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection) return
     const prompt = draft.trim()
     const submittedAttachments = attachments
+    const submittedBranchContexts = branchContexts
+    const creatingSeparateBranch = separateBranch
+    if (creatingSeparateBranch) setCreatingBranch(true)
     setDraft('')
     setAttachments([])
-    void api.saveDraft(design.id, '', [])
-    const updated = await runWorkspaceAction(() => api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments), 'The prompt could not be submitted. Your draft has been restored.')
-    if (updated) onChange(updated)
+    setBranchContexts([])
+    void api.saveDraft(design.id, '', [], [])
+    const updated = await runWorkspaceAction(() => submittedBranchContexts.length
+      ? api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, null, separateBranch, replyMessageId, submittedBranchContexts)
+      : api.generate(design.id, prompt, selection.providerId, selection.modelId, selection.effort ?? undefined, submittedAttachments, null, separateBranch, replyMessageId), separateBranch ? 'The separate branch could not be created. Your draft has been restored.' : 'The prompt could not be submitted. Your draft has been restored.')
+    if (creatingSeparateBranch) setCreatingBranch(false)
+    if (updated) { setReplyMessageId(null); onChange(updated) }
     else {
       setDraft(prompt)
       setAttachments(submittedAttachments)
+      setBranchContexts(submittedBranchContexts)
+    }
+  }
+  const setSeparateBranchChoice = async (next: boolean) => {
+    if (!api || !selectedIsHead) return
+    if (next === separateBranch) return
+    setSeparateBranch(next)
+    const saved = await runWorkspaceAction(() => api.saveBranchComposerState(design.id, next, design.replyMessageId).then(() => true), 'The branch choice could not be saved.')
+    if (saved === undefined && next !== design.separateBranchMode) setSeparateBranch(!next)
+  }
+  const switchBranch = async (branchId: string) => {
+    if (!api || branchId === design.activeBranchId) return
+    const updated = await runWorkspaceAction(() => api.switchBranch(design.id, branchId), 'That branch could not be opened.')
+    if (updated) onChange(updated)
+  }
+  const chooseBranch = (key: string | number) => {
+    const branchId = String(key)
+    if (branchId === '__new__') { void setSeparateBranchChoice(true); return }
+    if (branchId === '__manage__') { setLineageSelection([design.activeBranchId]); setManageBranchesOpen(true); return }
+    if (branchId === design.activeBranchId) { void setSeparateBranchChoice(false); return }
+    void switchBranch(branchId)
+  }
+  const chooseReply = async (message: DesignMessage) => {
+    if (!api || !selectedIsHead) return
+    setReplyMessageId(message.id)
+    await runWorkspaceAction(() => api.saveBranchComposerState(design.id, separateBranch, message.id).then(() => true), 'The reply reference could not be saved.')
+  }
+  const clearReply = async () => {
+    if (!api) return
+    setReplyMessageId(null)
+    await runWorkspaceAction(() => api.saveBranchComposerState(design.id, separateBranch, null).then(() => true), 'The reply reference could not be cleared.')
+  }
+  const copyMessage = async (message: DesignMessage) => {
+    const copied = await runWorkspaceAction(async () => { await navigator.clipboard.writeText(message.text); return true }, 'The message could not be copied.')
+    if (copied) setFeedback({ tone: 'success', message: 'Message copied.' })
+  }
+  const readMessage = (message: DesignMessage) => {
+    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+      setFeedback({ tone: 'error', message: 'Read aloud is unavailable on this device.' })
+      return
+    }
+    window.speechSynthesis.cancel()
+    if (speakingMessageId === message.id) {
+      setSpeakingMessageId(null)
+      return
+    }
+    const utterance = new SpeechSynthesisUtterance(message.text)
+    utterance.onend = () => setSpeakingMessageId((current) => current === message.id ? null : current)
+    utterance.onerror = () => setSpeakingMessageId((current) => current === message.id ? null : current)
+    setSpeakingMessageId(message.id)
+    window.speechSynthesis.speak(utterance)
+  }
+  const openFork = (message: DesignMessage) => {
+    setForkTarget(message)
+    setForkSelectionKeys([`${selection.providerId}:${selection.modelId}`])
+  }
+  const availableForkSelections = readyProviders.flatMap((provider) => provider.models.map((model) => ({
+    key: `${provider.id}:${model.id}`,
+    label: `${provider.name} · ${model.name}`,
+    selection: { providerId: provider.id, modelId: model.id, effort: provider.id === selection.providerId && model.id === selection.modelId ? selection.effort : model.effortLevels.find((level) => level.isDefault)?.id ?? model.effortLevels[0]?.id ?? null },
+  })))
+  const submitFork = async () => {
+    if (!api || !forkTarget || !forkSelectionKeys.length) return
+    const selections = availableForkSelections.filter((candidate) => forkSelectionKeys.includes(candidate.key)).map((candidate) => candidate.selection)
+    const branched = await runWorkspaceAction(() => api.forkMessage(design.id, forkTarget.id, selections), 'The prompt could not be forked.')
+    if (!branched?.length) return
+    setForkTarget(null)
+    onChange(branched.at(-1)!)
+  }
+  const compareBranches = async () => {
+    if (!api || lineageSelection.length !== 2) return
+    const destinationBranchId = lineageSelection.includes(design.activeBranchId) ? design.activeBranchId : lineageSelection[0]!
+    const sourceBranchId = lineageSelection.find((id) => id !== destinationBranchId)!
+    const compared = await runWorkspaceAction(() => api.compareBranches(design.id, sourceBranchId, destinationBranchId), 'The branches could not be compared.')
+    if (!compared) return
+    setManageBranchesOpen(false)
+    setBranchComparison(compared)
+    setBranchComparisonTokens(null)
+    setBranchComparisonPage(compared.destination.entryPagePath ?? compared.source.entryPagePath ?? compared.destination.pages[0]?.path ?? compared.source.pages[0]?.path ?? null)
+  }
+  const toggleBranchRevisions = async (branchId: string) => {
+    if (!api) return
+    if (revealedBranchRevisions[branchId]) {
+      setRevealedBranchRevisions((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== branchId)))
+      return
+    }
+    const branch = await runWorkspaceAction(() => api.getBranch(design.id, branchId), 'That branch history could not be loaded.')
+    if (branch) setRevealedBranchRevisions((current) => ({ ...current, [branchId]: [...branch.revisions].reverse() }))
+  }
+  const removeBranch = async () => {
+    if (!api || !removeBranchTarget) return
+    setFeedback(null)
+    try {
+      await api.removeBranch(design.id, removeBranchTarget.id, forceBranchRemoval)
+      const updated = await api.get(design.id)
+      setRemoveBranchTarget(null)
+      setForceBranchRemoval(false)
+      if (updated) onChange(updated)
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : 'The branch could not be removed.'
+      if (/unresolved|uncommitted|discard/i.test(detail)) setForceBranchRemoval(true)
+      setFeedback({ tone: 'error', message: 'The branch could not be removed.', detail })
+    }
+  }
+
+  useEffect(() => {
+    if (!branchComparison) return
+    let cancelled = false
+    void Promise.all([
+      window.omnidesign?.preview.register(design.id, branchComparison.source.revisionId),
+      window.omnidesign?.preview.register(design.id, branchComparison.destination.revisionId),
+    ]).then(([source, destination]) => {
+      if (!cancelled && source && destination) setBranchComparisonTokens({ source: source.token, destination: destination.token })
+    }).catch(() => { if (!cancelled) setBranchComparisonTokens(null) })
+    return () => { cancelled = true }
+  }, [branchComparison, design.id])
+  useEffect(() => {
+    let cancelled = false
+    void api?.listCombinations(design.id).then((attempts) => {
+      if (cancelled) return
+      setCombinationHistory(attempts)
+      setCombinationAttempt(attempts.find((attempt) => attempt.state === 'manual_resolution' || attempt.state === 'applying') ?? null)
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [api, design.id])
+  useEffect(() => {
+    let cancelled = false
+    void api?.listBranchSummaries(design.id).then((summaries) => { if (!cancelled) setBranchSummaries(summaries) }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [api, design.id, design.branches])
+  useEffect(() => {
+    if (!combinationAttempt || combinationAttempt.state !== 'manual_resolution') { setCombinationPreview(null); return }
+    let cancelled = false
+    void window.omnidesign?.preview.registerCombination(design.id, combinationAttempt.id).then((preview) => { if (!cancelled) setCombinationPreview(preview) }).catch(() => { if (!cancelled) setCombinationPreview(null) })
+    return () => { cancelled = true }
+  }, [combinationAttempt, design.id])
+  const beginCombination = async () => {
+    if (!api || !branchComparison || combiningBranches || !hasUsableSelection) return
+    setCombiningBranches(true)
+    const attempt = await runWorkspaceAction(() => api.combineBranches(design.id, branchComparison.comparisonId, combinationPrompt.trim(), selection), 'The branches could not be combined.')
+    setCombiningBranches(false)
+    if (!attempt) return
+    setCombinationHistory((current) => [...current.filter((candidate) => candidate.id !== attempt.id), attempt])
+    if (attempt.state === 'completed') {
+      setBranchComparison(null)
+      setCompletedCombination(attempt)
+      const updated = await api.switchBranch(design.id, attempt.destinationBranchId!)
+      onChange(updated)
+    } else setCombinationAttempt(attempt)
+  }
+  const summarizeBranches = async () => {
+    if (!api || !branchComparison || summarizingBranches || !hasUsableSelection) return
+    setSummarizingBranches(true)
+    const summary = await runWorkspaceAction(() => api.summarizeBranches(design.id, branchComparison.source.branchId, branchComparison.destination.branchId, selection), 'The branch summary could not be generated.')
+    setSummarizingBranches(false)
+    if (summary) setBranchSummaries((current) => [summary, ...current.filter((candidate) => candidate.id !== summary.id)])
+  }
+  const finishCombination = async () => {
+    if (!api || !combinationAttempt) return
+    const completed = await runWorkspaceAction(() => api.finishCombination(design.id, combinationAttempt.id), 'The combination still needs attention.')
+    if (!completed) return
+    setCombinationAttempt(null)
+    setBranchComparison(null)
+    setCompletedCombination(completed)
+    const updated = completed.destinationBranchId ? await api.switchBranch(design.id, completed.destinationBranchId) : await api.get(design.id)
+    if (updated) onChange(updated)
+  }
+  const abortCombination = async () => {
+    if (!api || !combinationAttempt) return
+    const aborted = await runWorkspaceAction(() => api.abortCombination(design.id, combinationAttempt.id), 'The destination branch could not be restored.')
+    if (aborted) { setCombinationAttempt(null); setCombinationPreview(null) }
+  }
+  const retryCombination = async () => {
+    if (!api || !combinationAttempt?.sourceBranchId || !combinationAttempt.destinationBranchId) return
+    const previous = combinationAttempt
+    const aborted = await runWorkspaceAction(() => api.abortCombination(design.id, previous.id), 'The previous attempt could not be reset.')
+    if (!aborted) return
+    setCombinationAttempt(null)
+    setCombiningBranches(true)
+    const refreshed = await runWorkspaceAction(() => api.compareBranches(design.id, previous.sourceBranchId!, previous.destinationBranchId!), 'The branches could not be refreshed for retry.')
+    const attempt = refreshed ? await runWorkspaceAction(() => api.combineBranches(design.id, refreshed.comparisonId, previous.prompt, selection), 'The branches could not be retried.') : undefined
+    setCombiningBranches(false)
+    if (attempt) setCombinationAttempt(attempt.state === 'completed' ? null : attempt)
+    if (attempt?.state === 'completed') {
+      setBranchComparison(null)
+      setCompletedCombination(attempt)
     }
   }
   const fixQualityIssues = async () => {
@@ -499,6 +701,18 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     const updated = await runWorkspaceAction(() => api.get(design.id), 'The retried generation could not be refreshed.')
     if (updated) onChange(updated)
   }
+  const removeStoppedBranchContext = async (branchId: string) => {
+    if (!api || !retryableJob) return
+    const changed = await runWorkspaceAction(() => api.removeGenerationBranchContext(retryableJob.id, branchId), 'The branch reference could not be removed from this prompt.')
+    if (!changed) return
+    const updated = await api.get(design.id)
+    if (updated) onChange(updated)
+  }
+  const cancelStoppedPrompt = async () => {
+    if (!api || !retryableJob) return
+    const updated = await runWorkspaceAction(() => api.resumeGenerationQueue(design.id), 'The stopped prompt could not be dismissed.')
+    if (updated) onChange(updated)
+  }
   const removeGeneration = async (jobId: string) => {
     if (!api || !queuedJobs.some((job) => job.id === jobId)) return
     const removed = await runWorkspaceAction(() => api.removeGeneration(jobId), 'The queued prompt could not be removed.')
@@ -520,6 +734,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
   const chooseAttachments = async (kind: AttachmentPickerKind) => {
     if (!api) return
+    if (kind === 'branches') { setBranchPickerOpen(true); return }
     const selected = await runWorkspaceAction(() => api.chooseAttachments(kind), 'References could not be attached.')
     if (selected?.length) setAttachments((current) => [...current, ...selected.filter((attachment) => !current.some((existing) => existing.path === attachment.path))])
   }
@@ -594,18 +809,30 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const comparisonBase = comparison ? design.revisions.find((revision) => revision.id === comparison.baseRevisionId) : null
   const comparisonTarget = comparison ? design.revisions.find((revision) => revision.id === comparison.targetRevisionId) : null
   const providerStatus = selection.providerId === 'mock' ? 'Development provider' : `${selection.providerId} · ${selection.modelId}`
+  const comparedPagePaths = branchComparison ? [...new Set([...branchComparison.destination.pages.map((page) => page.path), ...branchComparison.source.pages.map((page) => page.path)])] : []
+  const comparisonPageUrl = (token: string, page: string) => `omnidesign-preview://revision/${token}/${page.split('/').map(encodeURIComponent).join('/')}`
+  const visibleBranchSummary = branchComparison ? branchSummaries.find((summary) => summary.sourceBranchId === branchComparison.source.branchId && summary.destinationBranchId === branchComparison.destination.branchId) ?? null : null
+  const branchComparisonStale = branchComparison ? branchComparison.stale || [branchComparison.source, branchComparison.destination].some((side) => design.branches.find((branch) => branch.id === side.branchId)?.activeRevisionId !== side.revisionId) : false
+  const refreshBranchComparison = async () => {
+    if (!api || !branchComparison) return
+    const refreshed = await runWorkspaceAction(() => api.compareBranches(design.id, branchComparison.source.branchId, branchComparison.destination.branchId), 'The branch comparison could not be refreshed.')
+    if (!refreshed) return
+    setBranchComparison(refreshed)
+    setBranchComparisonTokens(null)
+    setBranchComparisonPage(refreshed.destination.entryPagePath ?? refreshed.source.entryPagePath ?? refreshed.destination.pages[0]?.path ?? refreshed.source.pages[0]?.path ?? null)
+  }
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
         {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
-          ? <ConversationMessage key={item.message.id} message={item.message} onOpenAttachment={(attachment) => void openAttachment(attachment)} />
+          ? <ConversationMessage key={item.message.id} message={item.message} replySource={item.message.replyToMessageId ? design.messages.find((candidate) => candidate.id === item.message.replyToMessageId) ?? null : null} canReply={selectedIsHead} speaking={speakingMessageId === item.message.id} onOpenAttachment={(attachment) => void openAttachment(attachment)} onReply={(message) => void chooseReply(message)} onCopy={(message) => void copyMessage(message)} onRead={readMessage} onFork={openFork} />
           : item.kind === 'activity'
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
         {activity && (runningJob || (queuedJobs.length > 0 && !design.queuePaused)) && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{runningJob && <Button className="secondary-action" onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
         {queuedJobs.length > 0 && <section className="workspace-queue" aria-label="Queued prompts"><header><span><strong>{queuedJobs.length} queued prompt{queuedJobs.length === 1 ? '' : 's'}</strong><small>{design.queuePaused ? 'Waiting for you to resume generation' : runningJob ? 'Runs after the current request' : 'Waiting to start'}</small></span>{design.queuePaused && !retryableJob && <Button className="secondary-action" onPress={() => void resumeGenerationQueue()}>Resume queue</Button>}</header>{queuedJobs.map((job) => <article key={job.id}><span><strong>{job.prompt}</strong><small>{job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`}</small></span><Button className="text-button" onPress={() => void removeGeneration(job.id)}>Remove</Button></article>)}</section>}
         {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
-        {!runningJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button></div>}
+        {!runningJob && retryableJob && stoppedGeneration && <div className="generation-recovery" role="status"><span><strong>{stoppedGeneration.title}</strong>{stoppedGeneration.message}{retryableJob.error && <details className="generation-recovery-details"><summary>Technical details</summary><pre>{retryableJob.error}</pre></details>}</span>{(retryableJob.branchContexts ?? []).filter((context) => context.status === 'unavailable').map((context) => <Button key={context.branchId} className="secondary-action" onPress={() => void removeStoppedBranchContext(context.branchId)}>Remove {context.title} reference</Button>)}{stoppedGeneration.openProviders && <Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button>}<Button className="secondary-action" onPress={() => void continueGeneration()}>Continue</Button><Button className="secondary-action" onPress={() => void retryGeneration()}><ArrowPathIcon aria-hidden="true" />Retry</Button><Button className="text-button" onPress={() => void cancelStoppedPrompt()}>Cancel prompt</Button></div>}
         {invalidCandidateVisible && <section className="invalid-candidate-notice" role="status">
           <strong>This version wasn’t applied</strong>
           <p>OmniDesign kept your last working design.</p>
@@ -618,18 +845,45 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         </section>}
         {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
         {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
-        {design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
+        {definitionsVisible && design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
       </div>
       {focusedFeedbackQueue.length > 0 && <section className="focused-feedback-queue" aria-label="Focused feedback queue">
         <header><span><QueueListIcon aria-hidden="true" /><span><strong>{focusedFeedbackQueue.length} focused note{focusedFeedbackQueue.length === 1 ? '' : 's'} queued</strong><small>Review them on the preview, then fix them together.</small></span></span><Button className="primary-action" isDisabled={busy || !selectedIsHead || !hasUsableSelection || !previewToken} onPress={() => void submitFocusedFeedbackBatch()}><WrenchScrewdriverIcon aria-hidden="true" />Fix all</Button></header>
       </section>}
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Compare it with the current head or restore it before prompting.</span><span className="historical-actions"><Button className="secondary-action" isDisabled={comparisonLoading} onPress={() => void compareToCurrent()}>{comparisonLoading ? 'Comparing…' : 'Compare to current'}</Button><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></span></div>}
       <div className="workspace-composer">
+        {replyMessage && <div className="composer-reply-reference"><ArrowUturnLeftIcon aria-hidden="true" /><span><strong>Replying to {replyMessage.role === 'user' ? 'your message' : 'OmniDesign'}</strong><small>{replyMessage.text}</small></span><Button aria-label="Clear reply" onPress={() => void clearReply()}>×</Button></div>}
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
-        <div className="workspace-composer-footer"><AttachmentPicker placement="top" onChoose={(kind) => void chooseAttachments(kind)} /><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="submit-prompt" aria-label="Send change" isDisabled={!draft.trim() || busy || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}><ArrowRightIcon aria-hidden="true" /></Button></div>
+        {branchContexts.length > 0 && <div className="attachment-list" aria-label="Attached branch context">{branchContexts.map((context) => <span className="attachment-chip" data-status={context.status} key={context.branchId}><ShareIcon aria-hidden="true" />{context.title}{context.status === 'unavailable' ? ' (unavailable)' : ''}<Button aria-label={`Remove ${context.title} branch context`} onPress={() => setBranchContexts((current) => current.filter((candidate) => candidate.branchId !== context.branchId))}>×</Button></span>)}</div>}
+        {separateBranch && <div className="separate-branch-notice" role="status" aria-busy={creatingBranch}>{creatingBranch ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ShareIcon aria-hidden="true" />}<span>{creatingBranch ? 'Creating a separate branch…' : 'This change will happen in a separate branch'}</span><button type="button" className="branch-info-button" aria-label="About separate branches" title="A branch is a separate design direction. Your current branch stays unchanged while OmniDesign explores this prompt in a new one."><InformationCircleIcon aria-hidden="true" /></button></div>}
+        <div className="workspace-composer-footer">
+          <AttachmentPicker placement="top" includeBranches={design.branches.length > 1} onChoose={(kind) => void chooseAttachments(kind)} />
+          <DropdownButton
+            label={`Branch: ${creatingBranch ? 'Creating branch' : separateBranch ? 'New branch' : activeBranch?.title ?? 'Main'}`}
+            triggerClassName="composer-branch-selector"
+            popoverClassName="project-popover branch-selector-popover"
+            placement="top"
+            isDisabled={creatingBranch}
+            trigger={<>{creatingBranch ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ShareIcon aria-hidden="true" />}<span>{creatingBranch ? 'Creating branch…' : separateBranch ? 'New branch' : activeBranch?.title ?? 'Main'}</span></>}
+          >
+            <Menu aria-label="Design branches" onAction={chooseBranch}>
+              <MenuSection className="project-popover-section">
+                <Header className="project-popover-header">Directions</Header>
+                {design.branches.map((branch) => <MenuItem id={branch.id} key={branch.id} textValue={branch.title}><span><strong>{branch.title}</strong><small>{branch.status === 'generating' ? 'Generating' : branch.status === 'queued' ? 'Queued' : branch.status === 'failed' ? 'Needs attention' : 'Ready'}</small></span>{!separateBranch && branch.id === design.activeBranchId && <CheckCircleIcon aria-hidden="true" />}</MenuItem>)}
+              </MenuSection>
+              <MenuSection className="project-popover-section">
+                <Header className="project-popover-header">Actions</Header>
+                <MenuItem id="__new__" className="branch-create-option" textValue="New branch" isDisabled={!selectedIsHead}><span><PlusIcon aria-hidden="true" /><span><strong>New branch</strong><small>{selectedIsHead ? 'Created with your next prompt' : 'Return to the current head first'}</small></span></span>{separateBranch && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+                <MenuItem id="__manage__" textValue="Manage branches"><span>Manage branches</span></MenuItem>
+              </MenuSection>
+            </Menu>
+          </DropdownButton>
+          <GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} />
+          <Button className="submit-prompt" aria-label={separateBranch ? 'Send change in a separate branch' : 'Send change'} isDisabled={creatingBranch || !draft.trim() || branchContexts.some((context) => context.status === 'unavailable') || (busy && !separateBranch) || !selectedIsHead || !hasUsableSelection} onPress={() => void submit()}>{creatingBranch ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ArrowRightIcon aria-hidden="true" />}</Button>
+        </div>
         {!hasUsableSelection && providersLoading && !readyProviders.length && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Checking local providers…</strong><small>Your draft and design history remain available while provider status refreshes.</small></span></div>}
         {!hasUsableSelection && (!providersLoading || readyProviders.length > 0) && <div className="no-provider-notice no-provider-notice-workspace" role="status"><ExclamationTriangleIcon aria-hidden="true" /><span><strong>{readyProviders.length ? 'The selected provider or model is unavailable.' : 'Generation is unavailable.'}</strong><small>{readyProviders.length ? 'Choose an available provider before sending this draft.' : 'Connect a provider to send this draft. Existing history and export remain available.'}</small></span><Button className="secondary-action" onPress={onOpenProviders}>Open providers</Button></div>}
       </div>
@@ -706,10 +960,11 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         <div className="toolbar-actions">
             <LayoutMenu mode={mode} onChange={setMode} />
           <DropdownButton
+            label={`History · ${design.revisions.length}`}
             triggerClassName="toolbar-button"
             popoverClassName="history-popover"
             placement="bottom"
-            trigger={<><ClockIcon aria-hidden="true" />History · {design.revisions.length}</>}
+            trigger={<><ClockIcon aria-hidden="true" /><span className="toolbar-label">History · {design.revisions.length}</span></>}
           >
             <Menu aria-label="Revision history" onAction={(key) => void selectRevision(String(key))}>
               {[...design.revisions].reverse().map((revision, index) => (
@@ -722,14 +977,63 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
               ))}
             </Menu>
           </DropdownButton>
-            {!design.sourceProjectPath && <DropdownButton triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" trigger={<><FolderIcon aria-hidden="true" />Associate</>}>
+            {!design.sourceProjectPath && <DropdownButton label="Associate" triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" trigger={<><FolderIcon aria-hidden="true" /><span className="toolbar-label">Associate</span></>}>
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
-          <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
-          <Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button>
-          <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
+          <TooltipTrigger delay={350}><Button aria-label="Export" className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" /><span className="toolbar-label">Export</span></Button><Tooltip className="tooltip">Export</Tooltip></TooltipTrigger>
+          {definitionsVisible && <TooltipTrigger delay={350}><Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" /><span className="toolbar-label">Definitions</span>{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button><Tooltip className="tooltip">Definitions</Tooltip></TooltipTrigger>}
+          <TooltipTrigger delay={350}><Button aria-label="Remove" className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" /><span className="toolbar-label">Remove</span></Button><Tooltip className="tooltip">Remove</Tooltip></TooltipTrigger>
         </div>
       </header>
+      <AppModal isOpen={branchPickerOpen} onOpenChange={setBranchPickerOpen} className="branch-manager-modal" title="Attach branch context">
+        {(close) => <><p>Select one or more parallel directions. Their latest worktree and conversation will be resolved when this prompt starts.</p><div className="fork-selection-list" role="group" aria-label="Branches to attach">{design.branches.filter((branch) => branch.id !== design.activeBranchId).map((branch) => <label key={branch.id}><input type="checkbox" checked={branchContexts.some((context) => context.branchId === branch.id)} onChange={(event) => setBranchContexts((current) => event.target.checked ? [...current.filter((context) => context.branchId !== branch.id), { designId: design.id, branchId: branch.id, title: branch.title, status: 'available' }] : current.filter((context) => context.branchId !== branch.id))} /><span>{branch.title}<small>{branch.status === 'ready' ? 'Latest state will be used at execution time' : `Currently ${branch.status}`}</small></span></label>)}</div><p className="clone-modal-note">Attached branch worktrees are given to provider-owned tools as instructed reference-only context; the current harness cannot enforce that boundary at the filesystem level.</p><div className="clone-modal-actions"><Button className="clone-confirm-action" onPress={close}>Done</Button></div></>}
+      </AppModal>
+      <AppModal isOpen={manageBranchesOpen} onOpenChange={setManageBranchesOpen} className="branch-manager-modal" title="Manage branches" isDismissable showCloseButton>
+        {(close) => <>
+          <p>Review the persistent directions in this design. Branch names describe the prompt that created them and cannot be edited.</p>
+          <div className="branch-manager-list">{design.branches.map((branch) => <article key={branch.id} data-child={branch.parentBranchId ? true : undefined}><div className="branch-lineage-row"><input type="checkbox" aria-label={`Select ${branch.title} for comparison`} checked={lineageSelection.includes(branch.id)} onChange={(event) => setLineageSelection((current) => event.target.checked ? current.length < 2 ? [...current, branch.id] : [current.at(-1)!, branch.id] : current.filter((id) => id !== branch.id))} /><ShareIcon aria-hidden="true" /><span><strong>{branch.title}</strong><small>{branch.isMain ? 'Protected Main branch' : `${branch.parentBranchId ? `Forked from ${design.branches.find((candidate) => candidate.id === branch.parentBranchId)?.title ?? 'removed branch'} · ` : ''}${branch.status === 'failed' ? 'Needs attention' : branch.status}`}</small></span><span className="branch-manager-actions"><Button className="secondary-action" onPress={() => void toggleBranchRevisions(branch.id)}>{revealedBranchRevisions[branch.id] ? 'Hide revisions' : 'Show revisions'}</Button>{branch.id === design.activeBranchId ? <span className="branch-current-label">Current</span> : <><Button className="secondary-action" onPress={() => { close(); void switchBranch(branch.id) }}>Open</Button>{!branch.isMain && <Button className="secondary-action branch-remove-action" onPress={() => { setRemoveBranchTarget(branch); setForceBranchRemoval(false) }}>Remove</Button>}</>}</span></div>{revealedBranchRevisions[branch.id] && <ol className="branch-revision-list" aria-label={`${branch.title} revisions`}>{revealedBranchRevisions[branch.id]!.map((revision) => <li key={revision.id}><ClockIcon aria-hidden="true" /><span><strong>{revision.prompt}</strong><small>{new Date(revision.createdAt).toLocaleString()}</small></span>{revision.id === branch.activeRevisionId && <span>Head</span>}</li>)}</ol>}</article>)}</div>
+          <div className="branch-manager-footer"><span>{lineageSelection.length === 2 ? 'Two branches selected' : 'Select two branches to compare'}</span><Button className="clone-confirm-action" isDisabled={lineageSelection.length !== 2} onPress={() => void compareBranches()}>Compare branches</Button></div>
+          {combinationHistory.filter((attempt) => attempt.state === 'completed').length > 0 && <section className="combination-history" aria-label="Successful combinations"><strong>Successful combinations</strong>{combinationHistory.filter((attempt) => attempt.state === 'completed').map((attempt) => <span key={attempt.id}><ShareIcon aria-hidden="true" />{attempt.sourceBranchTitle} into {attempt.destinationBranchTitle}</span>)}</section>}
+        </>}
+      </AppModal>
+      <AppModal isOpen={removeBranchTarget !== null} onOpenChange={(open) => { if (!open) { setRemoveBranchTarget(null); setForceBranchRemoval(false) } }} className="branch-manager-modal" title="Remove branch permanently?">
+        {(close) => removeBranchTarget && <>
+          <p><strong>{removeBranchTarget.title}</strong> and its branch-only conversation, queued state, and worktree will be removed permanently. Completed shared history remains immutable.</p>
+          {forceBranchRemoval && <div className="generation-recovery" role="alert"><span><strong>This branch has unresolved files.</strong>Continuing will discard its uncommitted or conflicted files. This cannot be undone.</span></div>}
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action danger-action" onPress={() => void removeBranch()}>{forceBranchRemoval ? 'Discard files and remove' : 'Remove branch permanently'}</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={forkTarget !== null} onOpenChange={(open) => { if (!open) setForkTarget(null) }} className="branch-manager-modal" title="Fork prompt">
+        {(close) => forkTarget && <>
+          <p>Replay this prompt in one or more independent branches. Each selected provider and model receives the same original context.</p>
+          <blockquote className="fork-prompt-preview">{forkTarget.text}</blockquote>
+          <div className="fork-selection-list" role="group" aria-label="Fork provider and model selections">{availableForkSelections.map((candidate) => <label key={candidate.key}><input type="checkbox" checked={forkSelectionKeys.includes(candidate.key)} onChange={(event) => setForkSelectionKeys((current) => event.target.checked ? [...current, candidate.key] : current.filter((key) => key !== candidate.key))} /><span>{candidate.label}</span></label>)}</div>
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" isDisabled={!forkSelectionKeys.length} onPress={() => void submitFork()}>Fork into {forkSelectionKeys.length} branch{forkSelectionKeys.length === 1 ? '' : 'es'}</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={branchComparison !== null} onOpenChange={(open) => { if (!open && !combiningBranches) { setBranchComparison(null); setBranchComparisonTokens(null) } }} className="branch-comparison-modal" title="Compare branches">
+        {(close) => branchComparison && <>
+          {branchComparisonStale && <div className="generation-recovery" role="status"><span><strong>This comparison is stale.</strong>One of these branch heads changed after the evidence was captured. Refresh before summarizing or combining.</span><Button className="secondary-action" onPress={() => void refreshBranchComparison()}>Refresh comparison</Button></div>}
+          <div className="branch-comparison-page-tabs" role="tablist" aria-label="Pages to compare">{comparedPagePaths.map((page) => <button type="button" key={page} role="tab" aria-selected={branchComparisonPage === page} data-active={branchComparisonPage === page || undefined} onClick={() => setBranchComparisonPage(page)}>{branchComparison.destination.pages.find((candidate) => candidate.path === page)?.title ?? branchComparison.source.pages.find((candidate) => candidate.path === page)?.title ?? page}</button>)}</div>
+          <div className="branch-comparison-previews">
+            {(['destination', 'source'] as const).map((side) => { const branch = branchComparison[side]; const token = branchComparisonTokens?.[side]; const hasPage = !!branchComparisonPage && branch.pages.some((page) => page.path === branchComparisonPage); return <article key={side}><header><span>{side === 'destination' ? 'Destination' : 'Source'}</span><strong>{branch.title}</strong></header>{token && branchComparisonPage && hasPage ? <iframe title={`${branch.title} · ${branchComparisonPage}`} src={comparisonPageUrl(token, branchComparisonPage)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">{hasPage ? 'Preview unavailable' : 'This page exists only in the other branch'}</div>}</article> })}
+          </div>
+          <section className="revision-comparison-changes" aria-label="Branch authored file changes"><header><span><strong>{branchComparison.changes.files.length} authored file{branchComparison.changes.files.length === 1 ? '' : 's'} changed</strong><small>Destination compared with source. Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{branchComparison.changes.additions}</strong><strong>−{branchComparison.changes.deletions}</strong></span></header>{branchComparison.changes.files.length ? <ul>{branchComparison.changes.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files differ between these branch heads.</p>}</section>
+          <section className="branch-ai-summary" aria-label="AI branch summary"><header><span><strong>AI summary</strong><small>Generated only when requested and kept with the captured branch heads.</small></span><Button className="secondary-action" isDisabled={branchComparisonStale || summarizingBranches || !hasUsableSelection} onPress={() => void summarizeBranches()}>{summarizingBranches ? 'Summarizing…' : visibleBranchSummary ? 'Generate a new summary' : 'Summarize differences'}</Button></header>{visibleBranchSummary ? <div><span className="branch-summary-meta">{visibleBranchSummary.providerId} · {new Date(visibleBranchSummary.createdAt).toLocaleString()}{visibleBranchSummary.stale ? ' · Stale' : ''}</span><Markdown text={visibleBranchSummary.summary} />{visibleBranchSummary.stale && <p className="branch-summary-stale" role="status">This summary describes older branch heads. It remains available as history and will not regenerate automatically.</p>}</div> : <p>No AI summary has been generated for these branch heads.</p>}</section>
+          <section className="combine-branches-composer" aria-label="Combine branches" aria-busy={combiningBranches}><header><span><strong>Best of both directions</strong><small>Combine automatically, or optionally describe what the destination should keep and adopt.</small></span></header>{combiningBranches && <div className="combination-progress" role="status" aria-live="polite"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Combining {branchComparison.source.title} into {branchComparison.destination.title}…</strong><small>The agent is reviewing both directions, applying changes only to the destination, and then validating the result. This may take a few minutes.</small></span></div>}<TextField aria-label="Combination prompt"><TextArea disabled={combiningBranches} value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Optional: guide how ${branchComparison.source.title} should be combined into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" isDisabled={branchComparisonStale || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches && <ArrowPathIcon className="spin" aria-hidden="true" />}{combiningBranches ? 'Combining…' : 'Combine into destination'}</Button></div></section>
+          <div className="clone-modal-actions"><Button className="secondary-action" isDisabled={combiningBranches} onPress={close}>Close</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={combinationAttempt?.state === 'manual_resolution'} onOpenChange={() => undefined} className="branch-comparison-modal" title="Combination needs review">
+        {() => combinationAttempt && <>
+          <div className="generation-recovery" role="status"><span><strong>{combinationAttempt.fallbackPath === 'automatic_merge' ? 'Fallback merge is ready to review.' : 'Manual conflict resolution is required.'}</strong>{combinationAttempt.diagnostic}</span></div>
+          <div className="combination-recovery-preview">{combinationPreview?.token && combinationPreview.entryPagePath ? <iframe title="Unresolved destination preview" src={comparisonPageUrl(combinationPreview.token, combinationPreview.entryPagePath)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">The unresolved preview is unavailable. Open the destination in an editor to inspect it.</div>}</div>
+          <div className="combination-recovery-actions"><Button className="secondary-action" onPress={() => void runWorkspaceAction(() => api!.openCombinationEditor(design.id, combinationAttempt.id).then(() => true), 'A code editor could not be opened.')}>Open in editor</Button><Button className="secondary-action" isDisabled={combiningBranches || !combinationAttempt.sourceBranchId || !combinationAttempt.destinationBranchId} onPress={() => void retryCombination()}>Retry intelligent combination</Button><Button className="secondary-action" onPress={() => void abortCombination()}>Abort combination</Button><Button className="clone-confirm-action" onPress={() => void finishCombination()}>Check resolution</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={completedCombination !== null} onOpenChange={(open) => { if (!open) setCompletedCombination(null) }} className="branch-manager-modal" title="Combination complete">
+        {(close) => completedCombination && <><p><strong>{completedCombination.destinationBranchTitle}</strong> now includes the combined direction. The source branch remains unchanged.</p><p>Do you want to keep <strong>{completedCombination.sourceBranchTitle}</strong> as a separate direction?</p><div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Keep source branch</Button><Button className="clone-confirm-action" isDisabled={!completedCombination.sourceBranchId} onPress={() => void (async () => { if (!api || !completedCombination.sourceBranchId) return; await api.removeBranch(design.id, completedCombination.sourceBranchId, false); const updated = await api.get(design.id); setCompletedCombination(null); if (updated) onChange(updated) })()}>Remove source branch</Button></div></>}
+      </AppModal>
       <AppModal isOpen={comparison !== null} onOpenChange={(open) => { if (!open) setComparison(null) }} className="revision-comparison-modal" title="Compare revisions">
         {(close) => comparison && <>
           <div className="revision-comparison-snapshots">
@@ -774,7 +1078,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         </>}
       </AppModal>
       {mode === 'split'
-        ? <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
+        ? <div className="workspace-split" ref={split} style={{ '--conversation-width': `${conversationWidth}%` } as CSSProperties}>
             {conversationPane}
             <div
               aria-label="Resize conversation and preview panels"

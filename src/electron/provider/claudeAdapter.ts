@@ -85,7 +85,7 @@ export class ClaudeAdapter implements ProviderAdapter {
         '--verbose',
         '--model', request.modelId,
         ...(request.effort ? ['--effort', request.effort] : []),
-        '--permission-mode', request.workspacePath ? 'acceptEdits' : 'plan',
+        '--permission-mode', request.readOnly || !request.workspacePath ? 'plan' : 'acceptEdits',
         ...(request.referencePaths ?? []).flatMap((referencePath) => ['--add-dir', referencePath]),
         ...(resume && request.resumeSessionId ? ['--resume', request.resumeSessionId] : []),
         ...(!request.workspacePath ? ['--no-session-persistence'] : []),

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { isProviderId, ProviderService } from '../provider/providerService.js'
 import { providerSetupUrl } from '../provider/providerSetup.js'
 import { discoverLocalDependencies, isLocalDependencyId, localDependencySetupUrl } from '../environment/localDependencies.js'
+import { openCodeEditor } from '../environment/codeEditor.js'
 import { buildConversationRecap, createFocusedEditPrompt, createFocusedFeedbackBatchPrompt, normalizeAgentReply } from '../provider/agentHarness.js'
 import type { ProviderPrompt, ProviderStatus } from '../provider/types.js'
 import {
@@ -15,10 +16,16 @@ import {
   associateDesignRequestSchema,
   cloneProjectRequestSchema,
   compareRevisionsRequestSchema,
+  compareDesignBranchesRequestSchema,
+  summarizeDesignBranchesRequestSchema,
+  combineDesignBranchesRequestSchema,
+  combinationAttemptRequestSchema,
+  createDesignBranchRequestSchema,
   createFolderRequestSchema,
   createTagRequestSchema,
   designIdRequestSchema,
   folderIdRequestSchema,
+  forkDesignMessageRequestSchema,
   moveProjectToFolderRequestSchema,
   previewCaptureRequestSchema,
   previewDiagnosticReportSchema,
@@ -31,6 +38,7 @@ import {
   exportRequestSchema,
   generateRequestSchema,
   generationJobIdRequestSchema,
+  generationJobBranchContextRequestSchema,
   generationSelectionSchema,
   generationStageLabel,
   lastOpenDesignSchema,
@@ -45,12 +53,15 @@ import {
   locateFocusedTargetsRequestSchema,
   resolveFocusedTargetRequestSchema,
   removeFocusedFeedbackRequestSchema,
+  removeDesignBranchRequestSchema,
   savePageMetadataRequestSchema,
   saveProjectDesignDefinitionsRequestSchema,
   saveDesignSelectionRequestSchema,
+  saveBranchComposerStateRequestSchema,
   saveDraftRequestSchema,
   saveLayoutRequestSchema,
   selectRevisionRequestSchema,
+  branchIdRequestSchema,
   setEntryPageRequestSchema,
   setProjectDefinitionPromptSuppressedRequestSchema,
   submitFocusedFeedbackBatchRequestSchema,
@@ -79,7 +90,7 @@ const notificationsSuppressed = process.env.OMNIDESIGN_DISABLE_NOTIFICATIONS ===
 // hidden prevents repeated launches and pop-outs from stealing focus from the user's desktop.
 const automatedTestWindowsHidden = process.env.OMNIDESIGN_E2E_HIDE_WINDOWS === '1'
 const providers = new ProviderService()
-const developmentProviderStatus = { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Available for local development and automated testing.', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }] } as const
+const developmentProviderStatus = { id: 'mock', name: 'Development provider', installed: true, authenticated: true, detail: 'Available for local development and automated testing.', models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }, { id: 'mock-v2', name: 'Mock v2', effortLevels: [] }] } as const
 let mainWindow: BrowserWindow | null = null
 let previewServer: PreviewContentServer | null = null
 let thumbnailCapturer: ThumbnailCapturer | null = null
@@ -92,6 +103,7 @@ let updateService: UpdateService | null = null
 let closingAfterGenerationConfirmation = false
 const lastPersistedStageByDesign = new Map<string, string>()
 let providerRefresh: Promise<readonly (ProviderStatus | typeof developmentProviderStatus)[]> | null = null
+const DEFAULT_BRANCH_COMBINATION_PROMPT = 'Combine the strongest parts of the source direction into the destination while preserving the destination\'s coherent structure, intent, and working behavior.'
 
 // Designs, their Git repositories, and the SQLite database live under the app's userData directory
 // (on Windows that is %APPDATA%\Roaming\<app>\workspace). Tests point userData at a temp directory.
@@ -222,16 +234,24 @@ function sendWorkspaceChanged(designId: string): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { designId })
 }
 
+function generateBranchTitleInBackground(designId: string, branchId: string, initialTitle: string, prompt: string, providerId: 'codex' | 'claude', modelId: string, effort: string | null, attachments: readonly import('../workspace/contracts.js').Attachment[]): void {
+  void generateDesignTitle(prompt, providerId, modelId, effort, attachments).then((title) => {
+    const branch = workspace?.getDesign(designId)?.branches.find((candidate) => candidate.id === branchId)
+    if (branch?.title === initialTitle && title !== initialTitle) workspace?.renameDesignBranch(designId, branchId, title)
+  }).catch(() => undefined).finally(() => sendWorkspaceChanged(designId))
+}
+
 // Persist a permanent, chronological record of the major generation milestones for the design's
 // conversation history, then forward the live activity to the renderer. Consecutive activities that
 // share a stage (for example the many streaming "generating" updates from an agent) collapse into a
 // single milestone so the history stays readable.
 function recordActivity(activity: GenerationActivity): void {
   const activityKey = `${activity.stage}\u0000${activity.detail}`
-  if (workspaceStore && lastPersistedStageByDesign.get(activity.designId) !== activityKey) {
-    lastPersistedStageByDesign.set(activity.designId, activityKey)
+  const branchKey = `${activity.designId}:${activity.branchId ?? activity.designId}`
+  if (workspaceStore && lastPersistedStageByDesign.get(branchKey) !== activityKey) {
+    lastPersistedStageByDesign.set(branchKey, activityKey)
     try {
-      workspaceStore.addGenerationStep(activity.designId, activity.stage, generationStageLabel(activity.stage), activity.detail || null)
+      workspaceStore.addGenerationStep(activity.designId, activity.stage, generationStageLabel(activity.stage), activity.detail || null, null, activity.branchId)
     } catch {
       // The design may have been removed while a late activity arrived; the live event below is enough.
     }
@@ -295,6 +315,19 @@ function openPreviewPopOut(token: string, page: string): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('updates:get-state', (event) => {
+    authorize(event)
+    return updateService?.getState() ?? { kind: 'disabled' as const }
+  })
+  ipcMain.handle('updates:install', (event) => {
+    authorize(event)
+    return updateService?.install() ?? { kind: 'disabled' as const }
+  })
+  ipcMain.handle('updates:retry', (event) => {
+    authorize(event)
+    updateService?.retry()
+    return updateService?.getState() ?? { kind: 'disabled' as const }
+  })
   ipcMain.handle('providers:get-cached', (event) => {
     authorize(event)
     return cachedProviderStatuses()
@@ -331,6 +364,48 @@ function registerIpc(): void {
   ipcMain.handle('workspace:get', (event, value: unknown) => {
     authorize(event)
     return requireWorkspace().getDesign(designIdRequestSchema.parse(value).designId)
+  })
+  ipcMain.handle('workspace:get-branch', (event, value: unknown) => {
+    authorize(event)
+    const request = branchIdRequestSchema.parse(value)
+    const branch = requireWorkspaceStore().getDesignAtBranch(request.designId, request.branchId)
+    if (!branch) throw new Error('Design branch not found.')
+    return branch
+  })
+  ipcMain.handle('workspace:create-branch', (event, value: unknown) => {
+    authorize(event)
+    const request = createDesignBranchRequestSchema.parse(value)
+    return requireWorkspace().createDesignBranch(request.designId, request.title, request.baseRevisionId, request.forkMessageId)
+  })
+  ipcMain.handle('workspace:switch-branch', (event, value: unknown) => {
+    authorize(event)
+    const request = branchIdRequestSchema.parse(value)
+    return requireWorkspace().switchDesignBranch(request.designId, request.branchId)
+  })
+  ipcMain.handle('workspace:remove-branch', (event, value: unknown) => {
+    authorize(event)
+    const request = removeDesignBranchRequestSchema.parse(value)
+    return requireWorkspace().removeDesignBranch(request.designId, request.branchId, request.force)
+  })
+  ipcMain.handle('workspace:fork-message', async (event, value: unknown) => {
+    authorize(event)
+    const request = forkDesignMessageRequestSchema.parse(value)
+    const source = requireWorkspace().getDesign(request.designId)
+    const message = source?.messages.find((candidate) => candidate.id === request.messageId)
+    if (!source || !message || message.role !== 'user') throw new Error('Only a user prompt in the selected branch can be forked.')
+    const baseRevision = [...source.revisions].reverse().find((revision) => revision.createdAt < message.createdAt) ?? null
+    const results: import('../workspace/contracts.js').Design[] = []
+    for (const selection of request.selections) {
+      if (requireWorkspace().getDesign(request.designId)?.activeBranchId !== source.activeBranchId) requireWorkspace().switchDesignBranch(request.designId, source.activeBranchId)
+      const provisionalTitle = fallbackDesignTitle(message.text)
+      const branched = requireWorkspace().createDesignBranch(request.designId, provisionalTitle, baseRevision?.id ?? null, message.id)
+      const branch = branched.branches.find((candidate) => candidate.id === branched.activeBranchId)!
+      requireWorkspace().rememberSelection(request.designId, selection)
+      requireGenerationQueue().enqueue(request.designId, message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [], null, message.focusedTarget ?? null, message.focusedFeedback ?? [], message.replyToMessageId ?? null, message.branchContexts ?? [])
+      if (selection.providerId !== 'mock') generateBranchTitleInBackground(request.designId, branch.id, branch.title, message.text, selection.providerId, selection.modelId, selection.effort, message.attachments ?? [])
+      results.push(requireWorkspace().getDesign(request.designId) ?? branched)
+    }
+    return results
   })
   ipcMain.handle('workspace:rename-design', (event, value: unknown) => {
     authorize(event)
@@ -597,13 +672,32 @@ function registerIpc(): void {
       throw new Error('The selected element is stale or does not belong to the current design revision.')
     }
   }
-  ipcMain.handle('workspace:generate', (event, value: unknown) => {
+  ipcMain.handle('workspace:generate', async (event, value: unknown) => {
     authorize(event)
     const request = generateRequestSchema.parse(value)
+    if (request.separateBranch && request.focusedTarget) throw new Error('Focused edits continue the selected branch.')
     if (request.focusedTarget) validateCurrentFocusedTarget(request.designId, request.focusedTarget)
+    if (request.separateBranch) {
+      const source = requireWorkspace().getDesign(request.designId)
+      if (!source || source.selectedRevisionId !== source.activeRevisionId) throw new Error('Return to the branch head before creating a separate branch.')
+      const provisionalTitle = fallbackDesignTitle(request.prompt)
+      const branched = requireWorkspace().createDesignBranch(request.designId, provisionalTitle)
+      const branch = branched.branches.find((candidate) => candidate.id === branched.activeBranchId)!
+      requireWorkspaceStore().saveBranchComposerState(request.designId, false, null, source.activeBranchId)
+      requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
+      requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, null, [], request.replyMessageId, request.branchContexts)
+      if (request.providerId !== 'mock') generateBranchTitleInBackground(request.designId, branch.id, branch.title, request.prompt, request.providerId, request.modelId, request.effort ?? null, request.attachments)
+      return requireWorkspace().getDesign(request.designId) ?? branched
+    }
     requireWorkspace().rememberSelection(request.designId, { providerId: request.providerId, modelId: request.modelId, effort: request.effort ?? null })
-    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null)
+    requireGenerationQueue().enqueue(request.designId, request.prompt, request.providerId, request.modelId, request.effort, request.attachments, null, request.focusedTarget ?? null, [], request.replyMessageId, request.branchContexts)
+    requireWorkspaceStore().saveBranchComposerState(request.designId, false, null)
     return requireWorkspace().getDesign(request.designId)
+  })
+  ipcMain.handle('workspace:save-branch-composer-state', (event, value: unknown) => {
+    authorize(event)
+    const request = saveBranchComposerStateRequestSchema.parse(value)
+    requireWorkspaceStore().saveBranchComposerState(request.designId, request.separateBranchMode, request.replyMessageId)
   })
   ipcMain.handle('workspace:list-focused-feedback', (event, value: unknown) => {
     authorize(event)
@@ -689,6 +783,109 @@ function registerIpc(): void {
     const request = compareRevisionsRequestSchema.parse(value)
     return requireWorkspace().compareRevisions(request.designId, request.baseRevisionId, request.targetRevisionId)
   })
+  ipcMain.handle('workspace:remove-generation-branch-context', (event, value: unknown) => {
+    authorize(event)
+    const request = generationJobBranchContextRequestSchema.parse(value)
+    return requireWorkspaceStore().removeGenerationBranchContext(request.jobId, request.branchId)
+  })
+  ipcMain.handle('workspace:compare-branches', (event, value: unknown) => {
+    authorize(event)
+    const request = compareDesignBranchesRequestSchema.parse(value)
+    return requireWorkspace().compareDesignBranches(request.designId, request.sourceBranchId, request.destinationBranchId)
+  })
+  ipcMain.handle('workspace:summarize-branches', async (event, value: unknown) => {
+    authorize(event)
+    const request = summarizeDesignBranchesRequestSchema.parse(value)
+    const prepared = requireWorkspace().prepareBranchComparisonSummary(request.designId, request.sourceBranchId, request.destinationBranchId)
+    const selection = { providerId: request.providerId, modelId: request.modelId, effort: request.effort }
+    if (request.providerId === 'mock') {
+      const changes = prepared.comparison.changes
+      const summary = changes.files.length
+        ? `${prepared.comparison.source.title} differs from ${prepared.comparison.destination.title} across ${changes.files.length} authored file${changes.files.length === 1 ? '' : 's'} (+${changes.additions}, -${changes.deletions}). Review ${changes.files.slice(0, 5).map((file) => file.path).join(', ')} when choosing which direction to keep.`
+        : `${prepared.comparison.source.title} and ${prepared.comparison.destination.title} have no authored file differences at their captured heads.`
+      return requireWorkspace().saveBranchComparisonSummary(request.designId, request.sourceBranchId, request.destinationBranchId, prepared.sourceCommit, prepared.destinationCommit, summary, selection)
+    }
+    const reply = await providers.runAnalysisAgent({
+      requestId: randomUUID(), providerId: request.providerId, modelId: request.modelId,
+      ...(request.effort ? { effort: request.effort } : {}),
+      workspacePath: prepared.destinationPath,
+      referencePaths: [prepared.sourcePath],
+      readOnly: true,
+      prompt: 'Summarize the meaningful visual, structural, and interaction differences between these two design branches. Highlight strengths and tradeoffs without recommending a combination unless the evidence clearly supports it.',
+      instructions: `This is strictly read-only analysis. Do not create, edit, delete, or commit files. Compare the captured destination head ${prepared.destinationCommit} at ${prepared.destinationPath} with source head ${prepared.sourceCommit} at ${prepared.sourcePath}. Return a concise plain-text summary suitable for a designer.\n\nAuthored file evidence:\n${JSON.stringify(prepared.comparison.changes)}\n\nChanged-line context (destination to source):\n${prepared.changedLineContext || '[No authored text diff was available.]'}\n\n${prepared.conversationContext}`,
+    }, (activity) => {
+      if (!event.sender.isDestroyed()) event.sender.send('providers:activity', activity)
+    })
+    return requireWorkspace().saveBranchComparisonSummary(request.designId, request.sourceBranchId, request.destinationBranchId, prepared.sourceCommit, prepared.destinationCommit, reply.text.trim(), selection)
+  })
+  ipcMain.handle('workspace:list-branch-summaries', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().listBranchComparisonSummaries(designIdRequestSchema.parse(value).designId)
+  })
+  ipcMain.handle('workspace:combine-branches', async (event, value: unknown) => {
+    authorize(event)
+    const request = combineDesignBranchesRequestSchema.parse(value)
+    const prompt = request.prompt || DEFAULT_BRANCH_COMBINATION_PROMPT
+    const prepared = requireWorkspace().startCombination(request.designId, request.comparisonId, prompt, { providerId: request.providerId, modelId: request.modelId, effort: request.effort })
+    if (request.providerId === 'mock') return requireWorkspace().beginCombinationFallback(prepared.attempt.id, 'The development provider uses the deterministic fallback merge for combination previews.')
+    try {
+      const reply = await providers.runAnalysisAgent({
+        requestId: randomUUID(), providerId: request.providerId, modelId: request.modelId,
+        ...(request.effort ? { effort: request.effort } : {}),
+        workspacePath: prepared.destinationPath,
+        referencePaths: [prepared.sourcePath],
+        prompt,
+        instructions: `Combine the source design direction into the destination design according to the resolved combination instruction.\n\nDestination (the only writable branch): ${prepared.destinationPath}\nSource (reference only; do not modify it): ${prepared.sourcePath}\n\nWork only in the destination workspace. Preserve valid OmniDesign build references, do not commit, and return a concise summary of what you changed.\n\n${prepared.conversationContext}`,
+      }, (activity) => {
+        if (!event.sender.isDestroyed()) event.sender.send('providers:activity', activity)
+      })
+      try {
+        const completed = await requireWorkspace().completeIntelligentCombination(prepared.attempt.id, reply.text)
+        requireGenerationQueue().refresh()
+        return completed
+      } catch (error) {
+        return requireWorkspace().beginCombinationFallback(prepared.attempt.id, error instanceof Error ? error.message : 'The intelligent combination did not validate.', reply.text)
+      }
+    } catch (error) {
+      return requireWorkspace().beginCombinationFallback(prepared.attempt.id, error instanceof Error ? error.message : 'The intelligent combination failed.')
+    } finally {
+      sendWorkspaceChanged(request.designId)
+    }
+  })
+  ipcMain.handle('workspace:finish-combination', async (event, value: unknown) => {
+    authorize(event)
+    const request = combinationAttemptRequestSchema.parse(value)
+    const result = await requireWorkspace().finishManualCombination(request.attemptId)
+    requireGenerationQueue().refresh()
+    sendWorkspaceChanged(request.designId)
+    return result
+  })
+  ipcMain.handle('workspace:abort-combination', (event, value: unknown) => {
+    authorize(event)
+    const request = combinationAttemptRequestSchema.parse(value)
+    const result = requireWorkspace().abortCombination(request.attemptId)
+    requireGenerationQueue().refresh()
+    sendWorkspaceChanged(request.designId)
+    return result
+  })
+  ipcMain.handle('workspace:open-combination-editor', async (event, value: unknown) => {
+    authorize(event)
+    const request = combinationAttemptRequestSchema.parse(value)
+    const attempt = requireWorkspace().getCombinationAttempt(request.attemptId)
+    if (!attempt?.destinationBranchId || attempt.designId !== request.designId || attempt.state !== 'manual_resolution') throw new Error('Combination attempt is not awaiting manual resolution.')
+    openCodeEditor(requireWorkspace().getDesignRepositoryPath(request.designId, attempt.destinationBranchId))
+  })
+  ipcMain.handle('workspace:list-combinations', (event, value: unknown) => {
+    authorize(event)
+    return requireWorkspace().listCombinationAttempts(designIdRequestSchema.parse(value).designId)
+  })
+  ipcMain.handle('preview:register-combination', (event, value: unknown) => {
+    authorize(event)
+    const request = combinationAttemptRequestSchema.parse(value)
+    const preview = requireWorkspace().getCombinationPreview(request.attemptId)
+    if (preview.designId !== request.designId) throw new Error('Combination attempt does not belong to this design.')
+    return { token: requirePreviewServer().register(preview.designId, preview.revisionId, preview.files), ...preview.pages }
+  })
   ipcMain.handle('workspace:restore-revision', (event, value: unknown) => {
     authorize(event)
     const request = selectRevisionRequestSchema.parse(value)
@@ -697,7 +894,7 @@ function registerIpc(): void {
   ipcMain.handle('workspace:save-draft', (event, value: unknown) => {
     authorize(event)
     const request = saveDraftRequestSchema.parse(value)
-    requireWorkspace().saveDraft(request.designId, request.draft, request.attachments)
+    requireWorkspace().saveDraft(request.designId, request.draft, request.attachments, request.branchContexts)
   })
   ipcMain.handle('workspace:save-layout', (event, value: unknown) => {
     authorize(event)
@@ -853,9 +1050,40 @@ void app.whenReady().then(() => {
     async (job, signal, onActivity) => {
       // Make sure the repository is at the head of the main timeline before generating, in case the
       // user was viewing (and had checked out) an earlier revision.
-      if (job.mode === 'fresh') requireWorkspace().prepareGenerationWorkspace(job.designId)
+      if (job.mode === 'fresh') requireWorkspace().prepareGenerationWorkspace(job.designId, job.branchId)
+      const branchContextResolution = requireWorkspace().resolveBranchContextsForGeneration(job.designId, job.branchId, job.branchContexts)
+      const resolvedBranchContexts = [] as import('../workspace/contracts.js').ResolvedBranchContext[]
+      for (const context of branchContextResolution.contexts) {
+        if (context.conversation.length <= 30_000) { resolvedBranchContexts.push(context); continue }
+        if (job.providerId === 'mock') {
+          resolvedBranchContexts.push({ ...context, conversation: context.conversation.slice(-30_000), summarized: true, disclosure: 'The development provider retained the most recent 30,000 characters of this oversized branch conversation.' })
+          continue
+        }
+        const summary = await providers.runAnalysisAgent({
+          requestId: `${job.id}-branch-context-${context.branchId}`,
+          providerId: job.providerId,
+          modelId: job.modelId,
+          ...(job.effort ? { effort: job.effort } : {}),
+          prompt: `Summarize this branch conversation while preserving design decisions, requested changes, unresolved constraints, and the latest direction:\n\n${context.conversation}`,
+          workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId, job.branchId),
+          referencePaths: [requireWorkspace().getDesignRepositoryPath(job.designId, context.branchId)],
+          readOnly: true,
+          instructions: 'This is read-only context preparation. Do not create, edit, delete, or commit files. Return only the faithful conversation summary.',
+          signal,
+        }, (activity) => onActivity({ designId: job.designId, stage: 'generating', detail: activity.detail ?? activity.label }))
+        resolvedBranchContexts.push({ ...context, conversation: summary.text.trim(), summarized: true, disclosure: `AI-generated summary of ${context.title} through message ${context.conversationCutoffMessageId ?? 'at divergence'}.` })
+      }
+      store.saveResolvedBranchContexts(job.id, resolvedBranchContexts)
+      const branchContextInstructions = resolvedBranchContexts.length ? [
+        'The user explicitly attached these parallel design branches as reference context. Their worktrees are reference material only: never edit, delete, rename, create, or commit files there. The provider-owned harness does not technically enforce this boundary, so follow it exactly.',
+        ...resolvedBranchContexts.flatMap((context, index) => [
+          `Reference ${index + 1}: ${context.title} at captured commit ${context.commit}; path ${branchContextResolution.referencePaths[index]}.`,
+          ...(context.disclosure ? [`Disclosure: ${context.disclosure}`] : []),
+          `Conversation through ${context.conversationCutoffMessageId ?? 'the divergence point'}:\n${context.conversation}`,
+        ]),
+      ].join('\n\n') : ''
       if (job.providerId === 'mock') {
-        await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3)
+        await requireWorkspace().generate(job.designId, job.prompt, onActivity, undefined, false, signal, 3, undefined, job.branchId)
         return
       }
       if (signal.aborted) throw new Error('Generation was cancelled.')
@@ -863,9 +1091,9 @@ void app.whenReady().then(() => {
       // A retry normally resumes the provider thread that already received the new-design context.
       // Re-send it only when there is no resumable session (for example, the first attempt failed
       // before the provider returned a session id).
-      const storedSession = store.getDesignProviderSession(job.designId)
+      const storedSession = store.getDesignProviderSession(job.designId, job.branchId)
       if (job.mode === 'fresh' && !job.providerSessionId && !storedSession) {
-        const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId)
+        const definitionContext = requireWorkspace().getInitialProjectDefinitionPromptContext(job.designId, job.branchId)
         if (definitionContext) agentPrompt = `${agentPrompt}\n\n${definitionContext}`
       }
       if (job.focusedFeedback?.length) agentPrompt = createFocusedFeedbackBatchPrompt(job.focusedFeedback)
@@ -875,12 +1103,12 @@ void app.whenReady().then(() => {
       let providerSessionId = job.providerSessionId ?? (storedSession && storedSession.providerId === job.providerId ? storedSession.sessionId : undefined)
       // When starting fresh, give the agent a recap of the conversation so far so it is not blind to it.
       // The last message is the current prompt (added at enqueue), so it is excluded from the recap.
-      const conversationRecap = providerSessionId ? '' : buildConversationRecap((store.getDesign(job.designId)?.messages ?? []).slice(0, -1))
+      const conversationRecap = providerSessionId ? '' : buildConversationRecap((store.getDesignAtBranch(job.designId, job.branchId)?.messages ?? []).slice(0, -1))
       const rememberSession = (sessionId: string) => {
         if (!sessionId || sessionId === providerSessionId) return
         providerSessionId = sessionId
         store.saveGenerationJobSession(job.id, sessionId)
-        store.saveDesignProviderSession(job.designId, job.providerId, sessionId)
+        store.saveDesignProviderSession(job.designId, job.providerId, sessionId, job.branchId)
       }
       for (let attempt = 0; attempt < 4; attempt += 1) {
         onActivity({ designId: job.designId, stage: attempt === 0 ? 'generating' : 'repairing', detail: attempt === 0 ? 'Starting the design agent.' : `Making improvements (round ${attempt} of 3).` })
@@ -898,7 +1126,7 @@ void app.whenReady().then(() => {
           if (!message || message === lastFlushed) return
           lastFlushed = message
           try {
-            store.addAssistantResponse(job.designId, message)
+            store.addAssistantResponse(job.designId, message, job.branchId)
             sendWorkspaceChanged(job.designId)
           } catch { /* the design may have been removed mid-stream */ }
         }
@@ -909,8 +1137,10 @@ void app.whenReady().then(() => {
           ...(job.effort ? { effort: job.effort } : {}),
           prompt: agentPrompt,
           signal,
-          workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId),
+          workspacePath: requireWorkspace().getDesignRepositoryPath(job.designId, job.branchId),
           attachments: job.attachments,
+          referencePaths: branchContextResolution.referencePaths,
+          branchContextInstructions,
           sourceProjectPath: requireWorkspace().getDesign(job.designId)?.sourceProjectPath ?? null,
           ...(providerSessionId ? { resumeSessionId: providerSessionId } : {}),
           ...(conversationRecap ? { conversationRecap } : {}),
@@ -927,13 +1157,13 @@ void app.whenReady().then(() => {
         flushAgentMessage()
         if (reply.sessionId) rememberSession(reply.sessionId)
         if (signal.aborted) throw new Error('Generation was cancelled.')
-        const invalidCount = requireWorkspace().getDesign(job.designId)?.invalidCandidates.length ?? 0
+        const invalidCount = store.getDesignAtBranch(job.designId, job.branchId)?.invalidCandidates.length ?? 0
         const revisionReason = job.definitionTargetVersion ? `Apply project definitions version ${job.definitionTargetVersion}` : job.prompt
-        const priorRevisionId = requireWorkspace().getDesign(job.designId)?.activeRevisionId ?? null
-        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, revisionReason, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3, job.definitionTargetVersion)
+        const priorRevisionId = store.getDesignAtBranch(job.designId, job.branchId)?.activeRevisionId ?? null
+        const saved = await requireWorkspace().saveAgentWorkspaceResult(job.designId, revisionReason, reply.providerId, reply.modelId, reply.response, onActivity, attempt < 3, job.definitionTargetVersion, job.branchId)
         if (saved.invalidCandidates.length === invalidCount) {
           if (job.definitionTargetVersion) {
-            store.completeProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
+            store.completeProjectDefinitionApplication(job.designId, job.definitionTargetVersion, job.branchId)
             store.finishProjectDefinitionApplicationAttemptForJob(job.id, 'completed', null, saved.activeRevisionId !== priorRevisionId ? saved.activeRevisionId : null)
           }
           return
@@ -960,26 +1190,19 @@ void app.whenReady().then(() => {
   void refreshProviderStatuses().catch(() => undefined)
   updateService = new UpdateService({
     enabled: shouldEnableUpdates(app.isPackaged, process.platform),
-    async promptForRestart(version) {
-      if (!mainWindow || mainWindow.isDestroyed()) return false
-      const activeJobs = store.listGenerationJobs(['queued', 'running'])
-      const detail = activeJobs.length > 0
-        ? `${activeJobs.length} active generation${activeJobs.length === 1 ? '' : 's'} will be interrupted and can be continued after OmniDesign restarts.`
-        : 'Restart now to apply the update, or choose Later to install it when you next quit OmniDesign.'
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Update ready',
-        message: `OmniDesign ${version} is ready to install.`,
-        detail,
-        buttons: ['Restart and update', 'Later'],
-        defaultId: activeJobs.length > 0 ? 1 : 0,
-        cancelId: 1,
-      })
-      return result.response === 0
+    canInstall() {
+      const activeJobs = store.listGenerationJobs(['running'])
+      if (activeJobs.length) return `${activeJobs.length} generation${activeJobs.length === 1 ? ' is' : 's are'} still running.`
+      const activeCombinations = store.listActiveCombinationAttempts()
+      if (activeCombinations.length) return activeCombinations.some((attempt) => attempt.state === 'manual_resolution') ? 'Finish or abort manual combination resolution first.' : 'A branch combination is still running.'
+      return null
     },
     beforeInstall() {
       closingAfterGenerationConfirmation = true
       store.markGenerationJobsInterrupted()
+    },
+    onStateChange(state) {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updates:state', state)
     },
   })
   updateService.start()

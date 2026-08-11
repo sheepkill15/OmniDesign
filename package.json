@@ -12,6 +12,7 @@
     "build": "pnpm run build:renderer && pnpm run build:electron",
     "build:renderer": "tsc -b && vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
+    "audit:prod": "pnpm audit --prod",
     "start": "electron .",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json",
     "test": "vitest run --environment jsdom --testTimeout=10000 --exclude=dist-electron/** --exclude=tests/e2e/**",

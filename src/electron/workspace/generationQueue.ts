@@ -1,14 +1,14 @@
-import type { Attachment, FocusedFeedback, FocusedTarget, GenerationActivity, GenerationJob } from './contracts.js'
+import type { Attachment, BranchContextReference, FocusedFeedback, FocusedTarget, GenerationActivity, GenerationJob } from './contracts.js'
 import { WorkspaceStore } from './store.js'
 
 type ActivityListener = (activity: GenerationActivity) => void
 type JobRunner = (job: GenerationJob, signal: AbortSignal, onActivity: ActivityListener) => Promise<void>
 
 export class GenerationQueue {
-  private readonly runningDesignIds = new Set<string>()
+  private readonly runningBranchKeys = new Set<string>()
   private readonly abortControllers = new Map<string, AbortController>()
   private readonly executionPromises = new Map<string, Promise<void>>()
-  private readonly pausedDesignIds = new Set<string>()
+  private readonly pausedBranchKeys = new Set<string>()
   private runningCount = 0
   private draining = false
 
@@ -21,16 +21,17 @@ export class GenerationQueue {
     if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Generation queue concurrency must be at least one.')
   }
 
-  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = []): GenerationJob {
-    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments, 'fresh', definitionTargetVersion, focusedTarget, focusedFeedback)
-    this.onActivity({ designId, stage: 'queued', detail: 'Waiting to start…' })
+  public enqueue(designId: string, prompt: string, providerId: 'mock' | 'codex' | 'claude' = 'mock', modelId = 'mock-v1', effort?: string | null, attachments: readonly Attachment[] = [], definitionTargetVersion: number | null = null, focusedTarget: FocusedTarget | null = null, focusedFeedback: readonly FocusedFeedback[] = [], replyToMessageId: string | null = null, branchContexts: readonly BranchContextReference[] = []): GenerationJob {
+    const job = this.store.enqueueGenerationJob(designId, prompt, providerId, modelId, effort, attachments, 'fresh', definitionTargetVersion, focusedTarget, focusedFeedback, replyToMessageId, branchContexts)
+    this.store.setDesignBranchStatus(designId, job.branchId, 'queued')
+    this.onActivity({ designId, branchId: job.branchId, stage: 'queued', detail: 'Waiting to start…' })
     void this.drain()
     return job
   }
 
   public recoverAfterRestart(): GenerationJob[] {
     const interrupted = this.store.markGenerationJobsInterrupted()
-    for (const designId of this.store.listPausedGenerationDesignIds()) this.pausedDesignIds.add(designId)
+    for (const branch of this.store.listPausedGenerationBranches()) this.pausedBranchKeys.add(this.branchKey(branch.designId, branch.branchId))
     return interrupted
   }
 
@@ -40,29 +41,31 @@ export class GenerationQueue {
     if (job.state === 'queued') {
       const cancelled = this.store.cancelQueuedGenerationJob(jobId)
       if (cancelled.definitionTargetVersion) {
-        this.store.failProjectDefinitionApplication(cancelled.designId, cancelled.definitionTargetVersion, 'Definition application was cancelled.')
+        this.store.failProjectDefinitionApplication(cancelled.designId, cancelled.definitionTargetVersion, 'Definition application was cancelled.', false, cancelled.branchId)
         this.store.finishProjectDefinitionApplicationAttemptForJob(cancelled.id, 'cancelled', 'Definition application was cancelled.')
       }
-      this.pauseDesign(cancelled.designId)
-      this.onActivity({ designId: cancelled.designId, stage: 'cancelled', detail: 'Queued generation was cancelled.' })
+      this.pauseDesign(cancelled.designId, cancelled.branchId)
+      this.store.setDesignBranchStatus(cancelled.designId, cancelled.branchId, 'failed')
+      this.onActivity({ designId: cancelled.designId, branchId: cancelled.branchId, stage: 'cancelled', detail: 'Queued generation was cancelled.' })
       void this.drain()
       return cancelled
     }
     if (job.state !== 'running') throw new Error('Generation job is not active.')
     this.abortControllers.get(jobId)?.abort()
-    this.onActivity({ designId: job.designId, stage: 'generating', detail: 'Stopping generation…' })
+    this.onActivity({ designId: job.designId, branchId: job.branchId, stage: 'generating', detail: 'Stopping generation…' })
     return job
   }
 
   public retry(jobId: string): GenerationJob {
     const job = this.store.retryGenerationJob(jobId)
     if (job.definitionTargetVersion) {
-      this.store.beginProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
-      this.store.startProjectDefinitionApplicationAttempt(job.designId, job.definitionTargetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: job.providerId, modelId: job.modelId, effort: job.effort ?? null })
+      this.store.beginProjectDefinitionApplication(job.designId, job.definitionTargetVersion, job.branchId)
+      this.store.startProjectDefinitionApplicationAttempt(job.designId, job.definitionTargetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: job.providerId, modelId: job.modelId, effort: job.effort ?? null, branchId: job.branchId })
     }
-    this.pausedDesignIds.delete(job.designId)
-    this.store.resumeGenerationQueue(job.designId)
-    this.onActivity({ designId: job.designId, stage: 'queued', detail: 'Generation retry is queued.' })
+    this.pausedBranchKeys.delete(this.branchKey(job.designId, job.branchId))
+    this.store.resumeGenerationQueue(job.designId, job.branchId)
+    this.store.setDesignBranchStatus(job.designId, job.branchId, 'queued')
+    this.onActivity({ designId: job.designId, branchId: job.branchId, stage: 'queued', detail: 'Generation retry is queued.' })
     void this.drain()
     return job
   }
@@ -72,9 +75,10 @@ export class GenerationQueue {
     if (queued?.definitionTargetVersion) this.store.finishProjectDefinitionApplicationAttemptForJob(queued.id, 'cancelled', 'Definition application was removed from the queue.')
     const removed = this.store.removeQueuedGenerationJob(jobId)
     if (removed.definitionTargetVersion) {
-      this.store.failProjectDefinitionApplication(removed.designId, removed.definitionTargetVersion, 'Definition application was removed from the queue.')
+      this.store.failProjectDefinitionApplication(removed.designId, removed.definitionTargetVersion, 'Definition application was removed from the queue.', false, removed.branchId)
     }
-    this.onActivity({ designId: removed.designId, stage: 'queued', detail: 'Queued generation was removed.' })
+    this.store.setDesignBranchStatus(removed.designId, removed.branchId, this.hasQueuedForBranch(removed.designId, removed.branchId) ? 'queued' : 'ready')
+    this.onActivity({ designId: removed.designId, branchId: removed.branchId, stage: 'queued', detail: 'Queued generation was removed.' })
     void this.drain()
     return removed
   }
@@ -88,20 +92,23 @@ export class GenerationQueue {
   public continue(jobId: string): GenerationJob {
     const job = this.store.continueGenerationJob(jobId)
     if (job.definitionTargetVersion) {
-      this.store.beginProjectDefinitionApplication(job.designId, job.definitionTargetVersion)
-      this.store.startProjectDefinitionApplicationAttempt(job.designId, job.definitionTargetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: job.providerId, modelId: job.modelId, effort: job.effort ?? null })
+      this.store.beginProjectDefinitionApplication(job.designId, job.definitionTargetVersion, job.branchId)
+      this.store.startProjectDefinitionApplicationAttempt(job.designId, job.definitionTargetVersion, { mechanism: 'ai', generationJobId: job.id, providerId: job.providerId, modelId: job.modelId, effort: job.effort ?? null, branchId: job.branchId })
     }
-    this.pausedDesignIds.delete(job.designId)
-    this.store.resumeGenerationQueue(job.designId)
-    this.onActivity({ designId: job.designId, stage: 'queued', detail: 'Continuing from the retained partial workspace.' })
+    this.pausedBranchKeys.delete(this.branchKey(job.designId, job.branchId))
+    this.store.resumeGenerationQueue(job.designId, job.branchId)
+    this.store.setDesignBranchStatus(job.designId, job.branchId, 'queued')
+    this.onActivity({ designId: job.designId, branchId: job.branchId, stage: 'queued', detail: 'Continuing from the retained partial workspace.' })
     void this.drain()
     return job
   }
 
-  public resume(designId: string): void {
-    this.store.resumeGenerationQueue(designId)
-    this.pausedDesignIds.delete(designId)
-    this.onActivity({ designId, stage: 'queued', detail: 'Generation queue resumed.' })
+  public resume(designId: string, branchId = this.store.getDesign(designId)?.activeBranchId): void {
+    if (!branchId) throw new Error('Design branch not found.')
+    this.store.resumeGenerationQueue(designId, branchId)
+    this.store.setDesignBranchStatus(designId, branchId, this.hasQueuedForBranch(designId, branchId) ? 'queued' : 'ready')
+    this.pausedBranchKeys.delete(this.branchKey(designId, branchId))
+    this.onActivity({ designId, branchId, stage: 'queued', detail: 'Generation queue resumed.' })
     void this.drain()
   }
 
@@ -110,7 +117,10 @@ export class GenerationQueue {
     this.draining = true
     try {
       while (this.runningCount < this.concurrency) {
-        const job = this.store.listGenerationJobs().find((candidate) => !this.runningDesignIds.has(candidate.designId) && !this.pausedDesignIds.has(candidate.designId))
+        const job = this.store.listGenerationJobs().find((candidate) => {
+          const key = this.branchKey(candidate.designId, candidate.branchId)
+          return !this.runningBranchKeys.has(key) && !this.pausedBranchKeys.has(key) && !this.store.isDesignBranchLocked(candidate.branchId)
+        })
         if (!job) return
         this.start(job)
       }
@@ -121,7 +131,7 @@ export class GenerationQueue {
 
   private start(job: GenerationJob): void {
     this.runningCount += 1
-    this.runningDesignIds.add(job.designId)
+    this.runningBranchKeys.add(this.branchKey(job.designId, job.branchId))
     const abortController = new AbortController()
     this.abortControllers.set(job.id, abortController)
     const execution = this.execute(job, abortController.signal).finally(() => this.executionPromises.delete(job.id))
@@ -132,25 +142,26 @@ export class GenerationQueue {
     let pauseQueue = false
     try {
       this.store.setGenerationJobState(job.id, 'running')
+      this.store.setDesignBranchStatus(job.designId, job.branchId, 'generating')
       let failed = false
       // One initial attempt (attempt 0) plus up to three automatic retries for transient failures.
       for (let attempt = 0; attempt < 4; attempt += 1) {
         try {
           await this.runJob(job, signal, (activity) => {
             failed ||= activity.stage === 'failed'
-            this.onActivity(activity)
+            this.onActivity({ ...activity, branchId: job.branchId })
           })
           break
         } catch (error) {
           if (signal.aborted || !isTransientProviderError(error) || attempt === 3) throw error
-          this.onActivity({ designId: job.designId, stage: 'generating', detail: `Connection issue — trying again (${attempt + 1} of 3)…` })
+          this.onActivity({ designId: job.designId, branchId: job.branchId, stage: 'generating', detail: `Connection issue — trying again (${attempt + 1} of 3)…` })
         }
       }
       pauseQueue = signal.aborted || failed
       this.store.setGenerationJobState(job.id, signal.aborted ? 'cancelled' : failed ? 'failed' : 'completed', signal.aborted ? 'Cancelled by the user.' : failed ? 'Generation did not produce a valid revision.' : null)
       if (job.definitionTargetVersion && (signal.aborted || failed)) {
         const diagnostic = signal.aborted ? 'Definition application was cancelled.' : 'AI generation did not produce a valid revision.'
-        this.store.failProjectDefinitionApplication(job.designId, job.definitionTargetVersion, diagnostic)
+        this.store.failProjectDefinitionApplication(job.designId, job.definitionTargetVersion, diagnostic, false, job.branchId)
         this.store.finishProjectDefinitionApplicationAttemptForJob(job.id, signal.aborted ? 'cancelled' : 'failed', diagnostic)
       }
     } catch (error) {
@@ -160,22 +171,34 @@ export class GenerationQueue {
       this.store.setGenerationJobState(job.id, stage, signal.aborted ? 'Cancelled by the user.' : detail)
       if (job.definitionTargetVersion) {
         const diagnostic = signal.aborted ? 'Definition application was cancelled.' : detail
-        this.store.failProjectDefinitionApplication(job.designId, job.definitionTargetVersion, diagnostic)
+        this.store.failProjectDefinitionApplication(job.designId, job.definitionTargetVersion, diagnostic, false, job.branchId)
         this.store.finishProjectDefinitionApplicationAttemptForJob(job.id, signal.aborted ? 'cancelled' : 'failed', diagnostic)
       }
-      this.onActivity({ designId: job.designId, stage, detail: signal.aborted ? 'Generation was cancelled.' : detail })
+      this.onActivity({ designId: job.designId, branchId: job.branchId, stage, detail: signal.aborted ? 'Generation was cancelled.' : detail })
     } finally {
-      if (pauseQueue) this.pauseDesign(job.designId)
+      if (pauseQueue) this.pauseDesign(job.designId, job.branchId)
       this.abortControllers.delete(job.id)
       this.runningCount -= 1
-      this.runningDesignIds.delete(job.designId)
+      this.runningBranchKeys.delete(this.branchKey(job.designId, job.branchId))
+      this.store.setDesignBranchStatus(job.designId, job.branchId, pauseQueue ? 'failed' : this.hasQueuedForBranch(job.designId, job.branchId) ? 'queued' : 'ready')
       void this.drain()
     }
   }
 
-  private pauseDesign(designId: string): void {
-    this.pausedDesignIds.add(designId)
-    this.store.pauseGenerationQueue(designId)
+  private pauseDesign(designId: string, branchId = this.store.getDesign(designId)?.activeBranchId): void {
+    if (!branchId) return
+    this.pausedBranchKeys.add(this.branchKey(designId, branchId))
+    this.store.pauseGenerationQueue(designId, branchId)
+  }
+
+  public refresh(): void { void this.drain() }
+
+  private branchKey(designId: string, branchId: string): string {
+    return `${designId}:${branchId}`
+  }
+
+  private hasQueuedForBranch(designId: string, branchId: string): boolean {
+    return this.store.listGenerationJobs().some((job) => job.designId === designId && job.branchId === branchId)
   }
 }
 

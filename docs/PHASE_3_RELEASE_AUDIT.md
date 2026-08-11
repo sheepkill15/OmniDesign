@@ -36,7 +36,7 @@ safety copies.
 | Prompt and provider continuity | Focus metadata augments the ordinary prompt while the original user wording remains visible. The existing provider session is resumed; no focused-edit conversation is created. Supporting CSS and JavaScript changes remain permitted through normal validation. |
 | Persistence and clearing | Resolved targets persist on submitted messages and generation attempts, including retry/continue history. The live target clears on submit, page/revision/layout/workspace changes, restore, and restart. Historical revisions remain non-editable until restored to a new head. |
 | Immediate and queued actions | The anchored popup exposes **Submit & fix** and **Queue** while keeping its draft separate from the ordinary composer. Immediate submission retains the single-target path. Queueing persists the comment and trusted exact target, clears the live selection, and adds the pending comment to a semi-transparent element thread marker. |
-| Element-level history threads | One directional teardrop marker per matched source element combines submitted immediate edits, submitted batch items, and pending comments in chronological order. Markers containing pending work use a solid accent treatment distinct from subdued historical-only markers. Each point rotates continuously toward the element from the marker's final position, nearby markers move into non-overlapping slots, and offscreen elements have no marker. Hover or keyboard focus reveals the thread; only pending entries can be removed. Historical targets re-anchor to a displayed revision only through one unique same-page stable identity or unchanged label and source excerpt, so ambiguous or deleted elements never receive guessed markers. |
+| Element-level history threads | One directional teardrop marker per matched source element combines submitted immediate edits, submitted batch items, and pending comments in chronological order. Markers containing pending work use a solid accent treatment distinct from subdued historical-only markers. Each point rotates continuously toward the element from the marker's final position, nearby markers move into non-overlapping slots, and offscreen elements have no marker. Hover or keyboard focus reveals the thread; only pending entries can be removed. Historical targets retain their marker after the target is changed through a privileged continuity identifier or another unique deterministic same-page source-map match; ambiguous or deleted elements never receive guessed markers. |
 | One-turn batch generation | **Fix all** revalidates every queued target and atomically moves the ordered items onto one conversation message and one generation job. The installed provider receives one coordinated prompt, Retry/Continue retain the complete batch, and a new head clears stale pending items. |
 
 ## Security and quality evidence
@@ -54,7 +54,7 @@ safety copies.
 - A built-Electron Playwright journey covers linked-project creation, setup,
   manual definitions, keep/apply decisions, deterministic revision creation,
   two exact `index.html:start-end` selections, queued comments, one batch generation, application-attempt
-  persistence, restart, and recovered conversation/history.
+  persistence, restart, recovered conversation/history, and visible element-thread markers on the fixed revision.
 
 ## Verification gates
 
@@ -67,3 +67,11 @@ Verified on Windows on 2026-07-27:
 
 The production build emits the existing advisory that one renderer chunk is
 larger than 500 kB; it does not fail the build.
+
+Post-audit focused-thread continuity verification on 2026-08-11:
+
+- `pnpm typecheck` passed.
+- `pnpm test` passed with 33 files and 332 tests.
+- `pnpm build` passed; the renderer advisory remains at 584.88 kB (166.72 kB gzip).
+- The focused Phase 3 built-Electron journey passed in 54.5 seconds and now asserts both submitted comment markers remain visible after the target-changing fix and restart.
+- `git diff --check` passed.

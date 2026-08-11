@@ -1,5 +1,5 @@
 import { compileTailwindCssForFiles, validateDesignFiles } from './compiler.js'
-import type { Attachment, Design, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
+import type { Attachment, BranchComparison, BranchComparisonSummary, BranchContextReference, CombinationAttempt, Design, DesignBranch, DesignPage, Folder, GenerationActivity, GenerationSelection, Layout, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, ResolvedBranchContext, RevisionComparison, RevisionPages, Tag, TagColor, Theme, TrashItem } from './contracts.js'
 import { DesignRepositoryManager } from './designRepository.js'
 import type { RevisionFiles } from './designRepository.js'
 import { discoverPages, extractPageTitle, resolveEntryPage } from './pages.js'
@@ -21,6 +21,27 @@ export class WorkspaceService {
 
   public constructor(private readonly store: WorkspaceStore) {
     this.repositories = new DesignRepositoryManager(store.getDesignArtifactsDirectory())
+    for (const design of store.listDesigns()) {
+      this.repositories.validateMainWorktree(design.id)
+      for (const branch of design.branches.filter((candidate) => !candidate.isMain)) {
+        try {
+          this.repositories.getWorkingPath(design.id, branch.id)
+        } catch {
+          try { this.repositories.repairBranchWorktree(design.id, branch.id) }
+          catch { this.store.setDesignBranchStatus(design.id, branch.id, 'failed') }
+        }
+      }
+    }
+    for (const attempt of store.listActiveCombinationAttempts().filter((candidate) => candidate.state === 'applying')) {
+      if (!attempt.destinationBranchId) { store.stopCombinationAttempt(attempt.id, 'failed', 'The destination branch was removed before restart recovery.'); continue }
+      try {
+        const fallback = this.repositories.beginFallbackMerge(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit, attempt.sourceCommit)
+        store.setCombinationManualResolution(attempt.id, fallback.conflicts.length ? `OmniDesign restarted during combination. Resolve conflicts in: ${fallback.conflicts.join(', ')}` : 'OmniDesign restarted during combination. Review the recovered fallback merge before finishing.', null, fallback.clean ? 'automatic_merge' : 'manual_resolution')
+      } catch (error) {
+        try { this.repositories.restoreBranchToCommit(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit) } catch { /* retain the original recovery failure */ }
+        store.stopCombinationAttempt(attempt.id, 'failed', error instanceof Error ? error.message : 'Combination recovery failed.')
+      }
+    }
   }
 
   public listDesigns(): Design[] {
@@ -40,6 +61,69 @@ export class WorkspaceService {
   public getDesign(designId: string): Design | null {
     return this.store.getDesign(designId)
   }
+  public createDesignBranch(designId: string, title: string, baseRevisionId?: string | null, forkMessageId?: string | null): Design {
+    const source = this.store.getDesign(designId)
+    if (!source) throw new Error('Design not found.')
+    const resolvedBaseRevisionId = baseRevisionId === undefined ? source.activeRevisionId : baseRevisionId
+    const baseRevision = resolvedBaseRevisionId ? source.revisions.find((revision) => revision.id === resolvedBaseRevisionId) : null
+    const baseCommit = baseRevision?.gitCommit ?? (resolvedBaseRevisionId === null ? this.repositories.getInitialCommit(designId) : null)
+    if (!baseCommit) throw new Error('A branch requires a committed design revision as its starting point.')
+    const branch = this.store.createDesignBranch(designId, title, resolvedBaseRevisionId, forkMessageId ?? null)
+    try {
+      this.repositories.createBranchWorktree(designId, branch.id, baseCommit)
+      return this.switchDesignBranch(designId, branch.id)
+    } catch (error) {
+      try { this.store.removeDesignBranchRecord(designId, branch.id) } catch { /* preserve the original lifecycle error */ }
+      throw error
+    }
+  }
+
+  public switchDesignBranch(designId: string, branchId: string): Design {
+    const branch = this.store.listDesignBranches(designId).find((candidate) => candidate.id === branchId)
+    if (!branch) throw new Error('Design branch not found.')
+    try {
+      if (branch.isMain) this.repositories.validateMainWorktree(designId)
+      else {
+        try { this.repositories.getWorkingPath(designId, branchId) }
+        catch { this.repositories.repairBranchWorktree(designId, branchId) }
+      }
+      const selectedRevision = branch.selectedRevisionId
+        ? this.store.getDesignAtBranch(designId, branchId)?.revisions.find((revision) => revision.id === branch.selectedRevisionId)
+        : null
+      const hasActiveGeneration = this.store.getDesignAtBranch(designId, branchId)?.generationJobs.some((job) => job.state === 'running') ?? false
+      if (hasActiveGeneration) {
+        // The provider owns the branch worktree until its job completes. Switching the visible branch
+        // must never check out over in-progress files.
+      } else if (selectedRevision && selectedRevision.id !== branch.activeRevisionId && selectedRevision.gitCommit) {
+        this.repositories.checkoutRevision(designId, selectedRevision.gitCommit, branchId)
+      } else {
+        this.repositories.checkoutBranchHead(designId, branchId)
+      }
+    } catch (error) {
+      this.store.setDesignBranchStatus(designId, branchId, 'failed')
+      throw error
+    }
+    if (branch.status === 'failed') this.store.setDesignBranchStatus(designId, branchId, 'ready')
+    return this.store.switchDesignBranch(designId, branchId)
+  }
+
+  public renameDesignBranch(designId: string, branchId: string, title: string): DesignBranch {
+    return this.store.renameDesignBranch(designId, branchId, title)
+  }
+
+  public removeDesignBranch(designId: string, branchId: string, force = false): DesignBranch[] {
+    const branch = this.store.listDesignBranches(designId).find((candidate) => candidate.id === branchId)
+    if (!branch) throw new Error('Design branch not found.')
+    if (branch.isMain) throw new Error('Main cannot be removed.')
+    if (this.store.getDesign(designId)?.activeBranchId === branchId) throw new Error('Switch to another branch before removing this branch.')
+    const branchState = this.store.getDesignAtBranch(designId, branchId)
+    if (branchState?.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')) {
+      throw new Error('Finish or stop this branch\'s active work before removing it.')
+    }
+    this.repositories.removeBranchWorktree(designId, branchId, force)
+    this.store.removeDesignBranchRecord(designId, branchId)
+    return this.store.listDesignBranches(designId)
+  }
   public renameProject(projectId: string, name: string): ProjectSummary { return this.store.renameProject(projectId, name) }
   public getProjectDesignDefinitionState(projectId: string): ProjectDesignDefinitionState | null { return this.store.getProjectDesignDefinitionState(projectId) }
   public listProjectDesignDefinitionVersions(projectId: string): ProjectDesignDefinitionVersion[] { return this.store.listProjectDesignDefinitionVersions(projectId) }
@@ -47,8 +131,9 @@ export class WorkspaceService {
   public setProjectDefinitionPromptSuppressed(projectId: string, suppressed: boolean): ProjectDesignDefinitionState { return this.store.setProjectDefinitionPromptSuppressed(projectId, suppressed) }
   public keepProjectDesignDefinitions(designId: string, targetVersion: number): Design { return this.store.keepProjectDesignDefinitions(designId, targetVersion) }
 
-  public async applyProjectDesignDefinitions(designId: string, targetVersion: number): Promise<Design> {
-    const design = this.store.getDesign(designId)
+  public async applyProjectDesignDefinitions(designId: string, targetVersion: number, branchId = this.store.getDesign(designId)?.activeBranchId): Promise<Design> {
+    if (!branchId) throw new Error('Design branch not found.')
+    const design = this.store.getDesignAtBranch(designId, branchId)
     if (!design || design.pendingDefinitionVersion !== targetVersion) throw new Error('The requested project-definition decision is no longer pending.')
     const target = this.store.listProjectDesignDefinitionVersions(design.projectId).find((candidate) => candidate.version === targetVersion)
     if (!target) throw new Error('The requested project definitions are missing.')
@@ -57,47 +142,49 @@ export class WorkspaceService {
       : null
     if (design.activeRevisionId && (!current || !canUpdateProjectThemeDeterministically(current.definitions, target.definitions))) {
       const diagnostic = 'This change needs AI interpretation. Choose an available provider to apply it.'
-      this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'ai', state: 'unavailable', diagnostic })
-      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic, true)
+      this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'ai', state: 'unavailable', diagnostic, branchId })
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic, true, branchId)
     }
-    const attempt = this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'deterministic' })
+    const attempt = this.store.startProjectDefinitionApplicationAttempt(designId, targetVersion, { mechanism: 'deterministic', branchId })
     if (design.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')) {
       const diagnostic = 'Finish or stop the design’s active work before applying project definitions.'
       this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'failed', diagnostic)
-      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic)
+      return this.store.failProjectDefinitionApplication(designId, targetVersion, diagnostic, false, branchId)
     }
 
-    this.store.beginProjectDefinitionApplication(designId, targetVersion)
+    this.store.beginProjectDefinitionApplication(designId, targetVersion, branchId)
     try {
-      this.repositories.checkoutMain(designId)
-      const sourceFiles = materializeProjectTheme(this.repositories.readWorkingTreeFiles(designId), target)
-      this.repositories.writeSourceFiles(designId, sourceFiles)
+      this.repositories.checkoutBranchHead(designId, branchId)
+      const sourceFiles = materializeProjectTheme(this.repositories.readWorkingTreeFiles(designId, branchId), target)
+      this.repositories.writeSourceFiles(designId, sourceFiles, branchId)
       if (!design.activeRevisionId) {
-        const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion)
+        const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion, branchId)
         this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'completed')
         return completed
       }
       const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       validateDesignFiles(sourceFiles)
-      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply project definitions version ${targetVersion}`)
-      const revised = gitCommit ? this.store.addRevision(designId, `Apply project definitions version ${targetVersion}`, 'omnidesign', 'deterministic', gitCommit, `Applied project definitions version ${targetVersion}.`, targetVersion) : null
-      const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion)
+      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply project definitions version ${targetVersion}`, branchId)
+      const revised = gitCommit ? this.store.addRevision(designId, `Apply project definitions version ${targetVersion}`, 'omnidesign', 'deterministic', gitCommit, `Applied project definitions version ${targetVersion}.`, targetVersion, branchId) : null
+      const completed = this.store.completeProjectDefinitionApplication(designId, targetVersion, branchId)
       this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'completed', null, revised?.activeRevisionId ?? null)
       return completed
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Project definitions could not be applied.'
-      this.store.failProjectDefinitionApplication(designId, targetVersion, message)
+      this.store.failProjectDefinitionApplication(designId, targetVersion, message, false, branchId)
       this.store.finishProjectDefinitionApplicationAttempt(attempt.id, 'failed', message)
       throw error
     }
   }
 
   public async applyProjectDesignDefinitionsToAll(projectId: string, targetVersion: number): Promise<Design[]> {
-    const pending = this.store.listDesignsByProject(projectId).filter((design) => design.pendingDefinitionVersion === targetVersion)
+    const pending = this.store.listDesignsByProject(projectId).flatMap((design) => design.branches
+      .map((branch) => this.store.getDesignAtBranch(design.id, branch.id))
+      .filter((candidate): candidate is Design => candidate?.pendingDefinitionVersion === targetVersion))
     const results: Design[] = []
     for (const design of pending) {
-      try { results.push(await this.applyProjectDesignDefinitions(design.id, targetVersion)) }
-      catch { const failed = this.store.getDesign(design.id); if (failed) results.push(failed) }
+      try { results.push(await this.applyProjectDesignDefinitions(design.id, targetVersion, design.activeBranchId)) }
+      catch { const failed = this.store.getDesignAtBranch(design.id, design.activeBranchId); if (failed) results.push(failed) }
     }
     return results
   }
@@ -166,9 +253,9 @@ export class WorkspaceService {
     return this.store.createStandaloneDesign(prompt, title, attachments)
   }
 
-  public getDesignRepositoryPath(designId: string): string {
-    if (!this.store.getDesign(designId)) throw new Error('Design not found.')
-    return this.repositories.getPath(designId)
+  public getDesignRepositoryPath(designId: string, branchId = this.store.getDesign(designId)?.activeBranchId): string {
+    if (!branchId || !this.store.getDesignAtBranch(designId, branchId)) throw new Error('Design branch not found.')
+    return this.repositories.getWorkingPath(designId, branchId)
   }
 
   public async createDesign(prompt: string, onActivity: ActivityListener, target?: CreateDesignTarget, attachments: readonly Attachment[] = []): Promise<Design> {
@@ -191,18 +278,19 @@ export class WorkspaceService {
     return design
   }
 
-  public getInitialProjectDefinitionPromptContext(designId: string): string {
-    const design = this.store.getDesign(designId)
+  public getInitialProjectDefinitionPromptContext(designId: string, branchId?: string): string {
+    const design = branchId ? this.store.getDesignAtBranch(designId, branchId) : this.store.getDesign(designId)
     if (!design || design.activeRevisionId) return ''
     const definitionVersion = this.definitionVersionForDesign(design)
     return definitionVersion ? createProjectDefinitionPromptContext(definitionVersion) : ''
   }
 
-  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0, generatedFiles?: RevisionFiles): Promise<Design> {
+  public async generate(designId: string, prompt: string, onActivity: ActivityListener, generatedHtml?: string, savePrompt = true, signal?: AbortSignal, maxRepairAttempts = 0, generatedFiles?: RevisionFiles, branchId = this.store.getDesign(designId)?.activeBranchId): Promise<Design> {
+    if (!branchId) throw new Error('Design branch not found.')
     this.throwIfCancelled(signal)
     if (savePrompt) this.store.addPrompt(designId, prompt)
     onActivity({ designId, stage: 'generating', detail: 'Mock provider is shaping the requested direction.' })
-    const current = this.store.getDesign(designId)
+    const current = this.store.getDesignAtBranch(designId, branchId)
     if (!current) throw new Error('Design not found.')
     const isIteration = current.activeRevisionId ?? undefined
     let generated = generatedFiles ? { html: generatedHtml ?? generatedFiles['index.html'] ?? '', files: generatedFiles } : generateMockDesign(prompt, isIteration)
@@ -222,15 +310,15 @@ export class WorkspaceService {
         onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
         validateDesignFiles(generated.files)
         onActivity({ designId, stage: 'saving', detail: 'Committing the revision to the design repository.' })
-        const gitCommit = this.repositories.commitGeneratedRevision(designId, generated.files, tailwindCss, `Apply design revision: ${prompt}`)
-        const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit)
+        const gitCommit = this.repositories.commitGeneratedRevision(designId, generated.files, tailwindCss, `Apply design revision: ${prompt}`, branchId)
+        const saved = this.store.addRevision(designId, prompt, 'mock', 'mock-v1', gitCommit, undefined, undefined, branchId)
         onActivity({ designId, stage: 'complete', detail: 'Revision is ready to preview.' })
         return saved
       } catch (error) {
         if (signal?.aborted) return this.cancelledDesign(designId, onActivity)
         const diagnostic = error instanceof Error ? error.message : 'Generation failed.'
         if (repairAttempt === maxRepairAttempts) {
-          const rejected = this.store.addInvalidCandidate(designId, prompt, generated.html, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
+          const rejected = this.store.addInvalidCandidate(designId, prompt, generated.html, diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.', branchId)
           onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
           return rejected
         }
@@ -248,29 +336,30 @@ export class WorkspaceService {
     if (!design || !revision) throw new Error('Revision not found.')
     // Going back to a revision checks its commit out into the working tree; selecting the current
     // head returns to the main timeline. Legacy revisions without a commit are viewed without checkout.
-    if (revision.id === design.activeRevisionId) this.repositories.checkoutMain(designId)
-    else if (revision.gitCommit) this.repositories.checkoutRevision(designId, revision.gitCommit)
+    if (revision.id === design.activeRevisionId) this.repositories.checkoutBranchHead(designId, design.activeBranchId)
+    else if (revision.gitCommit) this.repositories.checkoutRevision(designId, revision.gitCommit, design.activeBranchId)
     return this.store.selectRevision(designId, revisionId)
   }
 
   /** Ensure the working tree is at the head of the main timeline before a new generation runs. */
-  public prepareGenerationWorkspace(designId: string): void {
-    this.repositories.checkoutMain(designId)
+  public prepareGenerationWorkspace(designId: string, branchId = this.store.getDesign(designId)?.activeBranchId): void {
+    if (!branchId) throw new Error('Design branch not found.')
+    this.repositories.checkoutBranchHead(designId, branchId)
   }
 
   public restoreRevision(designId: string, revisionId: string): Design {
     const design = this.store.getDesign(designId)
-    const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
+    if (!design) throw new Error('Design not found.')
+    const revision = design.revisions.find((candidate) => candidate.id === revisionId)
     if (!revision) throw new Error('Revision not found.')
     if (!revision.gitCommit) throw new Error('Revision has no committed content to restore.')
-    const gitCommit = this.repositories.restore(designId, revision.gitCommit, `Restore design revision: ${revision.prompt}`)
+    const gitCommit = this.repositories.restore(designId, revision.gitCommit, `Restore design revision: ${revision.prompt}`, design.activeBranchId)
     return this.store.restoreRevision(designId, revisionId, gitCommit)
   }
 
   /** Read a revision's committed files (all pages + shared build assets) for preview and export. */
   public getRevisionFiles(designId: string, revisionId: string): RevisionFiles {
-    const design = this.store.getDesign(designId)
-    const revision = design?.revisions.find((candidate) => candidate.id === revisionId)
+    const revision = this.findRevision(designId, revisionId)
     if (!revision) throw new Error('Revision not found.')
     if (!revision.gitCommit) throw new Error('Revision has no committed content.')
     return this.repositories.readRevisionFiles(designId, revision.gitCommit)
@@ -283,6 +372,173 @@ export class WorkspaceService {
     if (!base || !target) throw new Error('Revision not found.')
     if (!base.gitCommit || !target.gitCommit) throw new Error('Revision comparison is unavailable for legacy revisions.')
     return this.repositories.compareRevisions(designId, base.gitCommit, target.gitCommit, baseRevisionId, targetRevisionId)
+  }
+
+  private findRevision(designId: string, revisionId: string): Design['revisions'][number] | null {
+    const design = this.store.getDesign(designId)
+    if (!design) return null
+    for (const branch of design.branches) {
+      const revision = this.store.getDesignAtBranch(designId, branch.id)?.revisions.find((candidate) => candidate.id === revisionId)
+      if (revision) return revision
+    }
+    return null
+  }
+
+  public compareDesignBranches(designId: string, sourceBranchId: string, destinationBranchId: string): BranchComparison {
+    if (sourceBranchId === destinationBranchId) throw new Error('Choose two different branches.')
+    const branches = this.store.listDesignBranches(designId)
+    const sourceBranch = branches.find((branch) => branch.id === sourceBranchId)
+    const destinationBranch = branches.find((branch) => branch.id === destinationBranchId)
+    const sourceDesign = sourceBranch ? this.store.getDesignAtBranch(designId, sourceBranchId) : null
+    const destinationDesign = destinationBranch ? this.store.getDesignAtBranch(designId, destinationBranchId) : null
+    const sourceRevision = sourceDesign?.revisions.find((revision) => revision.id === sourceBranch?.activeRevisionId)
+    const destinationRevision = destinationDesign?.revisions.find((revision) => revision.id === destinationBranch?.activeRevisionId)
+    if (!sourceBranch || !destinationBranch || !sourceRevision?.gitCommit || !destinationRevision?.gitCommit) throw new Error('Both branches need a valid committed head before comparison.')
+    const sourcePages = this.getRevisionPages(designId, sourceRevision.id)
+    const destinationPages = this.getRevisionPages(designId, destinationRevision.id)
+    const comparisonId = this.store.recordBranchComparison(designId, sourceBranchId, destinationBranchId, sourceRevision.gitCommit, destinationRevision.gitCommit)
+    return {
+      comparisonId,
+      sourceCommit: sourceRevision.gitCommit,
+      destinationCommit: destinationRevision.gitCommit,
+      stale: false,
+      source: { branchId: sourceBranch.id, title: sourceBranch.title, revisionId: sourceRevision.id, pages: sourcePages.pages, entryPagePath: sourcePages.entryPagePath },
+      destination: { branchId: destinationBranch.id, title: destinationBranch.title, revisionId: destinationRevision.id, pages: destinationPages.pages, entryPagePath: destinationPages.entryPagePath },
+      changes: this.repositories.compareRevisions(designId, destinationRevision.gitCommit, sourceRevision.gitCommit, destinationRevision.id, sourceRevision.id),
+    }
+  }
+
+  public prepareBranchComparisonSummary(designId: string, sourceBranchId: string, destinationBranchId: string): { readonly comparison: BranchComparison; readonly sourceCommit: string; readonly destinationCommit: string; readonly sourcePath: string; readonly destinationPath: string; readonly changedLineContext: string; readonly conversationContext: string } {
+    const comparison = this.compareDesignBranches(designId, sourceBranchId, destinationBranchId)
+    const source = this.store.getDesignAtBranch(designId, sourceBranchId)
+    const destination = this.store.getDesignAtBranch(designId, destinationBranchId)
+    const sourceRevision = source?.revisions.find((revision) => revision.id === comparison.source.revisionId)
+    const destinationRevision = destination?.revisions.find((revision) => revision.id === comparison.destination.revisionId)
+    if (!sourceRevision?.gitCommit || !destinationRevision?.gitCommit) throw new Error('Both branches need a valid committed head before comparison.')
+    const formatConversation = (label: string, messages: readonly Design['messages'][number][]) => `${label}:\n${messages.map((message) => `${message.role}: ${message.text}`).join('\n')}`
+    return {
+      comparison,
+      sourceCommit: comparison.sourceCommit,
+      destinationCommit: comparison.destinationCommit,
+      sourcePath: this.repositories.getWorkingPath(designId, sourceBranchId),
+      destinationPath: this.repositories.getWorkingPath(designId, destinationBranchId),
+      changedLineContext: this.repositories.getRevisionDiffContext(designId, destinationRevision.gitCommit, sourceRevision.gitCommit),
+      conversationContext: `${formatConversation('Source conversation', source?.messages ?? [])}\n\n${formatConversation('Destination conversation', destination?.messages ?? [])}`,
+    }
+  }
+
+  public saveBranchComparisonSummary(designId: string, sourceBranchId: string, destinationBranchId: string, sourceCommit: string, destinationCommit: string, summary: string, selection: GenerationSelection): BranchComparisonSummary {
+    return this.store.saveBranchComparisonSummary(designId, sourceBranchId, destinationBranchId, sourceCommit, destinationCommit, summary, selection)
+  }
+
+  public listBranchComparisonSummaries(designId: string): BranchComparisonSummary[] {
+    return this.store.listBranchComparisonSummaries(designId).map((summary) => {
+      const source = summary.sourceBranchId ? this.store.getDesignAtBranch(designId, summary.sourceBranchId) : null
+      const destination = summary.destinationBranchId ? this.store.getDesignAtBranch(designId, summary.destinationBranchId) : null
+      const sourceCommit = source?.revisions.find((revision) => revision.id === source.activeRevisionId)?.gitCommit
+      const destinationCommit = destination?.revisions.find((revision) => revision.id === destination.activeRevisionId)?.gitCommit
+      return { ...summary, stale: sourceCommit !== summary.sourceCommit || destinationCommit !== summary.destinationCommit }
+    })
+  }
+
+  public resolveBranchContextsForGeneration(designId: string, destinationBranchId: string, references: readonly BranchContextReference[]): { readonly contexts: ResolvedBranchContext[]; readonly referencePaths: string[] } {
+    const contexts: ResolvedBranchContext[] = []
+    const referencePaths: string[] = []
+    for (const reference of references) {
+      if (reference.designId !== designId || reference.branchId === destinationBranchId) throw new Error('An attached branch reference is invalid for this prompt.')
+      const branch = this.store.listDesignBranches(designId).find((candidate) => candidate.id === reference.branchId)
+      const branchDesign = branch ? this.store.getDesignAtBranch(designId, branch.id) : null
+      const head = branchDesign?.revisions.find((revision) => revision.id === branch?.activeRevisionId)
+      if (!branch || !branchDesign || !head?.gitCommit) throw new Error(`Attached branch "${reference.title}" is unavailable. Remove the reference or cancel this prompt.`)
+      const messages = branchDesign.messages.filter((message) => message.ownerBranchId === branch.id)
+      contexts.push({
+        designId,
+        branchId: branch.id,
+        title: branch.title,
+        status: 'available',
+        commit: head.gitCommit,
+        conversationCutoffMessageId: messages.at(-1)?.id ?? null,
+        conversation: messages.map((message) => `${message.role}: ${message.text}`).join('\n'),
+        summarized: false,
+        disclosure: null,
+      })
+      referencePaths.push(this.repositories.getWorkingPath(designId, branch.id))
+    }
+    return { contexts, referencePaths }
+  }
+
+  public startCombination(designId: string, comparisonId: string, prompt: string, selection: GenerationSelection): { readonly attempt: CombinationAttempt; readonly sourcePath: string; readonly destinationPath: string; readonly conversationContext: string } {
+    const evidence = this.store.requireFreshBranchComparison(comparisonId, designId)
+    const { sourceBranchId, destinationBranchId } = evidence
+    const source = this.store.getDesignAtBranch(designId, sourceBranchId)
+    const destination = this.store.getDesignAtBranch(designId, destinationBranchId)
+    const sourceBranch = source?.branches.find((branch) => branch.id === sourceBranchId)
+    const destinationBranch = destination?.branches.find((branch) => branch.id === destinationBranchId)
+    if (!source || !destination || !sourceBranch || !destinationBranch) throw new Error('Design branch not found.')
+    const sourceRevision = source?.revisions.find((revision) => revision.id === sourceBranch?.activeRevisionId)
+    const destinationRevision = destination?.revisions.find((revision) => revision.id === destinationBranch?.activeRevisionId)
+    if (!sourceRevision?.gitCommit || !destinationRevision?.gitCommit) throw new Error('Both branches need a valid committed head before combination.')
+    this.repositories.checkoutBranchHead(designId, destinationBranchId)
+    const attempt = this.store.beginCombinationAttempt(designId, sourceBranchId, destinationBranchId, sourceRevision.gitCommit, destinationRevision.gitCommit, prompt, selection)
+    const divergenceMessageId = sourceBranch?.forkMessageId ?? destinationBranch?.forkMessageId
+    const sourceMessages = divergenceMessageId ? source.messages.slice(Math.max(0, source.messages.findIndex((message) => message.id === divergenceMessageId))) : source.messages
+    const destinationMessages = divergenceMessageId ? destination.messages.slice(Math.max(0, destination.messages.findIndex((message) => message.id === divergenceMessageId))) : destination.messages
+    const summarize = (label: string, messages: readonly Design['messages'][number][]) => `${label}:\n${messages.map((message) => `${message.role}: ${message.text}`).join('\n')}`
+    return {
+      attempt,
+      sourcePath: this.repositories.getWorkingPath(designId, sourceBranchId),
+      destinationPath: this.repositories.getWorkingPath(designId, destinationBranchId),
+      conversationContext: `${summarize('Source branch conversation since divergence', sourceMessages)}\n\n${summarize('Destination branch conversation since divergence', destinationMessages)}`,
+    }
+  }
+
+  public async completeIntelligentCombination(attemptId: string, response: string): Promise<CombinationAttempt> {
+    return this.finishCombinationWorkingTree(attemptId, response, 'none')
+  }
+
+  public beginCombinationFallback(attemptId: string, diagnostic: string, response: string | null = null): CombinationAttempt {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    if (!attempt?.destinationBranchId || attempt.state !== 'applying') throw new Error('Combination attempt is not active.')
+    const fallback = this.repositories.beginFallbackMerge(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit, attempt.sourceCommit)
+    return this.store.setCombinationManualResolution(attempt.id, fallback.conflicts.length ? `${diagnostic}\nConflicts: ${fallback.conflicts.join(', ')}` : diagnostic, response, fallback.clean ? 'automatic_merge' : 'manual_resolution')
+  }
+
+  public async finishManualCombination(attemptId: string): Promise<CombinationAttempt> {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    return this.finishCombinationWorkingTree(attemptId, null, attempt?.fallbackPath === 'automatic_merge' ? 'automatic_merge' : 'manual_resolution')
+  }
+
+  public abortCombination(attemptId: string): CombinationAttempt {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    if (!attempt?.destinationBranchId || !['applying', 'manual_resolution'].includes(attempt.state)) throw new Error('Combination attempt is not active.')
+    this.repositories.restoreBranchToCommit(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit)
+    return this.store.stopCombinationAttempt(attempt.id, 'aborted', 'Combination was aborted and the destination branch was restored.', attempt.response)
+  }
+
+  public getCombinationAttempt(attemptId: string): CombinationAttempt | null { return this.store.getCombinationAttempt(attemptId) }
+  public listCombinationAttempts(designId: string): CombinationAttempt[] { return this.store.listCombinationAttempts(designId) }
+  public getCombinationPreview(attemptId: string): { readonly designId: string; readonly revisionId: string; readonly files: RevisionFiles; readonly pages: RevisionPages } {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    if (!attempt?.destinationBranchId || attempt.state !== 'manual_resolution') throw new Error('Combination attempt is not awaiting manual resolution.')
+    const files = this.repositories.readWorkingTreeFiles(attempt.designId, attempt.destinationBranchId)
+    const discovered = discoverPages(files)
+    const entryPagePath = resolveEntryPage(discovered)
+    return { designId: attempt.designId, revisionId: `combination-${attempt.id}`, files, pages: { pages: discovered.map((page, order) => ({ path: page, title: extractPageTitle(files[page] ?? ''), order, isHome: page === entryPagePath })), entryPagePath } }
+  }
+
+  private async finishCombinationWorkingTree(attemptId: string, response: string | null, fallbackPath: 'none' | 'automatic_merge' | 'manual_resolution'): Promise<CombinationAttempt> {
+    const attempt = this.store.getCombinationAttempt(attemptId)
+    if (!attempt?.destinationBranchId || !['applying', 'manual_resolution'].includes(attempt.state)) throw new Error('Combination attempt is not active.')
+    const files = this.repositories.readWorkingTreeFiles(attempt.designId, attempt.destinationBranchId)
+    const tailwindCss = await compileTailwindCssForFiles(files)
+    this.repositories.writeSourceFiles(attempt.designId, files, attempt.destinationBranchId)
+    this.repositories.writeManagedBuildOutputs(attempt.designId, attempt.destinationBranchId, tailwindCss)
+    validateDesignFiles(files)
+    const mergeCommit = this.repositories.commitCombinationRevision(attempt.designId, attempt.destinationBranchId, attempt.destinationCommit, attempt.sourceCommit, `Combine ${attempt.sourceBranchTitle} into ${attempt.destinationBranchTitle}`)
+    const revised = this.store.addRevision(attempt.designId, attempt.prompt, attempt.providerId, attempt.modelId, mergeCommit, response ?? `Combined ${attempt.sourceBranchTitle} into ${attempt.destinationBranchTitle}.`, undefined, attempt.destinationBranchId)
+    const revisionId = revised.activeRevisionId
+    if (!revisionId) throw new Error('The combination revision could not be recorded.')
+    return this.store.completeCombinationAttempt(attempt.id, revisionId, mergeCommit, response, fallbackPath)
   }
 
   /**
@@ -316,31 +572,33 @@ export class WorkspaceService {
     onActivity: ActivityListener,
     allowRepair = false,
     definitionTargetVersion: number | null = null,
+    branchId = this.store.getDesign(designId)?.activeBranchId,
   ): Promise<Design> {
-    const current = this.store.getDesign(designId)
+    if (!branchId) throw new Error('Design branch not found.')
+    const current = this.store.getDesignAtBranch(designId, branchId)
     if (!current) throw new Error('Design not found.')
 
     try {
-      let sourceFiles = this.repositories.readWorkingTreeFiles(designId)
+      let sourceFiles = this.repositories.readWorkingTreeFiles(designId, branchId)
       const definitionVersion = definitionTargetVersion
         ? this.store.listProjectDesignDefinitionVersions(current.projectId).find((candidate) => candidate.version === definitionTargetVersion) ?? null
         : current.activeRevisionId ? null : this.definitionVersionForDesign(current)
       if (definitionTargetVersion && !definitionVersion) throw new Error('The requested project definitions are missing.')
       if (definitionVersion) {
         sourceFiles = materializeProjectTheme(sourceFiles, definitionVersion)
-        this.repositories.writeSourceFiles(designId, sourceFiles)
+        this.repositories.writeSourceFiles(designId, sourceFiles, branchId)
       }
       onActivity({ designId, stage: 'compiling', detail: 'Preparing the design’s styles.' })
       const tailwindCss = await compileTailwindCssForFiles(sourceFiles)
       onActivity({ designId, stage: 'validating', detail: 'Checking the design.' })
       validateDesignFiles(sourceFiles)
       onActivity({ designId, stage: 'saving', detail: 'Saving your design.' })
-      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`)
+      const gitCommit = this.repositories.commitRevision(designId, null, tailwindCss, `Apply agent result: ${prompt}`, branchId)
       if (gitCommit === null) {
         onActivity({ designId, stage: 'complete', detail: 'No changes were needed.' })
-        return this.store.addAssistantResponse(designId, response)
+        return this.store.addAssistantResponse(designId, response, branchId)
       }
-      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response, definitionTargetVersion ?? current.definitionVersion ?? null)
+      const saved = this.store.addRevision(designId, prompt, providerId, modelId, gitCommit, response, definitionTargetVersion ?? current.definitionVersion ?? null, branchId)
       onActivity({ designId, stage: 'complete', detail: 'Your design is ready.' })
       return saved
     } catch (error) {
@@ -349,19 +607,19 @@ export class WorkspaceService {
       // conversation: only a final, unrecoverable failure posts a system message and the agent's reply,
       // so a design that is fixed on a later attempt shows no leftover rejection.
       if (allowRepair) {
-        const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId), diagnostic)
+        const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId, branchId), diagnostic, null, branchId)
         onActivity({ designId, stage: 'repairing', detail: 'Making a few improvements…' })
         return rejected
       }
-      const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.')
-      this.store.addAssistantResponse(designId, response)
+      const rejected = this.store.addInvalidCandidate(designId, prompt, this.readEntryPageForDiagnostics(designId, branchId), diagnostic, 'OmniDesign couldn’t finish this design after a few tries. Review the notes below, then Continue or Retry.', branchId)
+      this.store.addAssistantResponse(designId, response, branchId)
       onActivity({ designId, stage: 'failed', detail: 'Couldn’t finish the design after a few tries.' })
       return rejected
     }
   }
 
-  public saveDraft(designId: string, draft: string, attachments: readonly import('./contracts.js').Attachment[] = []): void {
-    this.store.saveDraft(designId, draft, attachments)
+  public saveDraft(designId: string, draft: string, attachments: readonly import('./contracts.js').Attachment[] = [], branchContexts: readonly import('./contracts.js').BranchContextReference[] = []): void {
+    this.store.saveDraft(designId, draft, attachments, branchContexts)
   }
 
   public recordAgentResponse(designId: string, response: string): Design {
@@ -416,11 +674,12 @@ export class WorkspaceService {
 
   // The entry page's current working-tree HTML, for storing a rejected candidate. Falls back to any
   // discovered page, then to index.html, so a design whose home page is not index.html still records.
-  private readEntryPageForDiagnostics(designId: string): string {
-    const files = this.repositories.readWorkingTreeFiles(designId)
+  private readEntryPageForDiagnostics(designId: string, branchId = this.store.getDesign(designId)?.activeBranchId): string {
+    if (!branchId) throw new Error('Design branch not found.')
+    const files = this.repositories.readWorkingTreeFiles(designId, branchId)
     const entry = resolveEntryPage(discoverPages(files))
     if (entry && files[entry] !== undefined) return files[entry]
-    return this.repositories.readIndexHtml(designId)
+    return this.repositories.readIndexHtml(designId, branchId)
   }
 
   private definitionVersionForDesign(design: Design): ProjectDesignDefinitionVersion | null {

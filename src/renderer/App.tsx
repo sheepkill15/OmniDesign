@@ -1,19 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from 'react-aria-components'
 import { ArrowRightIcon, PencilSquareIcon, SparklesIcon, SwatchIcon } from '@heroicons/react/24/outline'
 import { promptMentionsProject } from './promptMatch'
-import { Library } from './screens/Library'
 import { Sidebar } from './screens/Sidebar'
 import { Home } from './screens/Home'
-import { ProjectPage } from './screens/ProjectPage'
-import { Generations } from './screens/Generations'
-import { Providers } from './screens/Providers'
-import { Trash } from './screens/Trash'
-import { Settings } from './screens/Settings'
-import { DesignWorkspace } from './screens/DesignWorkspace'
-import { DesignDefinitions } from './screens/DesignDefinitions'
 import { AppModal } from './components/AppModal'
 import type { ProviderId } from './components/composer'
+
+const Library = lazy(async () => ({ default: (await import('./screens/Library')).Library }))
+const ProjectPage = lazy(async () => ({ default: (await import('./screens/ProjectPage')).ProjectPage }))
+const Generations = lazy(async () => ({ default: (await import('./screens/Generations')).Generations }))
+const Providers = lazy(async () => ({ default: (await import('./screens/Providers')).Providers }))
+const Trash = lazy(async () => ({ default: (await import('./screens/Trash')).Trash }))
+const Settings = lazy(async () => ({ default: (await import('./screens/Settings')).Settings }))
+const DesignWorkspace = lazy(async () => ({ default: (await import('./screens/DesignWorkspace')).DesignWorkspace }))
+const DesignDefinitions = lazy(async () => ({ default: (await import('./screens/DesignDefinitions')).DesignDefinitions }))
+
+function ScreenLoading() {
+  return <main className="screen-loading" aria-busy="true" aria-live="polite"><span className="spin" aria-hidden="true" />Loading view…</main>
+}
 
 const developmentProvider: ProviderStatus = {
   id: 'mock',
@@ -21,7 +26,7 @@ const developmentProvider: ProviderStatus = {
   installed: true,
   authenticated: true,
   detail: 'Available for local development and automated testing.',
-  models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }],
+  models: [{ id: 'mock-v1', name: 'Mock v1', effortLevels: [] }, { id: 'mock-v2', name: 'Mock v2', effortLevels: [] }],
 }
 
 function useProviders(): { readonly providers: readonly ProviderStatus[]; readonly loading: boolean; readonly error: string | null; readonly refresh: () => void } {
@@ -99,6 +104,7 @@ export function App() {
   const [generationDetail, setGenerationDetail] = useState<'full' | 'concise'>('full')
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'disabled' })
   const providerState = useProviders()
   const localDependencyState = useLocalDependencies()
   const workspaceApi = window.omnidesign?.workspace
@@ -108,6 +114,15 @@ export function App() {
   const initStarted = useRef(false)
   const restoreDone = useRef(false)
   const definitionPromptsSeen = useRef(new Set<string>())
+
+  useEffect(() => {
+    const updates = window.omnidesign?.updates
+    if (!updates) return
+    let active = true
+    void updates.getState().then((state) => { if (active) setUpdateState(state) }).catch(() => undefined)
+    const unsubscribe = updates.onState((state) => { if (active) setUpdateState(state) })
+    return () => { active = false; unsubscribe() }
+  }, [])
 
   const updateDesign = useCallback((design: OmniDesignDocument) => {
     // Ignore a snapshot older than what we already hold. Async refreshes (e.g. a generation `get` that
@@ -201,7 +216,7 @@ export function App() {
   useEffect(() => {
     if (definitionsProject || definitionPromptProject || definitionSetupChooserProject) return
     const project = activeDesign ? projects.find((candidate) => candidate.id === activeDesign.projectId) : activeProject
-    if (!project || project.currentDefinitionVersion !== null || project.definitionPromptSuppressed || definitionPromptsSeen.current.has(project.id)) return
+    if (!project || project.kind === 'standalone' || project.currentDefinitionVersion !== null || project.definitionPromptSuppressed || definitionPromptsSeen.current.has(project.id)) return
     const hasEngagedWithFirstResult = !activeDesign
       || activeDesign.revisions.length > 1
       || activeDesign.messages.filter((message) => message.role === 'user').length > 1
@@ -416,8 +431,9 @@ export function App() {
 
   return (
     <div className="app-frame">
-      <Sidebar projects={projects} designs={designs} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen && !libraryOpen && !definitionsProject} libraryOpen={libraryOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onLibrary={openLibrary} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} />
-      {libraryOpen
+      <Sidebar projects={projects} designs={designs} activeProjectId={activeProject?.id ?? null} activeDesignId={activeDesign?.id ?? null} activeGenerationCount={activeGenerationCount} workspaceError={workspaceError} updateState={updateState} homeActive={!activeDesign && !activeProject && !settingsOpen && !providersOpen && !generationsOpen && !trashOpen && !libraryOpen && !definitionsProject} libraryOpen={libraryOpen} settingsOpen={settingsOpen} providersOpen={providersOpen} generationsOpen={generationsOpen} trashOpen={trashOpen} onHome={home} onLibrary={openLibrary} onOpen={openProject} onOpenDesign={openProjectDesign} onAddDesign={startDesignInProject} onSettings={openSettings} onProviders={openProviders} onGenerations={openGenerations} onTrash={openTrash} onRetryWorkspace={() => void refresh()} onInstallUpdate={() => { void window.omnidesign?.updates.install().then(setUpdateState) }} onRetryUpdate={() => { void window.omnidesign?.updates.retry().then(setUpdateState) }} />
+      <Suspense fallback={<ScreenLoading />}>
+        {libraryOpen
         ? <Library projects={projects} designs={designs} folders={folders} tags={tags} onOpenProject={openProject} onOpenDesign={openDesign} onCreateFolder={createFolder} onRenameFolder={renameFolder} onDeleteFolder={deleteFolder} onMoveProjectToFolder={moveProjectToFolder} onCreateTag={createLibraryTag} onDeleteTag={deleteLibraryTag} onToggleTag={toggleLibraryTag} onDuplicateDesign={duplicateDesign} onMoveDesign={moveDesign} onTrashDesign={trashDesign} />
         : generationsOpen
         ? <Generations designs={designs} onOpen={openDesign} onCancel={cancelGeneration} onRemove={removeGeneration} onResume={resumeGenerationQueue} />
@@ -430,10 +446,11 @@ export function App() {
         : definitionsProject
         ? <DesignDefinitions project={definitionsProject} providers={providerState.providers} initialSetupPath={definitionSetupPath} onBack={() => { setDefinitionsProject(null); setDefinitionSetupPath(null) }} onSaved={definitionsSaved} />
         : activeDesign
-        ? <DesignWorkspace key={activeDesign.id} design={activeDesign} providers={providerState.providers} providersLoading={providerState.loading} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
+        ? <DesignWorkspace key={`${activeDesign.id}:${activeDesign.activeBranchId}`} design={activeDesign} providers={providerState.providers} providersLoading={providerState.loading} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
         : activeProject
         ? <ProjectPage project={activeProject} projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onRefresh={async () => { await refresh() }} onOpenProviders={openProviders} onOpenDefinitions={() => openDefinitions(activeProject)} />
         : <Home projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}
+      </Suspense>
       <AppModal isOpen={definitionPromptProject !== null} onOpenChange={(open) => { if (!open) setDefinitionPromptProject(null) }} className="definition-setup-modal" title={`Set up design definitions for ${definitionPromptProject?.name ?? 'this project'}?`}>
         {(close) => <>
           <div className="definition-setup-intro">

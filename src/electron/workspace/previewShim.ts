@@ -1,6 +1,6 @@
 // A tiny script OmniDesign injects into every previewed page. It is served, never committed to Git,
 // and never authored by the agent. It runs inside the sandboxed, opaque-origin iframe and talks to the
-// trusted parent only through postMessage. Four jobs:
+// trusted parent only through postMessage. Five jobs:
 //   1. report content height (ResizeObserver) so the parent can size an Artboard-fit tile to the page;
 //   2. forward console output and window.onerror as preview diagnostics (the Phase 1 diagnostics
 //      feature, which would otherwise regress once the preview is an iframe);
@@ -8,6 +8,7 @@
 //      are followed.
 //   4. support a temporary inspection mode that reports only an opaque source key and bounded label;
 //      the trusted side resolves authoritative paths and lines from its immutable source map.
+//   5. apply bounded canvas-mode scroll requests without exposing direct pointer input to the iframe.
 // Messages are tagged so the parent can distinguish them from any other postMessage traffic.
 
 export const PREVIEW_MESSAGE_SOURCE = 'omnidesign-preview-shim'
@@ -56,6 +57,22 @@ function shimBody(): string {
       var height = body ? Math.max(body.scrollHeight, body.offsetHeight) : (doc ? doc.scrollHeight : 0);
       if (height > 0) post({ type: 'height', height: height });
     } catch (e) {}
+  }
+  function scrollContent(message) {
+    var finite = function (value, fallback) { return typeof value === 'number' && isFinite(value) ? value : fallback; };
+    var deltaX = Math.max(-5000, Math.min(5000, finite(message.deltaX, 0)));
+    var deltaY = Math.max(-5000, Math.min(5000, finite(message.deltaY, 0)));
+    var x = Math.max(0, Math.min(window.innerWidth || 0, finite(message.x, 0)));
+    var y = Math.max(0, Math.min(window.innerHeight || 0, finite(message.y, 0)));
+    var target = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
+    while (target && target !== document.documentElement && target !== document.body) {
+      var style = window.getComputedStyle ? window.getComputedStyle(target) : null;
+      var scrollableY = target.scrollHeight > target.clientHeight && style && /(auto|scroll)/.test(style.overflowY);
+      var scrollableX = target.scrollWidth > target.clientWidth && style && /(auto|scroll)/.test(style.overflowX);
+      if (scrollableX || scrollableY) { target.scrollBy(deltaX, deltaY); return; }
+      target = target.parentElement;
+    }
+    window.scrollBy(deltaX, deltaY);
   }
   function diagnostic(level, message, line, source) {
     if (!message) return;
@@ -195,6 +212,7 @@ function shimBody(): string {
     window.addEventListener('message', function (event) {
       if (!event.data) return;
       if (event.data.type === 'omnidesign-measure') reportHeight();
+      else if (event.data.type === 'omnidesign-scroll') scrollContent(event.data);
       else if (event.data.type === 'omnidesign-pause') setPaused(true);
       else if (event.data.type === 'omnidesign-resume') setPaused(false);
       else if (event.data.type === 'omnidesign-selection-start') { selecting = true; highlight(document.activeElement || document.body); }
