@@ -1730,6 +1730,46 @@ describe('Phase 1 walking skeleton UI', () => {
     })))
   })
 
+  it('keeps canvas frames inert while routing wheel gestures to canvas navigation or Shift-scroll', async () => {
+    const restored: OmniDesignDocument = {
+      ...design,
+      layout: { ...design.layout, previewViewMode: 'canvas', previewZoom: 1.25, previewPanX: 84, previewPanY: -36 },
+    }
+    const bridge = installBridge([restored], restored)
+    vi.mocked(bridge.settings.getLastOpenDesignId).mockResolvedValue(restored.id)
+    vi.mocked(bridge.workspace.get).mockResolvedValue(restored)
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
+    const frame = await waitFor(() => {
+      const candidate = document.querySelector('.preview-tile-frame iframe') as HTMLIFrameElement | null
+      expect(candidate).toBeTruthy()
+      return candidate!
+    })
+    expect(frame).toHaveAttribute('inert')
+    expect(frame).toHaveAttribute('tabindex', '-1')
+    expect(frame).toHaveAttribute('aria-hidden', 'true')
+    expect(await screen.findByText('Shift + scroll page')).toBeInTheDocument()
+
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalled())
+    vi.mocked(bridge.workspace.saveLayout).mockClear()
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage')
+    const frameSurface = frame.closest('.preview-tile-frame')!
+
+    fireEvent.wheel(frameSurface, { shiftKey: true, deltaX: 0, deltaY: 100, clientX: 25, clientY: 50 })
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'omnidesign-scroll', deltaX: 0, deltaY: 80, x: 20, y: 40,
+    }), '*')
+    expect(bridge.workspace.saveLayout).not.toHaveBeenCalled()
+
+    postMessage.mockClear()
+    fireEvent.wheel(frameSurface, { deltaX: 12, deltaY: 100 })
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'omnidesign-scroll' }), '*')
+    await waitFor(() => expect(bridge.workspace.saveLayout).toHaveBeenCalledWith('design-1', expect.objectContaining({
+      previewZoom: 1.25, previewPanX: 72, previewPanY: -136,
+    })))
+  })
+
   it('attaches an exact focused target from the active frame, submits it, and clears the live selection', async () => {
     const bridge = installBridge()
     const target: FocusedTarget = {

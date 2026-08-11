@@ -260,14 +260,32 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
 
   const onWheel = (event: React.WheelEvent) => {
     if (viewMode !== 'canvas') return
-    if (event.ctrlKey || event.metaKey) onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, Math.max(0.2, current.zoom - event.deltaY * 0.0015)) }))
+    event.preventDefault()
+    if (event.shiftKey) {
+      const target = event.target instanceof Element ? event.target : null
+      const frame = target?.closest('.preview-tile-frame')?.querySelector('iframe')
+      if (frame instanceof HTMLIFrameElement) {
+        const bounds = frame.getBoundingClientRect()
+        const scale = Math.max(0.2, canvasViewport.zoom)
+        try {
+          frame.contentWindow?.postMessage({
+            type: 'omnidesign-scroll',
+            deltaX: event.deltaX / scale,
+            deltaY: event.deltaY / scale,
+            x: (event.clientX - bounds.left) / scale,
+            y: (event.clientY - bounds.top) / scale,
+          }, '*')
+        } catch { /* opaque frame not ready */ }
+      }
+    } else if (event.ctrlKey || event.metaKey) onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, Math.max(0.2, current.zoom - event.deltaY * 0.0015)) }))
     else onCanvasViewportChange((current) => ({ ...current, panX: current.panX - event.deltaX, panY: current.panY - event.deltaY }))
   }
   const panState = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
   const onPointerDown = (event: React.PointerEvent) => {
     if (viewMode !== 'canvas' || event.button !== 0) return
-    // Only pan from the board background — never when the gesture starts on a page frame or a control.
-    if ((event.target as HTMLElement).closest('.preview-tile-frame, .preview-tile-label, .preview-canvas-controls')) return
+    // The iframe is inert in canvas mode, so dragging its visible surface moves the board just like
+    // dragging the background. Captions retain their double-click shortcut and controls stay clickable.
+    if ((event.target as HTMLElement).closest('.preview-tile-label, .preview-canvas-controls')) return
     event.preventDefault()
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
     panState.current = { x: event.clientX, y: event.clientY, panX: canvasViewport.panX, panY: canvasViewport.panY }
@@ -307,7 +325,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
                 <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
                   {/* Every tile stays loaded; the shim pauses/resumes its animation loops over
                       postMessage (see the sync effect), so switching the live tile never reloads. */}
-                  <iframe data-page={page.path} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget) }} />
+                  <iframe data-page={page.path} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} inert tabIndex={-1} aria-hidden="true" onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget) }} />
                 </div>
                 <figcaption className="preview-tile-label" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</figcaption>
               </figure>
@@ -315,6 +333,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
           })}
         </div>
         <div className="preview-canvas-controls" role="group" aria-label="Canvas zoom">
+          <span className="preview-canvas-scroll-hint">Shift + scroll page</span>
           <IconButton label="Zoom out" icon={MinusIcon} onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.max(0.2, current.zoom - 0.1) }))} />
           <span className="preview-zoom-value">{Math.round(canvasViewport.zoom * 100)}%</span>
           <IconButton label="Zoom in" icon={PlusIcon} onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, current.zoom + 0.1) }))} />

@@ -40,4 +40,8 @@ describe('trusted interface color tokens', () => {
       expect(contrast(faint, token(block, surface)), `${surface} contrast`).toBeGreaterThanOrEqual(4.5)
     }
   })
+
+  it('keeps canvas iframe surfaces pointer-transparent', () => {
+    expect(stylesheet).toMatch(/\.preview-tile-frame iframe\s*\{[^}]*pointer-events:\s*none;/s)
+  })
 })

@@ -3694,6 +3694,13 @@ button[aria-expanded="true"] .dropdown-caret {
   box-shadow: var(--shadow-overlay);
 }
 
+.preview-canvas-scroll-hint {
+  margin-inline: 3px 5px;
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .preview-zoom-value {
   min-width: 40px;
   text-align: center;
@@ -3812,6 +3819,7 @@ button[aria-expanded="true"] .dropdown-caret {
   height: 100%;
   border: 0;
   background: var(--background);
+  pointer-events: none;
 }
 
 /* The tile caption is the filename row; double-clicking it opens the page in focused mode. */

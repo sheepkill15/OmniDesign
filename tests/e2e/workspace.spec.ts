@@ -538,6 +538,33 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
       return current.layout
     })).toMatchObject({ previewViewMode: 'canvas', previewFit: 'fixed', previewDevice: 'custom', previewCustomWidth: 1440, previewCustomHeight: 960, previewPage: 'pages/about.html', previewZoom: 0.85, previewPanX: 0, previewPanY: 0 })
 
+    const canvasFrameElement = firstRun.window.locator('.preview-tile-frame iframe').first()
+    await expect(canvasFrameElement).toHaveAttribute('inert', '')
+    await expect(canvasFrameElement).toHaveAttribute('tabindex', '-1')
+    const canvasFrame = firstRun.window.frameLocator('.preview-tile-frame iframe').first()
+    await canvasFrame.locator('body').evaluate((body) => {
+      body.style.minHeight = '3000px'
+      window.scrollTo(0, 0)
+      ;(window as Window & { __canvasClicks?: number }).__canvasClicks = 0
+      document.addEventListener('click', () => { (window as Window & { __canvasClicks?: number }).__canvasClicks = ((window as Window & { __canvasClicks?: number }).__canvasClicks ?? 0) + 1 })
+    })
+    const canvasSurface = firstRun.window.locator('.preview-tile-frame').first()
+    await canvasSurface.click({ position: { x: 40, y: 40 } })
+    expect(await canvasFrame.locator('body').evaluate(() => (window as Window & { __canvasClicks?: number }).__canvasClicks)).toBe(0)
+
+    await canvasSurface.hover({ position: { x: 40, y: 40 } })
+    await firstRun.window.keyboard.down('Shift')
+    await firstRun.window.mouse.wheel(0, 240)
+    await firstRun.window.keyboard.up('Shift')
+    await expect.poll(() => canvasFrame.locator('body').evaluate(() => window.scrollY)).toBeGreaterThan(0)
+    expect((await firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].layout)).previewPanY).toBe(0)
+
+    const contentScrollY = await canvasFrame.locator('body').evaluate(() => window.scrollY)
+    await canvasSurface.hover({ position: { x: 40, y: 40 } })
+    await firstRun.window.mouse.wheel(0, 120)
+    await expect.poll(() => firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].layout.previewPanY)).toBe(-120)
+    expect(await canvasFrame.locator('body').evaluate(() => window.scrollY)).toBe(contentScrollY)
+
     const exportPath = path.join(userDataDirectory, 'multi-page-design.zip')
     await firstRun.app.evaluate(({ dialog }, destination) => {
       dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: destination })
