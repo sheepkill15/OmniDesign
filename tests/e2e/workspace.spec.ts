@@ -338,6 +338,47 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     await prompt.press('Enter')
     await expect(run.window.getByRole('button', { name: 'Send change' })).toBeVisible()
     await expect(run.window.getByRole('button', { name: 'Remove' })).toBeVisible()
+    await run.window
+      .getByRole('textbox', { name: 'Request a design change' })
+      .fill('Check responsive controls')
+    const workspaceGeometry = async () => run.window.evaluate(() => {
+      const footer = document.querySelector('.workspace-composer-footer')!.getBoundingClientRect()
+      const send = document.querySelector('.workspace-composer .submit-prompt')!.getBoundingClientRect()
+      const preview = document.querySelector('.preview-pane')!.getBoundingClientRect()
+      const sidebar = document.querySelector('.sidebar')!.getBoundingClientRect()
+      const toolbar = document.querySelector('.workspace-toolbar')!.getBoundingClientRect()
+      const generationSettings = document.querySelector('.workspace-composer-footer .generation-settings-button')!.getBoundingClientRect()
+      const branchSelector = document.querySelector('.composer-branch-selector')!.getBoundingClientRect()
+      const toolbarButtons = [...document.querySelectorAll<HTMLElement>('.workspace-toolbar button')]
+      return {
+        previewWidth: Math.round(preview.width),
+        sendWidth: Math.round(send.width),
+        sendContained: send.left >= footer.left && send.right <= footer.right,
+        sidebarWidth: Math.round(sidebar.width),
+        generationSettingsWidth: Math.round(generationSettings.width),
+        branchSelectorWidth: Math.round(branchSelector.width),
+        toolbarContained: toolbarButtons.every((button) => {
+          const bounds = button.getBoundingClientRect()
+          return bounds.left >= toolbar.left && bounds.right <= toolbar.right
+        }),
+      }
+    })
+    const sendChange = run.window.getByRole('button', { name: 'Send change' })
+    await expect(sendChange).toBeEnabled()
+    await sendChange.click({ trial: true })
+    expect(await workspaceGeometry()).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect((await workspaceGeometry()).generationSettingsWidth).toBeLessThanOrEqual(248)
+    expect((await workspaceGeometry()).branchSelectorWidth).toBeLessThanOrEqual(132)
+    expect((await workspaceGeometry()).previewWidth).toBeGreaterThanOrEqual(150)
+
+    await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2))
+    await expect.poll(() => run.window.evaluate(() => window.devicePixelRatio)).toBeGreaterThanOrEqual(2)
+    await expect.poll(async () => (await workspaceGeometry()).sidebarWidth).toBeLessThanOrEqual(64)
+    const zoomedGeometry = await workspaceGeometry()
+    await sendChange.click({ trial: true })
+    expect(zoomedGeometry).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect(zoomedGeometry.previewWidth).toBeGreaterThanOrEqual(140)
+    expect(zoomedGeometry.sidebarWidth).toBeLessThanOrEqual(64)
     await expect.poll(() => run.window.evaluate(() => ({
       horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight,
@@ -472,6 +513,10 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
   try {
     const firstRun = await launchWorkspace(userDataDirectory)
     activeApp = firstRun.app
+    const passiveWheelErrors: string[] = []
+    firstRun.window.on('console', (message) => {
+      if (message.type() === 'error' && message.text().includes('passive event listener')) passiveWheelErrors.push(message.text())
+    })
     const prompt = firstRun.window.getByRole('textbox', { name: 'What would you like to design?' })
     await prompt.fill('A multi-page product site')
     await prompt.press('Enter')
@@ -497,6 +542,34 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
       return current.layout
     })).toMatchObject({ previewViewMode: 'canvas', previewFit: 'fixed', previewDevice: 'custom', previewCustomWidth: 1440, previewCustomHeight: 960, previewPage: 'pages/about.html', previewZoom: 0.85, previewPanX: 0, previewPanY: 0 })
 
+    const canvasFrameElement = firstRun.window.locator('.preview-tile-frame iframe').first()
+    await expect(canvasFrameElement).toHaveAttribute('inert', '')
+    await expect(canvasFrameElement).toHaveAttribute('tabindex', '-1')
+    const canvasFrame = firstRun.window.frameLocator('.preview-tile-frame iframe').first()
+    await canvasFrame.locator('body').evaluate((body) => {
+      body.style.minHeight = '3000px'
+      window.scrollTo(0, 0)
+      ;(window as Window & { __canvasClicks?: number }).__canvasClicks = 0
+      document.addEventListener('click', () => { (window as Window & { __canvasClicks?: number }).__canvasClicks = ((window as Window & { __canvasClicks?: number }).__canvasClicks ?? 0) + 1 })
+    })
+    const canvasSurface = firstRun.window.locator('.preview-tile-frame').first()
+    await canvasSurface.click({ position: { x: 40, y: 40 } })
+    expect(await canvasFrame.locator('body').evaluate(() => (window as Window & { __canvasClicks?: number }).__canvasClicks)).toBe(0)
+
+    await canvasSurface.hover({ position: { x: 40, y: 40 } })
+    await firstRun.window.keyboard.down('Shift')
+    await firstRun.window.mouse.wheel(0, 240)
+    await firstRun.window.keyboard.up('Shift')
+    await expect.poll(() => canvasFrame.locator('body').evaluate(() => window.scrollY)).toBeGreaterThan(0)
+    expect((await firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].layout)).previewPanY).toBe(0)
+
+    const contentScrollY = await canvasFrame.locator('body').evaluate(() => window.scrollY)
+    await canvasSurface.hover({ position: { x: 40, y: 40 } })
+    await firstRun.window.mouse.wheel(0, 120)
+    await expect.poll(() => firstRun.window.evaluate(async () => (await window.omnidesign!.workspace.list())[0].layout.previewZoom)).toBeCloseTo(0.67, 2)
+    expect(await canvasFrame.locator('body').evaluate(() => window.scrollY)).toBe(contentScrollY)
+    expect(passiveWheelErrors).toEqual([])
+
     const exportPath = path.join(userDataDirectory, 'multi-page-design.zip')
     await firstRun.app.evaluate(({ dialog }, destination) => {
       dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: destination })
@@ -516,7 +589,7 @@ test('creates, organizes, exports, and recovers a multi-page design', async () =
     await expect(secondRun.window.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     await expect(secondRun.window.getByRole('button', { name: 'Device size' })).toContainText('Custom')
     await expect(secondRun.window.getByRole('button', { name: 'Fixed' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(secondRun.window.getByText('85%')).toBeVisible()
+    await expect(secondRun.window.getByText('67%')).toBeVisible()
     await expect(secondRun.window.locator('.preview-tile')).toHaveCount(2)
   } finally {
     await activeApp?.close().catch(() => undefined)

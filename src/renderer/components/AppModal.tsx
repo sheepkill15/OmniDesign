@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
-import { Button, Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
+import { Dialog, Heading, Modal, ModalOverlay } from 'react-aria-components'
 import { XMarkIcon } from '@heroicons/react/24/outline'
+import { IconButton } from './common'
 
 interface AppModalProps {
   readonly isOpen: boolean
@@ -17,7 +18,7 @@ export function AppModal({ isOpen, onOpenChange, title, children, className, isD
     <ModalOverlay isOpen={isOpen} onOpenChange={onOpenChange} className="modal-overlay" isDismissable={isDismissable}>
       <Modal className={['app-modal', className].filter(Boolean).join(' ')}>
         <Dialog>
-          {({ close }) => <><Heading slot="title">{title}</Heading>{showCloseButton && <Button className="modal-close-button" aria-label={`Close ${title}`} onPress={close}><XMarkIcon aria-hidden="true" /></Button>}{children(close)}</>}
+          {({ close }) => <><Heading slot="title">{title}</Heading>{showCloseButton && <IconButton className="modal-close-button" label={`Close ${title}`} icon={XMarkIcon} onPress={close} />}{children(close)}</>}
         </Dialog>
       </Modal>
     </ModalOverlay>

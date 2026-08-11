@@ -5,11 +5,14 @@ import { IconButton, type Icon } from '../components/common'
 
 function NavigationItem({ icon: IconComponent, label, badge, active = false, onPress }: { readonly icon: Icon; readonly label: string; readonly badge?: string; readonly active?: boolean; readonly onPress?: () => void }) {
   return (
-    <Button className="navigation-item" data-active={active || undefined} onPress={onPress}>
-      <IconComponent aria-hidden="true" />
-      <span>{label}</span>
-      {badge && <span className="navigation-badge">{badge}</span>}
-    </Button>
+    <TooltipTrigger delay={350}>
+      <Button className="navigation-item" aria-label={label} data-active={active || undefined} onPress={onPress}>
+        <IconComponent aria-hidden="true" />
+        <span className="navigation-label">{label}</span>
+        {badge && <span className="navigation-badge">{badge}</span>}
+      </Button>
+      <Tooltip className="tooltip">{label}</Tooltip>
+    </TooltipTrigger>
   )
 }
 

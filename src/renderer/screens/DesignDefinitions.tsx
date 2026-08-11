@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, FieldError, Input, Label, TextArea, TextField } from 'react-aria-components'
 import { ArrowLeftIcon, PlusIcon, SparklesIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { GenerationSettingsMenu, type ProviderId } from '../components/composer'
+import { IconButton } from '../components/common'
 
 const emptyDefinitions: ProjectDesignDefinitions = {
   schemaVersion: 1,
@@ -92,7 +93,7 @@ function NamedDefinitions({ section, title, description, values, valuePlaceholde
           <DefinitionField label="Name" value={value.name} maximum={64} placeholder="semantic-name" error={definitionNameError(value.name, values.map((item) => item.name))} onChange={(name) => update(index, { name })} />
           <DefinitionField label="Value" value={value.value} maximum={500} placeholder={valuePlaceholder} error={cssValueError(value.value)} onChange={(nextValue) => update(index, { value: nextValue })} />
           <DefinitionField label="Description" value={value.description ?? ''} maximum={500} placeholder="Optional role guidance" error={null} onChange={(description) => update(index, { description: description || null })} />
-          <Button className="icon-button definition-remove" aria-label={`Remove ${value.name || title.toLowerCase()} definition`} onPress={() => onChange(values.filter((_, valueIndex) => valueIndex !== index))}><TrashIcon aria-hidden="true" /></Button>
+          <IconButton className="icon-button definition-remove" label={`Remove ${value.name || title.toLowerCase()} definition`} icon={TrashIcon} onPress={() => onChange(values.filter((_, valueIndex) => valueIndex !== index))} />
         </div>)}
       </div> : <p className="definition-empty">No {title.toLowerCase()} defined yet.</p>}
     </section>
@@ -116,7 +117,7 @@ function TypographyDefinitions({ values, onChange }: { readonly values: readonly
           <DefinitionField label="Line height" value={value.lineHeight} maximum={100} placeholder="1.5" error={cssValueError(value.lineHeight, 100)} onChange={(lineHeight) => update(index, { lineHeight })} />
           <DefinitionField label="Letter spacing" value={value.letterSpacing ?? ''} maximum={100} placeholder="Optional" error={value.letterSpacing ? cssValueError(value.letterSpacing, 100) : null} onChange={(letterSpacing) => update(index, { letterSpacing: letterSpacing || null })} />
           <DefinitionField className="definition-description-field" label="Description" value={value.description ?? ''} maximum={500} placeholder="Optional role guidance" error={null} onChange={(description) => update(index, { description: description || null })} />
-          <Button className="icon-button definition-remove" aria-label={`Remove ${value.name || 'typography'} definition`} onPress={() => onChange(values.filter((_, valueIndex) => valueIndex !== index))}><TrashIcon aria-hidden="true" /></Button>
+          <IconButton className="icon-button definition-remove" label={`Remove ${value.name || 'typography'} definition`} icon={TrashIcon} onPress={() => onChange(values.filter((_, valueIndex) => valueIndex !== index))} />
         </div>)}
       </div> : <p className="definition-empty">No typography roles defined yet.</p>}
     </section>
@@ -208,7 +209,7 @@ export function DesignDefinitions({ project, providers, onBack, onSaved, initial
     <main className="definitions-main">
       <div className="definitions-content">
         <header className="definitions-heading">
-          <Button className="icon-button" aria-label="Back" onPress={onBack}><ArrowLeftIcon aria-hidden="true" /></Button>
+          <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
           <span><h1>Design definitions</h1><p>{project.name} · {currentVersion ? `Version ${currentVersion}` : 'Not set up'}</p></span>
           <Button className="primary-action" isDisabled={loading || saving || !valid} onPress={() => void save()}>{saving ? 'Saving…' : 'Save definitions'}</Button>
         </header>

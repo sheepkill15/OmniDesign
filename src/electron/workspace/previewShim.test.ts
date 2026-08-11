@@ -43,6 +43,16 @@ describe('preview shim injection', () => {
     expect(result).toContain('omnidesign-resume')
   })
 
+  it('supports bounded message-driven scrolling for inert canvas frames', () => {
+    const result = injectPreviewShim('<html><head></head><body></body></html>', 'index.html')
+
+    expect(result).toContain('omnidesign-scroll')
+    expect(result).toContain('scrollContent(event.data)')
+    expect(result).toContain('document.elementFromPoint')
+    expect(result).toContain('Math.max(-5000, Math.min(5000')
+    expect(result).toContain('window.scrollBy(deltaX, deltaY)')
+  })
+
   it('supports focused selection through opaque source keys and suppresses authored clicks', () => {
     const result = injectPreviewShim('<html><head></head><body></body></html>', 'index.html')
     expect(result).toContain('omnidesign-selection-start')

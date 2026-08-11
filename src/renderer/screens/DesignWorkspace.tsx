@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField } from 'react-aria-components'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import {
   ArrowDownTrayIcon,
   ArrowLeftIcon,
@@ -34,7 +34,9 @@ import {
 import { AppModal } from '../components/AppModal'
 import { DropdownButton } from '../components/DropdownButton'
 import { Markdown } from '../components/Markdown'
-import { DesignPreview, type CanvasViewport, type FocusedEditThread } from './DesignPreview'
+import { DesignPreview, type FocusedEditThread } from './DesignPreview'
+import { useWorkspacePreviewState } from './useWorkspacePreviewState'
+import { useWorkspaceBranchState } from './useWorkspaceBranchState'
 import { AttachmentPicker, EditableTitle, GenerationActivitySection, IconButton, terminalGenerationStages, type AttachmentPickerKind, type Icon } from '../components/common'
 import { GenerationSettingsMenu, ProjectSelectionMenu } from '../components/composer'
 
@@ -158,7 +160,7 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
       triggerClassName="toolbar-button"
       popoverClassName="project-popover layout-menu"
       placement="bottom"
-      trigger={<><CurrentIcon aria-hidden="true" />{current.label}</>}
+      trigger={<><CurrentIcon aria-hidden="true" /><span className="toolbar-label">{current.label}</span></>}
     >
       <Menu aria-label="Workspace layout" onAction={(key) => onChange(key as LayoutMode)}>
         {layoutModes.map((option) => {
@@ -203,47 +205,29 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   const [conversationWidth, setConversationWidth] = useState(design.layout.conversationWidth)
   const [mode, setMode] = useState<LayoutMode>(design.layout.mode)
   const [selection, setSelection] = useState<GenerationSelection>(design.lastSelection)
-  const [revisionPages, setRevisionPages] = useState<RevisionPages | null>(null)
-  const [previewToken, setPreviewToken] = useState<string | null>(null)
-  const [previewPage, setPreviewPage] = useState<string | null>(design.layout.previewPage)
-  const [previewViewMode, setPreviewViewMode] = useState<PreviewViewMode>(design.layout.previewViewMode)
-  const [previewFit, setPreviewFit] = useState<PreviewFit>(design.layout.previewFit)
-  const [previewDevice, setPreviewDevice] = useState<PreviewDevice>(design.layout.previewDevice)
-  const [previewCustomWidth, setPreviewCustomWidth] = useState(design.layout.previewCustomWidth)
-  const [previewCustomHeight, setPreviewCustomHeight] = useState(design.layout.previewCustomHeight)
-  const [canvasViewport, setCanvasViewport] = useState<CanvasViewport>({ zoom: design.layout.previewZoom, panX: design.layout.previewPanX, panY: design.layout.previewPanY })
-  const [selectionActive, setSelectionActive] = useState(false)
-  const [focusedTarget, setFocusedTarget] = useState<FocusedTarget | null>(null)
-  const [focusedComment, setFocusedComment] = useState('')
+  const {
+    revisionPages, setRevisionPages, previewToken, setPreviewToken, previewPage, setPreviewPage,
+    previewViewMode, setPreviewViewMode, previewFit, setPreviewFit, previewDevice, setPreviewDevice,
+    previewCustomWidth, setPreviewCustomWidth, previewCustomHeight, setPreviewCustomHeight,
+    canvasViewport, setCanvasViewport, selectionActive, setSelectionActive, focusedTarget, setFocusedTarget,
+    focusedComment, setFocusedComment, customSizeOpen, setCustomSizeOpen, customWidthDraft, setCustomWidthDraft,
+    customHeightDraft, setCustomHeightDraft, pageRename, setPageRename, comparison, setComparison,
+    comparisonLoading, setComparisonLoading,
+  } = useWorkspacePreviewState(design)
   const [focusedFeedbackQueue, setFocusedFeedbackQueue] = useState<readonly FocusedFeedback[]>([])
   const focusedEditThreads = useMemo(() => buildFocusedEditThreads(design, focusedFeedbackQueue), [design, focusedFeedbackQueue])
-  const [customSizeOpen, setCustomSizeOpen] = useState(false)
-  const [customWidthDraft, setCustomWidthDraft] = useState(String(design.layout.previewCustomWidth))
-  const [customHeightDraft, setCustomHeightDraft] = useState(String(design.layout.previewCustomHeight))
-  const [pageRename, setPageRename] = useState<{ readonly path: string; readonly value: string } | null>(null)
-  const [comparison, setComparison] = useState<RevisionComparison | null>(null)
-  const [comparisonLoading, setComparisonLoading] = useState(false)
-  const [separateBranch, setSeparateBranch] = useState(design.separateBranchMode)
-  const [creatingBranch, setCreatingBranch] = useState(false)
-  const [manageBranchesOpen, setManageBranchesOpen] = useState(false)
-  const [replyMessageId, setReplyMessageId] = useState<string | null>(design.replyMessageId)
-  const [forkTarget, setForkTarget] = useState<DesignMessage | null>(null)
-  const [forkSelectionKeys, setForkSelectionKeys] = useState<readonly string[]>([])
-  const [removeBranchTarget, setRemoveBranchTarget] = useState<DesignBranch | null>(null)
-  const [forceBranchRemoval, setForceBranchRemoval] = useState(false)
-  const [lineageSelection, setLineageSelection] = useState<readonly string[]>([design.activeBranchId])
-  const [revealedBranchRevisions, setRevealedBranchRevisions] = useState<Readonly<Record<string, readonly DesignRevision[]>>>({})
-  const [branchComparison, setBranchComparison] = useState<BranchComparison | null>(null)
-  const [branchComparisonTokens, setBranchComparisonTokens] = useState<{ readonly source: string; readonly destination: string } | null>(null)
-  const [branchComparisonPage, setBranchComparisonPage] = useState<string | null>(null)
-  const [combinationPrompt, setCombinationPrompt] = useState('')
-  const [combinationAttempt, setCombinationAttempt] = useState<CombinationAttempt | null>(null)
-  const [combinationHistory, setCombinationHistory] = useState<readonly CombinationAttempt[]>([])
-  const [branchSummaries, setBranchSummaries] = useState<readonly BranchComparisonSummary[]>([])
-  const [summarizingBranches, setSummarizingBranches] = useState(false)
-  const [combinationPreview, setCombinationPreview] = useState<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>(null)
-  const [combiningBranches, setCombiningBranches] = useState(false)
-  const [completedCombination, setCompletedCombination] = useState<CombinationAttempt | null>(null)
+  const {
+    separateBranch, setSeparateBranch, creatingBranch, setCreatingBranch, manageBranchesOpen, setManageBranchesOpen,
+    replyMessageId, setReplyMessageId, forkTarget, setForkTarget, forkSelectionKeys, setForkSelectionKeys,
+    removeBranchTarget, setRemoveBranchTarget, forceBranchRemoval, setForceBranchRemoval,
+    lineageSelection, setLineageSelection, revealedBranchRevisions, setRevealedBranchRevisions,
+    branchComparison, setBranchComparison, branchComparisonTokens, setBranchComparisonTokens,
+    branchComparisonPage, setBranchComparisonPage, combinationPrompt, setCombinationPrompt,
+    combinationAttempt, setCombinationAttempt, combinationHistory, setCombinationHistory,
+    branchSummaries, setBranchSummaries, summarizingBranches, setSummarizingBranches,
+    combinationPreview, setCombinationPreview, combiningBranches, setCombiningBranches,
+    completedCombination, setCompletedCombination,
+  } = useWorkspaceBranchState(design)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
@@ -344,21 +328,6 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       .catch((reason: unknown) => { if (active) setFeedback({ tone: 'error', message: 'Queued feedback could not be loaded.', ...(reason instanceof Error ? { detail: reason.message } : {}) }) })
     return () => { active = false }
   }, [design.id, design.activeRevisionId])
-  useEffect(() => {
-    setPreviewViewMode(design.layout.previewViewMode)
-    setPreviewFit(design.layout.previewFit)
-    setPreviewDevice(design.layout.previewDevice)
-    setPreviewCustomWidth(design.layout.previewCustomWidth)
-    setPreviewCustomHeight(design.layout.previewCustomHeight)
-    setPreviewPage(design.layout.previewPage)
-    setCanvasViewport({ zoom: design.layout.previewZoom, panX: design.layout.previewPanX, panY: design.layout.previewPanY })
-  }, [design.id, design.layout.previewViewMode, design.layout.previewFit, design.layout.previewDevice, design.layout.previewCustomWidth, design.layout.previewCustomHeight, design.layout.previewPage, design.layout.previewZoom, design.layout.previewPanX, design.layout.previewPanY])
-  useEffect(() => setSelectionActive(false), [design.id])
-  useEffect(() => { setFocusedTarget(null); setFocusedComment('') }, [design.id, design.selectedRevisionId, previewPage])
-  useEffect(() => { setComparison(null); setComparisonLoading(false) }, [design.id, design.selectedRevisionId])
-  useEffect(() => {
-    if (previewViewMode === 'canvas') { setFocusedTarget(null); setFocusedComment('') }
-  }, [previewViewMode])
   // Register the selected revision's files with the preview server, which returns the opaque token the
   // iframes load from plus the discovered pages. The preview defaults to the home page.
   useEffect(() => {
@@ -991,10 +960,11 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         <div className="toolbar-actions">
             <LayoutMenu mode={mode} onChange={setMode} />
           <DropdownButton
+            label={`History · ${design.revisions.length}`}
             triggerClassName="toolbar-button"
             popoverClassName="history-popover"
             placement="bottom"
-            trigger={<><ClockIcon aria-hidden="true" />History · {design.revisions.length}</>}
+            trigger={<><ClockIcon aria-hidden="true" /><span className="toolbar-label">History · {design.revisions.length}</span></>}
           >
             <Menu aria-label="Revision history" onAction={(key) => void selectRevision(String(key))}>
               {[...design.revisions].reverse().map((revision, index) => (
@@ -1007,12 +977,12 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
               ))}
             </Menu>
           </DropdownButton>
-            {!design.sourceProjectPath && <DropdownButton triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" trigger={<><FolderIcon aria-hidden="true" />Associate</>}>
+            {!design.sourceProjectPath && <DropdownButton label="Associate" triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" trigger={<><FolderIcon aria-hidden="true" /><span className="toolbar-label">Associate</span></>}>
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
-          <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
-          {definitionsVisible && <Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button>}
-          <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
+          <TooltipTrigger delay={350}><Button aria-label="Export" className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" /><span className="toolbar-label">Export</span></Button><Tooltip className="tooltip">Export</Tooltip></TooltipTrigger>
+          {definitionsVisible && <TooltipTrigger delay={350}><Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" /><span className="toolbar-label">Definitions</span>{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button><Tooltip className="tooltip">Definitions</Tooltip></TooltipTrigger>}
+          <TooltipTrigger delay={350}><Button aria-label="Remove" className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" /><span className="toolbar-label">Remove</span></Button><Tooltip className="tooltip">Remove</Tooltip></TooltipTrigger>
         </div>
       </header>
       <AppModal isOpen={branchPickerOpen} onOpenChange={setBranchPickerOpen} className="branch-manager-modal" title="Attach branch context">
@@ -1108,7 +1078,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         </>}
       </AppModal>
       {mode === 'split'
-        ? <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
+        ? <div className="workspace-split" ref={split} style={{ '--conversation-width': `${conversationWidth}%` } as CSSProperties}>
             {conversationPane}
             <div
               aria-label="Resize conversation and preview panels"

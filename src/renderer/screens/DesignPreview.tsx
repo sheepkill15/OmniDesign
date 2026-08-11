@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 import { Button, TextArea, TextField } from 'react-aria-components'
 import { MinusIcon, PlusIcon, ArrowsPointingOutIcon, ChatBubbleLeftEllipsisIcon, QueueListIcon, WrenchScrewdriverIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { IconButton } from '../components/common'
 import { anchorIsVisible, layoutFocusedMarkers, type FocusedAnchorRect } from './focusedMarkerLayout'
 
 // Must match PREVIEW_MESSAGE_SOURCE in src/electron/workspace/previewShim.ts.
@@ -257,16 +258,53 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
       .finally(() => { capturingRef.current = false })
   }, [designId, revisionId, captureNeeded])
 
-  const onWheel = (event: React.WheelEvent) => {
-    if (viewMode !== 'canvas') return
-    if (event.ctrlKey || event.metaKey) onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, Math.max(0.2, current.zoom - event.deltaY * 0.0015)) }))
-    else onCanvasViewportChange((current) => ({ ...current, panX: current.panX - event.deltaX, panY: current.panY - event.deltaY }))
-  }
+  useEffect(() => {
+    const surface = viewport.current
+    if (viewMode !== 'canvas' || !surface) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      if (event.shiftKey) {
+        const target = event.target instanceof Element ? event.target : null
+        const frame = target?.closest('.preview-tile-frame')?.querySelector('iframe')
+        if (!(frame instanceof HTMLIFrameElement)) return
+        const bounds = frame.getBoundingClientRect()
+        const scale = Math.max(0.2, canvasViewport.zoom)
+        try {
+          frame.contentWindow?.postMessage({
+            type: 'omnidesign-scroll',
+            deltaX: event.deltaX / scale,
+            deltaY: event.deltaY / scale,
+            x: (event.clientX - bounds.left) / scale,
+            y: (event.clientY - bounds.top) / scale,
+          }, '*')
+        } catch { /* opaque frame not ready */ }
+        return
+      }
+      const delta = event.deltaY || event.deltaX
+      if (!delta) return
+      const bounds = surface.getBoundingClientRect()
+      const pointerX = event.clientX - bounds.left
+      const pointerY = event.clientY - bounds.top
+      onCanvasViewportChange((current) => {
+        const zoom = Math.min(2, Math.max(0.2, current.zoom - delta * 0.0015))
+        if (zoom === current.zoom) return current
+        const ratio = zoom / current.zoom
+        return {
+          zoom,
+          panX: pointerX - (pointerX - current.panX) * ratio,
+          panY: pointerY - (pointerY - current.panY) * ratio,
+        }
+      })
+    }
+    surface.addEventListener('wheel', onWheel, { passive: false })
+    return () => surface.removeEventListener('wheel', onWheel)
+  }, [viewMode, canvasViewport.zoom, pages.length, onCanvasViewportChange])
   const panState = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
   const onPointerDown = (event: React.PointerEvent) => {
     if (viewMode !== 'canvas' || event.button !== 0) return
-    // Only pan from the board background — never when the gesture starts on a page frame or a control.
-    if ((event.target as HTMLElement).closest('.preview-tile-frame, .preview-tile-label, .preview-canvas-controls')) return
+    // The iframe is inert in canvas mode, so dragging its visible surface moves the board just like
+    // dragging the background. Captions retain their double-click shortcut and controls stay clickable.
+    if ((event.target as HTMLElement).closest('.preview-tile-label, .preview-canvas-controls')) return
     event.preventDefault()
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
     panState.current = { x: event.clientX, y: event.clientY, panX: canvasViewport.panX, panY: canvasViewport.panY }
@@ -292,7 +330,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
 
   if (viewMode === 'canvas') {
     return (
-      <div className="preview-canvas" ref={viewport} data-panning={panState.current ? true : undefined} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}>
+      <div className="preview-canvas" ref={viewport} data-panning={panState.current ? true : undefined} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPan} onPointerCancel={endPan}>
         <div className="preview-board" style={{ transform: `translate(${canvasViewport.panX}px, ${canvasViewport.panY}px) scale(${canvasViewport.zoom})` }}>
           {pages.map((page) => {
             const isLive = page.path === livePath
@@ -306,18 +344,19 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
                 <div className="preview-tile-frame" style={{ height: `${heightFor(page.path)}px` }}>
                   {/* Every tile stays loaded; the shim pauses/resumes its animation loops over
                       postMessage (see the sync effect), so switching the live tile never reloads. */}
-                  <iframe data-page={page.path} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget) }} />
+                  <iframe data-page={page.path} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} inert tabIndex={-1} aria-hidden="true" onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget) }} />
                 </div>
                 <figcaption className="preview-tile-label" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</figcaption>
               </figure>
             )
           })}
         </div>
-        <div className="preview-canvas-controls" role="group" aria-label="Canvas zoom">
-          <Button className="icon-button" aria-label="Zoom out" onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.max(0.2, current.zoom - 0.1) }))}><MinusIcon aria-hidden="true" /></Button>
+        <div className="preview-canvas-controls" role="group" aria-label="Canvas navigation">
+          <span className="preview-canvas-scroll-hint">Scroll to zoom · Shift + scroll page</span>
+          <IconButton label="Zoom out" icon={MinusIcon} onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.max(0.2, current.zoom - 0.1) }))} />
           <span className="preview-zoom-value">{Math.round(canvasViewport.zoom * 100)}%</span>
-          <Button className="icon-button" aria-label="Zoom in" onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, current.zoom + 0.1) }))}><PlusIcon aria-hidden="true" /></Button>
-          <Button className="icon-button" aria-label="Reset view" onPress={resetView}><ArrowsPointingOutIcon aria-hidden="true" /></Button>
+          <IconButton label="Zoom in" icon={PlusIcon} onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, current.zoom + 0.1) }))} />
+          <IconButton label="Reset view" icon={ArrowsPointingOutIcon} onPress={resetView} />
         </div>
       </div>
     )
@@ -347,7 +386,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
         </div>
       })}
       {focusedTarget && focusedAnchorRects.editor && anchorIsVisible(focusedAnchorRects.editor) && <div className="focused-comment-popover" role="dialog" aria-label="Focused feedback" style={anchoredStyle(focusedAnchorRects.editor, 380, 190)}>
-        <div className="focused-comment-context"><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><small>{focusedTarget.label} · {focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}</small><Button className="icon-button" aria-label="Close focused feedback" onPress={onClearFocused}><XMarkIcon aria-hidden="true" /></Button></div>
+        <div className="focused-comment-context"><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><small>{focusedTarget.label} · {focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}</small><IconButton label="Close focused feedback" icon={XMarkIcon} onPress={onClearFocused} /></div>
         <TextField className="focused-comment-field" aria-label="Feedback for selected element"><TextArea ref={focusedInput} className="focused-comment-input" autoFocus value={focusedComment} placeholder="Describe what should change…" onChange={(event) => onFocusedCommentChange(event.target.value)} onKeyDown={(event) => {
           if (event.key === 'Escape') { event.preventDefault(); onClearFocused() }
           else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (canSubmitFocused && focusedComment.trim()) onSubmitFocused() }
