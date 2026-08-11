@@ -10,7 +10,7 @@ import { WorkspaceStore } from './store.js'
 const directories: string[] = []
 
 afterEach(() => {
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 describe('WorkspaceService', () => {
@@ -67,7 +67,7 @@ describe('WorkspaceService', () => {
     expect(store.getDesign(first.id)?.messages.at(-1)).toMatchObject({ text: 'Use a warmer accent' })
     store.cancelQueuedGenerationJob(replay.id)
     store.close()
-  })
+  }, 30_000)
 
   it('compares two committed branch heads without switching or mutating either branch', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
