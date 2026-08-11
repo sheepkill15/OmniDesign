@@ -709,6 +709,12 @@ test('completes the Phase 4 branching, context, comparison, combination, and exp
 
     await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
     await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
+    const initialManager = secondRun.window.getByRole('dialog', { name: 'Manage branches' })
+    await expect(initialManager.getByText('Current')).toBeVisible()
+    await initialManager.getByRole('button', { name: 'Close' }).click()
+    await expect(initialManager).toHaveCount(0)
+    await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
     const manager = secondRun.window.getByRole('dialog', { name: 'Manage branches' })
     await manager.getByRole('checkbox', { name: `Select ${source.title} for comparison` }).check()
     await manager.getByRole('button', { name: 'Compare branches' }).click()

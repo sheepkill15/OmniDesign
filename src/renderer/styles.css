@@ -1981,7 +1981,7 @@ button:not(:disabled):active {
 .branch-lineage-row > span:not(.branch-current-label, .branch-manager-actions) { min-width: 0; display: grid; gap: 2px; }
 .branch-manager-list strong { color: var(--text); font-size: 12px; }
 .branch-manager-list small { color: var(--text-faint); font-size: 10px; text-transform: capitalize; }
-.branch-manager-list .secondary-action, .branch-current-label { margin-left: auto; }
+.branch-manager-list .secondary-action { margin-left: auto; }
 .branch-manager-actions { display: flex; gap: 6px; margin-left: auto; }
 .branch-manager-actions .secondary-action { margin-left: 0; }
 .branch-remove-action { color: var(--danger); }
@@ -1992,6 +1992,7 @@ button:not(:disabled):active {
 .branch-revision-list svg { width: 13px; }
 .branch-revision-list li > span:nth-child(2) { display: grid; gap: 1px; }
 .branch-manager-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--text-faint); font-size: 11px; }
+.branch-manager-footer-actions { display: flex; align-items: center; gap: 8px; }
 .branch-comparison-modal { width: min(96vw, 1120px); }
 .branch-comparison-modal [role='dialog'] { max-height: 92vh; overflow-y: auto; }
 .branch-comparison-page-tabs { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 2px; }
@@ -2026,7 +2027,7 @@ button:not(:disabled):active {
 .combination-history > strong { color: var(--text-faint); font-size: 10px; text-transform: uppercase; }
 .combination-history > span { display: flex; align-items: center; gap: 7px; color: var(--text-subtle); font-size: 11px; }
 .combination-history svg { width: 14px; color: var(--text-faint); }
-.branch-current-label { padding: 3px 7px; border-radius: 999px; background: var(--surface-selected); color: var(--text-subtle); font-size: 10px; }
+.branch-current-label { min-height: 26px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-selected); color: var(--text-subtle); font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap; }
 .fork-prompt-preview { max-height: 120px; overflow: auto; margin: 0; padding: 10px 12px; border-left: 2px solid var(--accent); border-radius: 0 var(--radius-control) var(--radius-control) 0; background: var(--surface-2); color: var(--text-subtle); font-size: 12px; white-space: pre-wrap; }
 .fork-selection-list { display: grid; gap: 6px; }
 .fork-selection-list label { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); color: var(--text-subtle); font-size: 12px; cursor: pointer; }

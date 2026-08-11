@@ -1607,6 +1607,12 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Branch: Main' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage branches' }))
+    const initialManager = await screen.findByRole('dialog', { name: 'Manage branches' })
+    expect(within(initialManager).getByText('Current')).toHaveClass('branch-current-label')
+    fireEvent.click(within(initialManager).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog', { name: 'Manage branches' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: Main' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Manage branches' }))
     const editorialBranch = screen.getByText('Editorial direction').closest('article')!
     fireEvent.click(within(editorialBranch).getByRole('button', { name: 'Show revisions' }))
     expect(await within(editorialBranch).findByRole('list', { name: 'Editorial direction revisions' })).toBeInTheDocument()
