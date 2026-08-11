@@ -2667,8 +2667,8 @@ button[aria-expanded="true"] .dropdown-caret {
 
 .workspace-composer-footer .generation-settings-button {
   min-width: 0;
-  max-width: none;
-  flex: 1 1 112px;
+  max-width: min(248px, 42vw);
+  flex: 0 1 auto;
   padding-inline: 7px;
 }
 
@@ -2695,7 +2695,7 @@ button[aria-expanded="true"] .dropdown-caret {
 .branch-info-button { width: 24px; height: 24px; display: grid; place-items: center; margin-left: auto; border: 0; border-radius: 6px; background: transparent; color: var(--text-faint); cursor: help; }
 .branch-info-button:hover, .branch-info-button:focus-visible { background: var(--surface-3); color: var(--text); }
 .branch-info-button svg { width: 15px; }
-.composer-branch-selector { min-width: 0; max-width: 132px; height: 30px; flex: 0 1 112px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; color: var(--text-faint); font-size: 11px; cursor: pointer; }
+.composer-branch-selector { min-width: 0; max-width: 132px; height: 30px; flex: 0 1 auto; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; color: var(--text-faint); font-size: 11px; cursor: pointer; }
 .composer-branch-selector:hover { color: var(--text); background: var(--surface-3); }
 .composer-branch-selector[aria-expanded='true'] { border-color: var(--border-strong); background: var(--surface-selected); color: var(--accent-strong); }
 .composer-branch-selector[data-disabled] { opacity: .45; cursor: default; }

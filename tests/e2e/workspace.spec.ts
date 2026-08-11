@@ -347,12 +347,16 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
       const preview = document.querySelector('.preview-pane')!.getBoundingClientRect()
       const sidebar = document.querySelector('.sidebar')!.getBoundingClientRect()
       const toolbar = document.querySelector('.workspace-toolbar')!.getBoundingClientRect()
+      const generationSettings = document.querySelector('.workspace-composer-footer .generation-settings-button')!.getBoundingClientRect()
+      const branchSelector = document.querySelector('.composer-branch-selector')!.getBoundingClientRect()
       const toolbarButtons = [...document.querySelectorAll<HTMLElement>('.workspace-toolbar button')]
       return {
         previewWidth: Math.round(preview.width),
         sendWidth: Math.round(send.width),
         sendContained: send.left >= footer.left && send.right <= footer.right,
         sidebarWidth: Math.round(sidebar.width),
+        generationSettingsWidth: Math.round(generationSettings.width),
+        branchSelectorWidth: Math.round(branchSelector.width),
         toolbarContained: toolbarButtons.every((button) => {
           const bounds = button.getBoundingClientRect()
           return bounds.left >= toolbar.left && bounds.right <= toolbar.right
@@ -363,6 +367,8 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     await expect(sendChange).toBeEnabled()
     await sendChange.click({ trial: true })
     expect(await workspaceGeometry()).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect((await workspaceGeometry()).generationSettingsWidth).toBeLessThanOrEqual(248)
+    expect((await workspaceGeometry()).branchSelectorWidth).toBeLessThanOrEqual(132)
     expect((await workspaceGeometry()).previewWidth).toBeGreaterThanOrEqual(150)
 
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2))
