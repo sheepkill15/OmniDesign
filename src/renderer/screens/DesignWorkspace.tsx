@@ -46,8 +46,9 @@ type ConversationFeedItem =
 const REVISION_QUALITY_VERSION = 1
 
 function focusedThreadKey(target: FocusedTarget): string {
-  return target.stableId
-    ? `${target.path}\u0000stable\u0000${target.stableId}`
+  const stableId = target.stableId ?? target.continuityId
+  return stableId
+    ? `${target.path}\u0000stable\u0000${stableId}`
     : `${target.path}\u0000source\u0000${target.label}\u0000${target.excerpt}`
 }
 

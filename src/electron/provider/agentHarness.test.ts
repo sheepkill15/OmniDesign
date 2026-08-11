@@ -109,6 +109,17 @@ describe('focused edit prompt', () => {
     expect(result).toContain('nearest authored ancestor')
   })
 
+  it('asks the agent to preserve comment continuity when editing an unmarked element', () => {
+    const result = createFocusedEditPrompt('Make this calmer.', {
+      designId: 'design-1', revisionId: 'revision-1', path: 'index.html', startLine: 5, endLine: 5,
+      label: '<button>', stableId: null, continuityId: 'focused-6c81c254-bf06-4a04-8b3c-4c39779b2466', excerpt: '<button>Buy now</button>', dynamicDescription: null,
+    })
+
+    expect(result).toContain('data-od-id="focused-6c81c254-bf06-4a04-8b3c-4c39779b2466"')
+    expect(result).toContain('direct replacement')
+    expect(result).toContain('comment stays attached')
+  })
+
   it('combines queued feedback into one coordinated edit with every exact target', () => {
     const result = createFocusedFeedbackBatchPrompt([
       {

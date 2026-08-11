@@ -220,6 +220,9 @@ export const focusedTargetSchema = z.object({
   endLine: z.number().int().positive(),
   label: z.string().min(1).max(200),
   stableId: z.string().max(500).nullable(),
+  domId: z.string().max(500).nullable().optional(),
+  structuralPath: z.string().max(4_000).nullable().optional(),
+  continuityId: z.string().max(100).nullable().optional(),
   excerpt: z.string().min(1).max(4_100),
   dynamicDescription: z.string().max(500).nullable(),
 }).refine((value) => value.endLine >= value.startLine, { message: 'Focused target line range is invalid.' })

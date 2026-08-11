@@ -643,6 +643,8 @@ test('completes the Phase 3 definitions and exact focused-edit journey across re
     await expect(secondRun.window.getByText('Make this heading feel more grounded', { exact: false })).toBeVisible()
     await expect(secondRun.window.getByText(firstExactReference!, { exact: false })).toBeVisible()
     await expect(secondRun.window.getByText(secondExactReference!, { exact: false })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: 'Focused edit thread 1, 1 comment' })).toBeVisible()
+    await expect(secondRun.window.getByRole('button', { name: 'Focused edit thread 2, 1 comment' })).toBeVisible()
     await expect(secondRun.window.getByRole('button', { name: 'Definitions', exact: true })).toContainText('v2')
     await expect(secondRun.window.getByRole('button', { name: /History · 3/ })).toBeVisible()
   } finally {

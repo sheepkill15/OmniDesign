@@ -798,9 +798,13 @@ do not intersect the iframe viewport.
 The renderer derives each element thread from persisted focused-target metadata on user
 messages plus pending queue records; it does not introduce a parallel conversation store.
 When displaying a later revision, the privileged preview service re-anchors a historical
-target only to one unique source-map entry on the same page: first by stable `data-od-*`
-identity, then by an unchanged label and exact source excerpt. Deleted, changed, foreign,
-or ambiguous targets remain in ordinary history and are not assigned a visual marker.
+target only to one unique source-map entry on the same page. Existing `data-od-*` identity
+is strongest; an unmarked focused target receives a privileged continuity identifier that
+the edit prompt asks the provider to retain on the element or its direct replacement. Exact
+DOM `id`, deterministic element-tree position, unchanged source, and a unique exact element
+label provide bounded fallbacks. These are deterministic source-map matches, not visual or
+text-similarity guesses. Deleted, foreign, or ambiguous targets remain in ordinary history
+and are not assigned a visual marker.
 
 ## Phase 4 Architecture Decisions
 

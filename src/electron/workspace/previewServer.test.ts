@@ -54,7 +54,7 @@ describe('PreviewContentServer', () => {
     expect(server.validatesFocusedTarget({ ...resolved, revisionId: 'revision-forged' })).toBe(false)
   })
 
-  it('locates historical targets in the current revision only by unique stable identity or unchanged source', async () => {
+  it('keeps historical targets attached through a focused fix without guessing ambiguous replacements', async () => {
     const { session, invoke } = fakeSession()
     const server = new PreviewContentServer(session as never, 'file:')
     const oldHtml = '<html><body><button data-od-id="cta">Buy now</button><p>Keep this copy</p><span>Repeated</span></body></html>'
@@ -63,20 +63,55 @@ describe('PreviewContentServer', () => {
     const locationFor = (tag: string) => oldBody.match(new RegExp(`<${tag}[^>]*data-od-source-key="([0-9a-f-]{36})"`))?.[1]
     const stableTarget = server.resolveFocusedTarget({ token: oldToken, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationFor('button')!, clickedLabel: '<button>', usedAncestor: false })!
     const sourceTarget = server.resolveFocusedTarget({ token: oldToken, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationFor('p')!, clickedLabel: '<p>', usedAncestor: false })!
-    const ambiguousTarget = server.resolveFocusedTarget({ token: oldToken, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationFor('span')!, clickedLabel: '<span>', usedAncestor: false })!
+    const positionTarget = server.resolveFocusedTarget({ token: oldToken, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationFor('span')!, clickedLabel: '<span>', usedAncestor: false })!
 
     const currentHtml = '<html><body><header>New</header><button data-od-id="cta">Buy today</button><p>Keep this copy</p><span>Repeated</span><span>Repeated</span></body></html>'
     const currentToken = server.register('design-1', 'revision-2', { 'index.html': currentHtml })
     const located = server.locateFocusedTargets({ token: currentToken, designId: 'design-1', revisionId: 'revision-2', targets: [
       { id: 'stable', target: stableTarget },
       { id: 'source', target: sourceTarget },
-      { id: 'ambiguous', target: ambiguousTarget },
+      { id: 'position', target: positionTarget },
       { id: 'foreign', target: { ...stableTarget, designId: 'other-design' } },
     ] })
 
-    expect(located.map((item) => item.id)).toEqual(['stable', 'source'])
+    expect(located.map((item) => item.id)).toEqual(['stable', 'source', 'position'])
     expect(located.every((item) => /^[0-9a-f-]{36}$/.test(item.locationId))).toBe(true)
+    const ambiguousLegacyTarget = { ...positionTarget, revisionId: 'revision-unregistered', domId: undefined, structuralPath: undefined, continuityId: undefined }
+    expect(server.locateFocusedTargets({ token: currentToken, designId: 'design-1', revisionId: 'revision-2', targets: [{ id: 'ambiguous', target: ambiguousLegacyTarget }] })).toEqual([])
     expect(server.locateFocusedTargets({ token: oldToken, designId: 'design-1', revisionId: 'revision-2', targets: [{ id: 'wrong-token', target: stableTarget }] })).toEqual([])
+  })
+
+  it('re-anchors a changed target by its exact DOM identity or element-tree position', async () => {
+    const { session, invoke } = fakeSession()
+    const server = new PreviewContentServer(session as never, 'file:')
+    const oldHtml = '<html><body><main><button id="checkout" class="primary">Buy now</button><p class="note">Old note</p></main></body></html>'
+    const oldToken = server.register('design-1', 'revision-1', { 'index.html': oldHtml })
+    const oldBody = await invoke(`omnidesign-preview://revision/${oldToken}/index.html`).text()
+    const locationFor = (selector: string) => oldBody.match(new RegExp(`<${selector}[^>]*data-od-source-key="([0-9a-f-]{36})"`))?.[1]
+    const domTarget = server.resolveFocusedTarget({ token: oldToken, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationFor('button')!, clickedLabel: '<button>', usedAncestor: false })!
+    const structuralTarget = server.resolveFocusedTarget({ token: oldToken, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationFor('p')!, clickedLabel: '<p>', usedAncestor: false })!
+
+    const currentHtml = '<html><body><main><section><button id="checkout" class="quiet">Complete order</button></section><aside class="note-new">Updated note</aside></main></body></html>'
+    const currentToken = server.register('design-1', 'revision-2', { 'index.html': currentHtml })
+    const located = server.locateFocusedTargets({ token: currentToken, designId: 'design-1', revisionId: 'revision-2', targets: [
+      { id: 'dom', target: domTarget },
+      { id: 'structural', target: structuralTarget },
+    ] })
+
+    expect(located.map((item) => item.id)).toEqual(['dom', 'structural'])
+  })
+
+  it('uses the continuity identifier requested during a focused edit after the target moves', async () => {
+    const { session, invoke } = fakeSession()
+    const server = new PreviewContentServer(session as never, 'file:')
+    const oldToken = server.register('design-1', 'revision-1', { 'index.html': '<html><body><main><button>Buy now</button></main></body></html>' })
+    const oldBody = await invoke(`omnidesign-preview://revision/${oldToken}/index.html`).text()
+    const locationId = oldBody.match(/<button[^>]*data-od-source-key="([0-9a-f-]{36})"/)?.[1]
+    const target = server.resolveFocusedTarget({ token: oldToken, designId: 'design-1', revisionId: 'revision-1', page: 'index.html', locationId: locationId!, clickedLabel: '<button>', usedAncestor: false })!
+    expect(target.continuityId).toMatch(/^focused-[0-9a-f-]{36}$/)
+
+    const currentToken = server.register('design-1', 'revision-2', { 'index.html': `<html><body><header>New</header><main><div><a data-od-id="${target.continuityId}">Complete order</a></div></main></body></html>` })
+    expect(server.locateFocusedTargets({ token: currentToken, designId: 'design-1', revisionId: 'revision-2', targets: [{ id: 'thread', target }] })).toHaveLength(1)
   })
 
   it('serves build assets verbatim (no shim) and stable tokens per revision', async () => {

@@ -93,6 +93,9 @@ interface FocusedTarget {
   readonly endLine: number
   readonly label: string
   readonly stableId: string | null
+  readonly domId?: string | null
+  readonly structuralPath?: string | null
+  readonly continuityId?: string | null
   readonly excerpt: string
   readonly dynamicDescription: string | null
 }

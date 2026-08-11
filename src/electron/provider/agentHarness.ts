@@ -28,6 +28,11 @@ export function createFocusedEditPrompt(prompt: string, target: FocusedTarget): 
     `- Source: ${target.path}:${target.startLine}-${target.endLine}`,
     `- Element: ${target.label}${target.stableId ? ` (stable identifier: ${target.stableId})` : ''}`,
     ...(target.dynamicDescription ? [`- The clicked runtime element was ${target.dynamicDescription}; the source location above is its nearest authored ancestor.`] : []),
+    ...(target.stableId
+      ? ['- Preserve the target element\'s existing data-od-* stable identifier so its comment stays attached after this edit.']
+      : target.continuityId
+        ? [`- Add data-od-id="${target.continuityId}" to this target element, or its direct replacement, and preserve it so the comment stays attached after this edit.`]
+        : []),
     '- Keep the requested outcome focused on this element. You may update supporting CSS, JavaScript, shared components, or adjacent markup when necessary.',
     '- Source excerpt:',
     '```html',
@@ -46,6 +51,11 @@ export function createFocusedFeedbackBatchPrompt(feedback: readonly FocusedFeedb
       `- Source: ${item.target.path}:${item.target.startLine}-${item.target.endLine}`,
       `- Element: ${item.target.label}${item.target.stableId ? ` (stable identifier: ${item.target.stableId})` : ''}`,
       ...(item.target.dynamicDescription ? [`- The clicked runtime element was ${item.target.dynamicDescription}; the source location above is its nearest authored ancestor.`] : []),
+      ...(item.target.stableId
+        ? ['- Preserve the target element\'s existing data-od-* stable identifier so its comment stays attached after this edit.']
+        : item.target.continuityId
+          ? [`- Add data-od-id="${item.target.continuityId}" to this target element, or its direct replacement, and preserve it so the comment stays attached after this edit.`]
+          : []),
       '- You may update supporting CSS, JavaScript, shared components, or adjacent markup when necessary.',
       '- Source excerpt:',
       '```html',

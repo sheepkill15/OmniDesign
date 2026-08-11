@@ -1929,10 +1929,18 @@ describe('Phase 1 walking skeleton UI', () => {
   it('keeps submitted focused edits grouped as a historical thread on their element', async () => {
     const historicalTarget: FocusedTarget = {
       designId: 'design-1', revisionId: 'revision-before-edit', locationId: '6c81c254-bf06-4a04-8b3c-4c39779b2466', path: 'index.html', startLine: 12, endLine: 16,
-      label: '<h1.hero-title>', stableId: 'hero-title', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+      label: '<h1.hero-title>', stableId: null, continuityId: 'focused-6c81c254-bf06-4a04-8b3c-4c39779b2466', excerpt: '<h1>Move with confidence</h1>', dynamicDescription: null,
+    }
+    const fixedTarget: FocusedTarget = {
+      ...historicalTarget,
+      revisionId: 'revision-after-edit',
+      label: '<h1.hero-title.quiet>',
+      stableId: historicalTarget.continuityId!,
+      continuityId: null,
+      excerpt: '<h1 data-od-id="focused-6c81c254-bf06-4a04-8b3c-4c39779b2466">Move calmly</h1>',
     }
     const submittedFeedback: FocusedFeedback = {
-      id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885', comment: 'Reduce the heading width.', target: historicalTarget, createdAt: '2026-07-27T10:01:00.000Z',
+      id: '8b7e3b7c-e81f-4b65-a0d1-907f14a9e885', comment: 'Reduce the heading width.', target: fixedTarget, createdAt: '2026-07-27T10:01:00.000Z',
     }
     const pendingFeedback: FocusedFeedback = {
       id: 'a91b71b4-8a42-4fb8-b93e-bf398c19329d', comment: 'Try a softer weight next.', target: historicalTarget, createdAt: '2026-07-27T10:02:00.000Z',
