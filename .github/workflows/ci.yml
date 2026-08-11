@@ -103,4 +103,4 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test branch worktree lifecycle and recovery
-        run: pnpm test -- src/electron/workspace/designRepository.test.ts src/electron/workspace/workspaceService.test.ts
+        run: pnpm test -- --no-file-parallelism src/electron/workspace/designRepository.test.ts src/electron/workspace/workspaceService.test.ts
