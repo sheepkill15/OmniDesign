@@ -9,10 +9,10 @@ export type AttachmentPickerKind = 'files' | 'folder' | 'branches'
 
 export const terminalGenerationStages = ['queued', 'complete', 'failed', 'cancelled', 'interrupted']
 
-export function IconButton({ label, icon: IconComponent, onPress }: { readonly label: string; readonly icon: Icon; readonly onPress?: () => void }) {
+export function IconButton({ label, icon: IconComponent, className = 'icon-button', onPress }: { readonly label: string; readonly icon: Icon; readonly className?: string; readonly onPress?: () => void }) {
   return (
     <TooltipTrigger delay={350}>
-      <Button className="icon-button" aria-label={label} onPress={onPress}>
+      <Button className={className} aria-label={label} onPress={onPress}>
         <IconComponent aria-hidden="true" />
       </Button>
       <Tooltip className="tooltip">{label}</Tooltip>

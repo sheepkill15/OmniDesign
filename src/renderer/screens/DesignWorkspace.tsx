@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField } from 'react-aria-components'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import {
   ArrowDownTrayIcon,
   ArrowLeftIcon,
@@ -158,7 +158,7 @@ function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly on
       triggerClassName="toolbar-button"
       popoverClassName="project-popover layout-menu"
       placement="bottom"
-      trigger={<><CurrentIcon aria-hidden="true" />{current.label}</>}
+      trigger={<><CurrentIcon aria-hidden="true" /><span className="toolbar-label">{current.label}</span></>}
     >
       <Menu aria-label="Workspace layout" onAction={(key) => onChange(key as LayoutMode)}>
         {layoutModes.map((option) => {
@@ -991,10 +991,11 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         <div className="toolbar-actions">
             <LayoutMenu mode={mode} onChange={setMode} />
           <DropdownButton
+            label={`History · ${design.revisions.length}`}
             triggerClassName="toolbar-button"
             popoverClassName="history-popover"
             placement="bottom"
-            trigger={<><ClockIcon aria-hidden="true" />History · {design.revisions.length}</>}
+            trigger={<><ClockIcon aria-hidden="true" /><span className="toolbar-label">History · {design.revisions.length}</span></>}
           >
             <Menu aria-label="Revision history" onAction={(key) => void selectRevision(String(key))}>
               {[...design.revisions].reverse().map((revision, index) => (
@@ -1007,12 +1008,12 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
               ))}
             </Menu>
           </DropdownButton>
-            {!design.sourceProjectPath && <DropdownButton triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" trigger={<><FolderIcon aria-hidden="true" />Associate</>}>
+            {!design.sourceProjectPath && <DropdownButton label="Associate" triggerClassName="toolbar-button" popoverClassName="project-popover" placement="bottom" trigger={<><FolderIcon aria-hidden="true" /><span className="toolbar-label">Associate</span></>}>
               <ProjectSelectionMenu projects={projects.filter((project) => project.id !== design.projectId)} includeStandalone={false} onAction={(key) => void chooseAssociationTarget(key)} />
             </DropdownButton>}
-          <Button className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" />Export</Button>
-          {definitionsVisible && <Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" />Definitions{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button>}
-          <Button className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" />Remove</Button>
+          <TooltipTrigger delay={350}><Button aria-label="Export" className="toolbar-button" onPress={() => void exportRevision()} isDisabled={!design.selectedRevisionId}><ArrowDownTrayIcon aria-hidden="true" /><span className="toolbar-label">Export</span></Button><Tooltip className="tooltip">Export</Tooltip></TooltipTrigger>
+          {definitionsVisible && <TooltipTrigger delay={350}><Button aria-label="Definitions" className="toolbar-button" onPress={onOpenDefinitions}><SwatchIcon aria-hidden="true" /><span className="toolbar-label">Definitions</span>{design.definitionVersion ? <span className="toolbar-definition-version">v{design.definitionVersion}</span> : null}</Button><Tooltip className="tooltip">Definitions</Tooltip></TooltipTrigger>}
+          <TooltipTrigger delay={350}><Button aria-label="Remove" className="toolbar-button" onPress={() => void removeDesign()}><TrashIcon aria-hidden="true" /><span className="toolbar-label">Remove</span></Button><Tooltip className="tooltip">Remove</Tooltip></TooltipTrigger>
         </div>
       </header>
       <AppModal isOpen={branchPickerOpen} onOpenChange={setBranchPickerOpen} className="branch-manager-modal" title="Attach branch context">
@@ -1108,7 +1109,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         </>}
       </AppModal>
       {mode === 'split'
-        ? <div className="workspace-split" ref={split} style={{ gridTemplateColumns: `minmax(380px, ${conversationWidth}%) 8px minmax(0, 1fr)` }}>
+        ? <div className="workspace-split" ref={split} style={{ '--conversation-width': `${conversationWidth}%` } as CSSProperties}>
             {conversationPane}
             <div
               aria-label="Resize conversation and preview panels"

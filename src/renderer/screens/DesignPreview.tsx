@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 import { Button, TextArea, TextField } from 'react-aria-components'
 import { MinusIcon, PlusIcon, ArrowsPointingOutIcon, ChatBubbleLeftEllipsisIcon, QueueListIcon, WrenchScrewdriverIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { IconButton } from '../components/common'
 import { anchorIsVisible, layoutFocusedMarkers, type FocusedAnchorRect } from './focusedMarkerLayout'
 
 // Must match PREVIEW_MESSAGE_SOURCE in src/electron/workspace/previewShim.ts.
@@ -314,10 +315,10 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
           })}
         </div>
         <div className="preview-canvas-controls" role="group" aria-label="Canvas zoom">
-          <Button className="icon-button" aria-label="Zoom out" onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.max(0.2, current.zoom - 0.1) }))}><MinusIcon aria-hidden="true" /></Button>
+          <IconButton label="Zoom out" icon={MinusIcon} onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.max(0.2, current.zoom - 0.1) }))} />
           <span className="preview-zoom-value">{Math.round(canvasViewport.zoom * 100)}%</span>
-          <Button className="icon-button" aria-label="Zoom in" onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, current.zoom + 0.1) }))}><PlusIcon aria-hidden="true" /></Button>
-          <Button className="icon-button" aria-label="Reset view" onPress={resetView}><ArrowsPointingOutIcon aria-hidden="true" /></Button>
+          <IconButton label="Zoom in" icon={PlusIcon} onPress={() => onCanvasViewportChange((current) => ({ ...current, zoom: Math.min(2, current.zoom + 0.1) }))} />
+          <IconButton label="Reset view" icon={ArrowsPointingOutIcon} onPress={resetView} />
         </div>
       </div>
     )
@@ -347,7 +348,7 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
         </div>
       })}
       {focusedTarget && focusedAnchorRects.editor && anchorIsVisible(focusedAnchorRects.editor) && <div className="focused-comment-popover" role="dialog" aria-label="Focused feedback" style={anchoredStyle(focusedAnchorRects.editor, 380, 190)}>
-        <div className="focused-comment-context"><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><small>{focusedTarget.label} · {focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}</small><Button className="icon-button" aria-label="Close focused feedback" onPress={onClearFocused}><XMarkIcon aria-hidden="true" /></Button></div>
+        <div className="focused-comment-context"><ChatBubbleLeftEllipsisIcon aria-hidden="true" /><small>{focusedTarget.label} · {focusedTarget.path}:{focusedTarget.startLine}-{focusedTarget.endLine}</small><IconButton label="Close focused feedback" icon={XMarkIcon} onPress={onClearFocused} /></div>
         <TextField className="focused-comment-field" aria-label="Feedback for selected element"><TextArea ref={focusedInput} className="focused-comment-input" autoFocus value={focusedComment} placeholder="Describe what should change…" onChange={(event) => onFocusedCommentChange(event.target.value)} onKeyDown={(event) => {
           if (event.key === 'Escape') { event.preventDefault(); onClearFocused() }
           else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (canSubmitFocused && focusedComment.trim()) onSubmitFocused() }

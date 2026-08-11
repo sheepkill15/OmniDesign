@@ -338,6 +338,41 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     await prompt.press('Enter')
     await expect(run.window.getByRole('button', { name: 'Send change' })).toBeVisible()
     await expect(run.window.getByRole('button', { name: 'Remove' })).toBeVisible()
+    await run.window
+      .getByRole('textbox', { name: 'Request a design change' })
+      .fill('Check responsive controls')
+    const workspaceGeometry = async () => run.window.evaluate(() => {
+      const footer = document.querySelector('.workspace-composer-footer')!.getBoundingClientRect()
+      const send = document.querySelector('.workspace-composer .submit-prompt')!.getBoundingClientRect()
+      const preview = document.querySelector('.preview-pane')!.getBoundingClientRect()
+      const sidebar = document.querySelector('.sidebar')!.getBoundingClientRect()
+      const toolbar = document.querySelector('.workspace-toolbar')!.getBoundingClientRect()
+      const toolbarButtons = [...document.querySelectorAll<HTMLElement>('.workspace-toolbar button')]
+      return {
+        previewWidth: Math.round(preview.width),
+        sendWidth: Math.round(send.width),
+        sendContained: send.left >= footer.left && send.right <= footer.right,
+        sidebarWidth: Math.round(sidebar.width),
+        toolbarContained: toolbarButtons.every((button) => {
+          const bounds = button.getBoundingClientRect()
+          return bounds.left >= toolbar.left && bounds.right <= toolbar.right
+        }),
+      }
+    })
+    const sendChange = run.window.getByRole('button', { name: 'Send change' })
+    await expect(sendChange).toBeEnabled()
+    await sendChange.click({ trial: true })
+    expect(await workspaceGeometry()).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect((await workspaceGeometry()).previewWidth).toBeGreaterThanOrEqual(150)
+
+    await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2))
+    await expect.poll(() => run.window.evaluate(() => window.devicePixelRatio)).toBeGreaterThanOrEqual(2)
+    await expect.poll(async () => (await workspaceGeometry()).sidebarWidth).toBeLessThanOrEqual(64)
+    const zoomedGeometry = await workspaceGeometry()
+    await sendChange.click({ trial: true })
+    expect(zoomedGeometry).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect(zoomedGeometry.previewWidth).toBeGreaterThanOrEqual(140)
+    expect(zoomedGeometry.sidebarWidth).toBeLessThanOrEqual(64)
     await expect.poll(() => run.window.evaluate(() => ({
       horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight,
