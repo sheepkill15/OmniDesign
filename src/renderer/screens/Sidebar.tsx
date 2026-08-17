@@ -36,10 +36,13 @@ function ProjectNavItem({ project, designs, activeProjectId, activeDesignId, onO
         {!isStandalone && <Button className="project-disclosure" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${project.name}`} aria-expanded={expanded} onPress={() => setExpanded((current) => !current)}>
           <ChevronRightIcon aria-hidden="true" data-expanded={expanded || undefined} />
         </Button>}
-        <Button className="project-open" onPress={() => onOpen(project)}>
-          <ProjectIcon aria-hidden="true" />
-          <span>{project.name}</span>
-        </Button>
+        <TooltipTrigger delay={350}>
+          <Button className="project-open" aria-label={project.name} onPress={() => onOpen(project)}>
+            <ProjectIcon aria-hidden="true" />
+            <span>{project.name}</span>
+          </Button>
+          <Tooltip className="tooltip">{project.name}</Tooltip>
+        </TooltipTrigger>
         <span className="project-trailing">
           {!isStandalone && <><span className="project-count" aria-hidden="true">{project.designCount}</span>
             <TooltipTrigger delay={350}>

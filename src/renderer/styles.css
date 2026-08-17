@@ -2088,8 +2088,58 @@ button:not(:disabled):active {
 
 .toolbar-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
   margin-left: auto;
+}
+
+.workspace-layout-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 5px;
+  border-right: 1px solid var(--border);
+}
+
+.workspace-layout-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+
+.workspace-layout-option,
+.workspace-popout-button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.workspace-layout-option:hover,
+.workspace-popout-button:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.workspace-layout-option[data-active],
+.workspace-popout-button[data-active] {
+  background: var(--surface-selected);
+  color: var(--text);
+}
+
+.workspace-layout-option svg,
+.workspace-popout-button svg {
+  width: 16px;
 }
 
 .toolbar-button,
@@ -2390,12 +2440,12 @@ button[aria-expanded="true"] .dropdown-caret {
   line-height: 1.65;
 }
 
-/* The agent's reply gets its own bubble too (a different tone and mirrored corner) so it is easy to
-   pick out from surrounding activity, while staying distinct from the user's bubble. */
+/* Agent replies read as the workspace narrative. The avatar and role provide attribution, while
+   removing the second card treatment keeps long design explanations calm and easy to scan. */
 .message-assistant .message-bubble {
-  padding: 10px 14px;
-  border-radius: 4px 14px 14px 14px;
-  background: var(--surface-2);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .message-assistant .message-bubble p {
@@ -2731,6 +2781,15 @@ button[aria-expanded="true"] .dropdown-caret {
   flex-shrink: 0;
 }
 
+.workspace-single .conversation-feed {
+  padding-inline: max(24px, calc((100% - 760px) / 2));
+}
+
+.workspace-single .workspace-composer {
+  width: min(710px, calc(100% - 32px));
+  margin-inline: auto;
+}
+
 .historical-banner .historical-actions { display: flex; gap: 8px; }
 
 .revision-comparison-modal { width: min(100%, 760px); }
@@ -2924,7 +2983,7 @@ button[aria-expanded="true"] .dropdown-caret {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 960px) {
   .app-frame {
     grid-template-columns: 64px minmax(0, 1fr);
   }
@@ -2941,9 +3000,37 @@ button[aria-expanded="true"] .dropdown-caret {
 
   .brand-name,
   .brand-row > .icon-button,
-  .sidebar-section,
   .account-row > span:nth-child(2) {
     display: none;
+  }
+
+  .sidebar-section {
+    display: block;
+  }
+
+  .sidebar-heading {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .sidebar-heading > span,
+  .project-disclosure,
+  .project-trailing,
+  .project-open > span,
+  .design-sublist {
+    display: none;
+  }
+
+  .project-nav-row {
+    display: block;
+    padding-left: 0;
+  }
+
+  .project-open {
+    width: 36px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    margin-inline: auto;
   }
 
   .navigation-item {
@@ -3085,6 +3172,35 @@ button[aria-expanded="true"] .dropdown-caret {
   .generation-settings-column + .generation-settings-column {
     border-top: 1px solid var(--border);
     border-left: 0;
+  }
+}
+
+/* A split stops being useful once each pane is narrower than its own controls. Keep the preview as
+   the center of gravity at that point; the always-visible layout switcher exposes conversation view. */
+@media (max-width: 640px) {
+  .workspace-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-split > .conversation-pane,
+  .workspace-split > .workspace-divider {
+    display: none;
+  }
+
+  .workspace-layout-actions {
+    gap: 3px;
+    padding-right: 3px;
+  }
+
+  .workspace-layout-toggle {
+    gap: 0;
+    padding: 2px;
+  }
+
+  .workspace-layout-option,
+  .workspace-popout-button {
+    width: 27px;
+    height: 27px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

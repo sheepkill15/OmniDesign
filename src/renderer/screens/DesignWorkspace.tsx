@@ -145,31 +145,35 @@ function describeStoppedGeneration(job: GenerationJob): { readonly title: string
   return { title: 'Generation failed', message: 'Review the technical details, then continue partial work or retry from the last revision.', openProviders: false }
 }
 
-const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; readonly icon: Icon }[] = [
+const dockedLayouts: readonly { readonly id: Extract<LayoutMode, 'conversation' | 'split' | 'preview'>; readonly label: string; readonly icon: Icon }[] = [
+  { id: 'conversation', label: 'Conversation view', icon: ChatBubbleLeftRightIcon },
   { id: 'split', label: 'Split view', icon: ViewColumnsIcon },
-  { id: 'conversation', label: 'Conversation only', icon: ChatBubbleLeftRightIcon },
-  { id: 'preview', label: 'Preview only', icon: WindowIcon },
-  { id: 'popped', label: 'Pop out preview', icon: ArrowTopRightOnSquareIcon },
+  { id: 'preview', label: 'Preview view', icon: WindowIcon },
 ]
 
-function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
-  const current = layoutModes.find((candidate) => candidate.id === mode) ?? layoutModes[0]
-  const CurrentIcon = current.icon
+function LayoutSwitcher({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
   return (
-    <DropdownButton
-      label={`Layout: ${current.label}`}
-      triggerClassName="toolbar-button"
-      popoverClassName="project-popover layout-menu"
-      placement="bottom"
-      trigger={<><CurrentIcon aria-hidden="true" /><span className="toolbar-label">{current.label}</span></>}
-    >
-      <Menu aria-label="Workspace layout" onAction={(key) => onChange(key as LayoutMode)}>
-        {layoutModes.map((option) => {
+    <div className="workspace-layout-actions">
+      <div className="workspace-layout-toggle" role="group" aria-label="Workspace layout">
+        {dockedLayouts.map((option) => {
           const OptionIcon = option.icon
-          return <MenuItem id={option.id} key={option.id} textValue={option.label}><span><OptionIcon aria-hidden="true" />{option.label}</span>{mode === option.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+          return (
+            <TooltipTrigger delay={350} key={option.id}>
+              <Button className="workspace-layout-option" aria-label={option.label} aria-pressed={mode === option.id} data-active={mode === option.id || undefined} onPress={() => onChange(option.id)}>
+                <OptionIcon aria-hidden="true" />
+              </Button>
+              <Tooltip className="tooltip">{option.label}</Tooltip>
+            </TooltipTrigger>
+          )
         })}
-      </Menu>
-    </DropdownButton>
+      </div>
+      <TooltipTrigger delay={350}>
+        <Button className="workspace-popout-button" aria-label="Pop out preview" aria-pressed={mode === 'popped'} data-active={mode === 'popped' || undefined} onPress={() => onChange('popped')}>
+          <ArrowTopRightOnSquareIcon aria-hidden="true" />
+        </Button>
+        <Tooltip className="tooltip">Pop out preview</Tooltip>
+      </TooltipTrigger>
+    </div>
   )
 }
 
@@ -992,7 +996,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
         <span className="workspace-title"><EditableTitle value={design.title} label="design" variant="workspace" pending={design.titlePending} onSave={renameDesign} /><small>{providerStatus} · {busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
-            <LayoutMenu mode={mode} onChange={setMode} />
+          <LayoutSwitcher mode={mode} onChange={setMode} />
           <DropdownButton
             label={`History · ${design.revisions.length}`}
             triggerClassName="toolbar-button"

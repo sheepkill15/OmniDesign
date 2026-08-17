@@ -259,7 +259,7 @@ test('applies and persists the trusted application theme across primary screens'
     await prompt.press('Enter')
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'dark')
-    await expect(firstRun.window.getByRole('button', { name: /Layout/ })).toBeVisible()
+    await expect(firstRun.window.getByRole('group', { name: 'Workspace layout' })).toBeVisible()
     await expectFirstResultUnobstructed(firstRun.window)
 
     await firstRun.window.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -280,7 +280,7 @@ test('applies and persists the trusted application theme across primary screens'
     await firstRun.window.getByRole('button', { name: 'A theme coverage workspace', exact: true }).click()
     await expect(firstRun.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await expect(firstRun.window.locator('html')).toHaveAttribute('data-theme', 'light')
-    await expect(firstRun.window.getByRole('button', { name: /Layout/ })).toBeVisible()
+    await expect(firstRun.window.getByRole('group', { name: 'Workspace layout' })).toBeVisible()
     await firstRun.app.close()
     activeApp = null
 
@@ -372,10 +372,12 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     const sendChange = run.window.getByRole('button', { name: 'Send change' })
     await expect(sendChange).toBeEnabled()
     await sendChange.click({ trial: true })
-    expect(await workspaceGeometry()).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
-    expect((await workspaceGeometry()).generationSettingsWidth).toBeLessThanOrEqual(248)
-    expect((await workspaceGeometry()).branchSelectorWidth).toBeLessThanOrEqual(132)
-    expect((await workspaceGeometry()).previewWidth).toBeGreaterThanOrEqual(150)
+    const compactGeometry = await workspaceGeometry()
+    expect(compactGeometry).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect(compactGeometry.sidebarWidth).toBeLessThanOrEqual(64)
+    expect(compactGeometry.generationSettingsWidth).toBeLessThanOrEqual(248)
+    expect(compactGeometry.branchSelectorWidth).toBeLessThanOrEqual(132)
+    expect(compactGeometry.previewWidth).toBeGreaterThanOrEqual(150)
     const longDesignTitle = 'International fulfillment performance and capacity planning command center'
     const designTitle = run.window.getByRole('textbox', { name: 'Rename design' })
     await designTitle.fill(longDesignTitle)
@@ -385,10 +387,13 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     await expect.poll(() => run.window.evaluate(() => window.devicePixelRatio)).toBeGreaterThanOrEqual(2)
     await expect.poll(async () => (await workspaceGeometry()).sidebarWidth).toBeLessThanOrEqual(64)
     const zoomedGeometry = await workspaceGeometry()
-    await sendChange.click({ trial: true })
-    expect(zoomedGeometry).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true, previewControlsContained: true })
-    expect(zoomedGeometry.previewWidth).toBeGreaterThanOrEqual(140)
+    expect(zoomedGeometry).toMatchObject({ sendWidth: 0, toolbarContained: true, previewControlsContained: true })
+    expect(zoomedGeometry.previewWidth).toBeGreaterThanOrEqual(300)
     expect(zoomedGeometry.sidebarWidth).toBeLessThanOrEqual(64)
+    await expect(run.window.getByRole('region', { name: 'Design conversation' })).toBeHidden()
+    await run.window.getByRole('button', { name: 'Conversation view' }).click()
+    await expect(sendChange).toBeVisible()
+    await sendChange.click({ trial: true })
     await expect.poll(() => run.window.evaluate(() => ({
       horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight,
@@ -424,6 +429,8 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
 
     await run.window.getByRole('button', { name: 'Library', exact: true }).click()
     await run.window.getByRole('group', { name: 'Designs' }).getByRole('button', { name: `Open ${longDesignTitle}` }).click()
+    await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
+    await run.window.getByRole('button', { name: 'Conversation view' }).click()
     await expect(run.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await run.window.getByRole('button', { name: 'Remove', exact: true }).click()
     await run.window.getByRole('button', { name: 'Trash', exact: true }).click()
@@ -501,7 +508,7 @@ test('confirms close with active work and recovers it as interrupted', async () 
   }
 })
 
-test('opens the layout menu and dismisses it', async () => {
+test('switches workspace layouts from the visible layout control', async () => {
   const userDataDirectory = await mkdtemp(path.join(tmpdir(), 'omnidesign-e2e-'))
   let activeApp: ElectronApplication | null = null
   try {
@@ -513,13 +520,13 @@ test('opens the layout menu and dismisses it', async () => {
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
     await expectFirstResultUnobstructed(run.window)
 
-    await run.window.getByRole('button', { name: /Layout/ }).click()
-    const conversationOnly = run.window.getByRole('menuitem', { name: 'Conversation only' })
-    await expect(conversationOnly).toBeVisible()
-
-    // The modal menu closes on Escape (and, via its underlay, on any outside click).
-    await run.window.keyboard.press('Escape')
-    await expect(conversationOnly).toHaveCount(0)
+    const layout = run.window.getByRole('group', { name: 'Workspace layout' })
+    await expect(layout.getByRole('button', { name: 'Split view' })).toHaveAttribute('aria-pressed', 'true')
+    await layout.getByRole('button', { name: 'Conversation view' }).click()
+    await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toHaveCount(0)
+    await expect(run.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await layout.getByRole('button', { name: 'Preview view' }).click()
+    await expect(run.window.getByRole('region', { name: 'Design conversation' })).toHaveCount(0)
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
 
     await run.app.close()
@@ -542,8 +549,7 @@ test('pops the preview into its own window and docks it back', async () => {
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
     await expectFirstResultUnobstructed(run.window)
 
-    await run.window.getByRole('button', { name: /Layout/ }).click()
-    await run.window.getByRole('menuitem', { name: 'Pop out preview' }).click()
+    await run.window.getByRole('button', { name: 'Pop out preview' }).click()
 
     await expect.poll(() => previewPopOutWindowId(run.app)).not.toBeNull()
     const popOutWindowId = await previewPopOutWindowId(run.app)

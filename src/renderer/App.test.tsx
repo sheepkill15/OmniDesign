@@ -1446,8 +1446,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
 
-    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Conversation only' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation view' }))
 
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
@@ -1463,8 +1462,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Design conversation' })
 
-    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Preview only' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview view' }))
 
     expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
@@ -1479,8 +1477,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
 
-    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pop out preview' }))
 
     await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith(expect.objectContaining({ designId: 'design-1', revisionId: 'revision-1' })))
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
@@ -1721,8 +1718,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
     await screen.findByRole('region', { name: 'Generated design preview' })
-    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pop out preview' }))
     await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith(expect.objectContaining({ designId: 'design-1' })))
 
     vi.mocked(bridge.preview.popOut).mockClear()
