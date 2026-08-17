@@ -350,6 +350,8 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
       const generationSettings = document.querySelector('.workspace-composer-footer .generation-settings-button')!.getBoundingClientRect()
       const branchSelector = document.querySelector('.composer-branch-selector')!.getBoundingClientRect()
       const toolbarButtons = [...document.querySelectorAll<HTMLElement>('.workspace-toolbar button')]
+      const previewToolbar = document.querySelector('.preview-toolbar')!.getBoundingClientRect()
+      const previewButtons = [...document.querySelectorAll<HTMLElement>('.preview-toolbar button')]
       return {
         previewWidth: Math.round(preview.width),
         sendWidth: Math.round(send.width),
@@ -361,6 +363,10 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
           const bounds = button.getBoundingClientRect()
           return bounds.left >= toolbar.left && bounds.right <= toolbar.right
         }),
+        previewControlsContained: previewButtons.every((button) => {
+          const bounds = button.getBoundingClientRect()
+          return bounds.left >= previewToolbar.left && bounds.right <= previewToolbar.right
+        }),
       }
     })
     const sendChange = run.window.getByRole('button', { name: 'Send change' })
@@ -370,19 +376,72 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     expect((await workspaceGeometry()).generationSettingsWidth).toBeLessThanOrEqual(248)
     expect((await workspaceGeometry()).branchSelectorWidth).toBeLessThanOrEqual(132)
     expect((await workspaceGeometry()).previewWidth).toBeGreaterThanOrEqual(150)
+    const longDesignTitle = 'International fulfillment performance and capacity planning command center'
+    const designTitle = run.window.getByRole('textbox', { name: 'Rename design' })
+    await designTitle.fill(longDesignTitle)
+    await designTitle.press('Enter')
 
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2))
     await expect.poll(() => run.window.evaluate(() => window.devicePixelRatio)).toBeGreaterThanOrEqual(2)
     await expect.poll(async () => (await workspaceGeometry()).sidebarWidth).toBeLessThanOrEqual(64)
     const zoomedGeometry = await workspaceGeometry()
     await sendChange.click({ trial: true })
-    expect(zoomedGeometry).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect(zoomedGeometry).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true, previewControlsContained: true })
     expect(zoomedGeometry.previewWidth).toBeGreaterThanOrEqual(140)
     expect(zoomedGeometry.sidebarWidth).toBeLessThanOrEqual(64)
     await expect.poll(() => run.window.evaluate(() => ({
       horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight,
     }))).toEqual({ horizontal: false, vertical: false })
+
+    await run.window.getByRole('button', { name: 'Library', exact: true }).click()
+    await expect(run.window.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
+    const browseFolders = run.window.getByRole('button', { name: 'Browse folders and tags' })
+    await expect(browseFolders).toBeVisible()
+    await browseFolders.click()
+    await expect(run.window.getByRole('button', { name: 'New folder' })).toBeVisible()
+    await run.window.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect.poll(() => run.window.evaluate(() => {
+      const content = document.querySelector('.library-content')!.getBoundingClientRect()
+      return [...document.querySelectorAll<HTMLElement>('.library-controls button, .library-controls input')].every((control) => {
+        const bounds = control.getBoundingClientRect()
+        return bounds.left >= content.left && bounds.right <= content.right
+      })
+    })).toBe(true)
+
+    await run.window.getByRole('button', { name: 'Home', exact: true }).click()
+    await run.window.getByRole('button', { name: 'Standalone design' }).click()
+    await run.window.getByRole('menuitem', { name: 'Clone Git repository…' }).click()
+    const cloneDialog = run.window.getByRole('dialog', { name: 'Clone Git repository' })
+    await expect(cloneDialog).toBeVisible()
+    await expect.poll(() => cloneDialog.evaluate((dialog) => {
+      const bounds = dialog.getBoundingClientRect()
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight && getComputedStyle(dialog).overflowY === 'auto'
+    })).toBe(true)
+    await cloneDialog.evaluate((dialog) => { dialog.scrollTop = dialog.scrollHeight })
+    await expect(cloneDialog.getByRole('button', { name: 'Use repository' })).toBeVisible()
+    await cloneDialog.getByRole('button', { name: 'Cancel' }).click()
+
+    await run.window.getByRole('button', { name: 'Library', exact: true }).click()
+    await run.window.getByRole('group', { name: 'Designs' }).getByRole('button', { name: `Open ${longDesignTitle}` }).click()
+    await expect(run.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
+    await run.window.getByRole('button', { name: 'Remove', exact: true }).click()
+    await run.window.getByRole('button', { name: 'Trash', exact: true }).click()
+    await expect(run.window.getByText(longDesignTitle, { exact: true })).toBeVisible()
+    const trashGeometry = await run.window.locator('.generation-row').evaluate((row) => {
+      const bounds = row.getBoundingClientRect()
+      const copy = row.querySelector('.generation-copy')!.getBoundingClientRect()
+      const controls = [...row.querySelectorAll('button')]
+      return {
+        copyWidth: Math.round(copy.width),
+        controlsContained: controls.every((control) => {
+          const controlBounds = control.getBoundingClientRect()
+          return controlBounds.left >= bounds.left && controlBounds.right <= bounds.right
+        }),
+      }
+    })
+    expect(trashGeometry.controlsContained).toBe(true)
+    expect(trashGeometry.copyWidth).toBeGreaterThan(200)
   } finally {
     await activeApp?.close().catch(() => undefined)
     await rm(userDataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -797,26 +856,48 @@ test('completes the Phase 4 branching, context, comparison, combination, and exp
     }), { timeout: 30_000 }).toEqual({ state: 'completed', branchId: source.id, commit: 40 })
 
     await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await secondRun.window.getByRole('menuitem', { name: new RegExp(source.title) }).click()
+    await secondRun.window.getByRole('button', { name: `Branch: ${source.title}` }).click()
     await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
     const initialManager = secondRun.window.getByRole('dialog', { name: 'Manage branches' })
     await expect(initialManager.getByText('Current')).toBeVisible()
     await secondRun.window.locator('.modal-overlay').click({ position: { x: 4, y: 4 } })
     await expect(initialManager).toHaveCount(0)
-    await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await secondRun.window.getByRole('button', { name: `Branch: ${source.title}` }).click()
     await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
     await secondRun.window.getByRole('button', { name: 'Close Manage branches' }).click()
     await expect(secondRun.window.getByRole('dialog', { name: 'Manage branches' })).toHaveCount(0)
-    await secondRun.window.getByRole('button', { name: 'Branch: Main' }).click()
+    await secondRun.window.getByRole('button', { name: `Branch: ${source.title}` }).click()
     await secondRun.window.getByRole('menuitem', { name: 'Manage branches' }).click()
     const manager = secondRun.window.getByRole('dialog', { name: 'Manage branches' })
-    await manager.getByRole('checkbox', { name: `Select ${source.title} for comparison` }).check()
+    await manager.getByRole('checkbox', { name: 'Select Main for comparison' }).check()
     await manager.getByRole('button', { name: 'Compare branches' }).click()
     const comparison = secondRun.window.getByRole('dialog', { name: 'Compare branches' })
     await expect(comparison).toBeVisible()
+    const direction = comparison.getByRole('group', { name: 'Branch combination direction' })
+    await expect(direction).toContainText(`Source${source.title}`)
+    await expect(direction).toContainText('DestinationMain')
+    await direction.getByRole('button', { name: 'Swap roles' }).click()
+    await expect(direction).toContainText('SourceMain')
+    await expect(direction).toContainText(`Destination${source.title}`)
+    await direction.getByRole('button', { name: 'Swap roles' }).click()
+    await expect(direction).toContainText(`Source${source.title}`)
+    await expect(direction).toContainText('DestinationMain')
+    await secondRun.app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(900, 600); window.webContents.setZoomFactor(2) })
+    await expect.poll(() => comparison.evaluate((dialog) => {
+      const bounds = dialog.getBoundingClientRect()
+      const previews = [...dialog.querySelectorAll<HTMLElement>('.branch-comparison-previews article')].map((article) => article.getBoundingClientRect())
+      return {
+        contained: bounds.top >= 0 && bounds.bottom <= window.innerHeight,
+        stacked: previews.length === 2 && previews[1]!.top > previews[0]!.top,
+        scrollable: getComputedStyle(dialog).overflowY === 'auto',
+      }
+    })).toEqual({ contained: true, stacked: true, scrollable: true })
+    await secondRun.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
     await comparison.getByRole('button', { name: 'Summarize differences' }).click()
     await expect(comparison.getByRole('region', { name: 'AI branch summary' })).toContainText(/differs|no authored file differences/)
     await comparison.getByRole('textbox', { name: 'Combination prompt' }).fill('Keep Main structure and adopt the attached direction’s strongest typography')
-    await comparison.getByRole('button', { name: 'Combine into destination' }).click()
+    await comparison.getByRole('button', { name: new RegExp(`^Combine ${source.title} into Main$`) }).click()
     const recovery = secondRun.window.getByRole('dialog', { name: 'Combination needs review' })
     await expect(recovery).toBeVisible({ timeout: 20_000 })
     const designId = snapshot.id
@@ -868,7 +949,7 @@ test('recovers a manual Phase 4 combination across restart and aborts safely', a
     await manager.getByRole('checkbox', { name: `Select ${source.title} for comparison` }).check()
     await manager.getByRole('button', { name: 'Compare branches' }).click()
     const comparison = firstRun.window.getByRole('dialog', { name: 'Compare branches' })
-    await comparison.getByRole('button', { name: 'Combine into destination' }).click()
+    await comparison.getByRole('button', { name: new RegExp(`^Combine ${source.title} into Main$`) }).click()
     await expect(firstRun.window.getByRole('dialog', { name: 'Combination needs review' })).toBeVisible({ timeout: 20_000 })
     await expect.poll(() => firstRun.window.evaluate(async () => {
       const current = (await window.omnidesign!.workspace.list())[0]

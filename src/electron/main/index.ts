@@ -68,7 +68,7 @@ import {
   themeSchema,
   trashItemRequestSchema,
 } from '../workspace/contracts.js'
-import type { GenerationActivity } from '../workspace/contracts.js'
+import type { CombinationAttempt, GenerationActivity } from '../workspace/contracts.js'
 import { writeOfflineZip } from '../workspace/exportService.js'
 import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewContentServer } from '../workspace/previewServer.js'
@@ -230,8 +230,8 @@ function sendGenerationActivity(activity: GenerationActivity): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:activity', activity)
 }
 
-function sendWorkspaceChanged(designId: string): void {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { designId })
+function sendWorkspaceChanged(designId: string, completedCombination?: CombinationAttempt): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { designId, ...(completedCombination ? { completedCombination } : {}) })
 }
 
 function generateBranchTitleInBackground(designId: string, branchId: string, initialTitle: string, prompt: string, providerId: 'codex' | 'claude', modelId: string, effort: string | null, attachments: readonly import('../workspace/contracts.js').Attachment[]): void {
@@ -828,6 +828,7 @@ function registerIpc(): void {
     const prompt = request.prompt || DEFAULT_BRANCH_COMBINATION_PROMPT
     const prepared = requireWorkspace().startCombination(request.designId, request.comparisonId, prompt, { providerId: request.providerId, modelId: request.modelId, effort: request.effort })
     if (request.providerId === 'mock') return requireWorkspace().beginCombinationFallback(prepared.attempt.id, 'The development provider uses the deterministic fallback merge for combination previews.')
+    let completedCombination: CombinationAttempt | undefined
     try {
       const reply = await providers.runAnalysisAgent({
         requestId: randomUUID(), providerId: request.providerId, modelId: request.modelId,
@@ -841,6 +842,7 @@ function registerIpc(): void {
       })
       try {
         const completed = await requireWorkspace().completeIntelligentCombination(prepared.attempt.id, reply.text)
+        completedCombination = completed
         requireGenerationQueue().refresh()
         return completed
       } catch (error) {
@@ -849,7 +851,7 @@ function registerIpc(): void {
     } catch (error) {
       return requireWorkspace().beginCombinationFallback(prepared.attempt.id, error instanceof Error ? error.message : 'The intelligent combination failed.')
     } finally {
-      sendWorkspaceChanged(request.designId)
+      sendWorkspaceChanged(request.designId, completedCombination)
     }
   })
   ipcMain.handle('workspace:finish-combination', async (event, value: unknown) => {
@@ -857,7 +859,7 @@ function registerIpc(): void {
     const request = combinationAttemptRequestSchema.parse(value)
     const result = await requireWorkspace().finishManualCombination(request.attemptId)
     requireGenerationQueue().refresh()
-    sendWorkspaceChanged(request.designId)
+    sendWorkspaceChanged(request.designId, result)
     return result
   })
   ipcMain.handle('workspace:abort-combination', (event, value: unknown) => {

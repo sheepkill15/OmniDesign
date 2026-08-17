@@ -545,6 +545,19 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.purgeTrash).toHaveBeenCalledWith('design', 'design-1'))
   })
 
+  it('describes permanent project deletion as removing the project and its designs', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.listTrash).mockResolvedValue([{
+      id: 'project-2', kind: 'project', name: 'Aurora', projectId: null, projectName: null, sourceProjectPath: 'C:\\Projects\\Aurora',
+      trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z',
+    }])
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete permanently' }))
+    expect(screen.getByRole('dialog', { name: 'Permanently delete Aurora?' })).toHaveTextContent('permanently deletes the project, its designs')
+  })
+
   it('confirms before emptying all trash items', async () => {
     const bridge = installBridge()
     vi.mocked(bridge.workspace.listTrash).mockResolvedValue([
@@ -559,6 +572,29 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Empty trash' }))
 
     await waitFor(() => expect(bridge.workspace.purgeTrash).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes Trash and reports partial permanent-deletion failures', async () => {
+    const bridge = installBridge()
+    const items: TrashItem[] = [
+      { id: 'design-1', kind: 'design', name: 'Calm dashboard', projectId: 'project-1', projectName: 'Calm dashboard', sourceProjectPath: null, trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z' },
+      { id: 'project-2', kind: 'project', name: 'Aurora', projectId: null, projectName: null, sourceProjectPath: 'C:\\Projects\\Aurora', trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z' },
+    ]
+    let remaining = items
+    vi.mocked(bridge.workspace.listTrash).mockImplementation(async () => remaining)
+    vi.mocked(bridge.workspace.purgeTrash).mockImplementation(async (kind, id) => {
+      if (id === 'project-2') throw new Error('The project files are locked.')
+      remaining = remaining.filter((item) => item.kind !== kind || item.id !== id)
+    })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Empty trash' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Empty trash' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 item deleted; 1 failed')
+    expect(screen.queryByText('Calm dashboard', { exact: true })).not.toBeInTheDocument()
+    expect(screen.getByText('Aurora', { exact: true })).toBeInTheDocument()
   })
 
   it('shows active work globally and can remove queued work from the generations view', async () => {
@@ -1644,7 +1680,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Summarize differences' }))
     expect(await screen.findByText(/Editorial direction adds a denser typographic hierarchy/)).toBeInTheDocument()
     await waitFor(() => expect(bridge.workspace.summarizeBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
-    fireEvent.click(screen.getByRole('button', { name: 'Combine into destination' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Combine Editorial direction into Main' }))
     expect(screen.getByRole('status')).toHaveTextContent('Combining Editorial direction into Main')
     expect(screen.getByRole('textbox', { name: 'Combination prompt' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled()
@@ -2376,6 +2412,31 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(within(bulkBar).getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-1'))
     expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-2')
+  })
+
+  it('refreshes a partially completed bulk removal and keeps failed designs selected', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
+    const bridge = installBridge([first, second])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
+    vi.mocked(bridge.workspace.trash)
+      .mockResolvedValueOnce({ cancelled: false })
+      .mockRejectedValueOnce(new Error('The second design is locked.'))
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
+    const grid = await screen.findByRole('group', { name: 'Designs in this project' })
+    const overview = within(grid).getByRole('checkbox', { name: 'Select Overview' })
+    const settings = within(grid).getByRole('checkbox', { name: 'Select Settings screen' })
+    fireEvent.click(overview)
+    fireEvent.click(settings)
+    fireEvent.click(within(await screen.findByRole('group', { name: 'Bulk design actions' })).getByRole('button', { name: 'Remove' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 completed; 1 failed')
+    expect(overview).not.toBeChecked()
+    expect(settings).toBeChecked()
+    expect(bridge.workspace.list).toHaveBeenCalledTimes(2)
   })
 
   it('moves selected designs to any other project, including a standalone project', async () => {

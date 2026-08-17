@@ -38,7 +38,8 @@ export function Trash({ items, onRestore, onPurge, onEmpty }: { readonly items: 
       </div>
       <AppModal isOpen={pendingPurge !== null} onOpenChange={(open) => { if (!open && !busy) setPendingPurge(null) }} title={pendingPurge === 'all' ? 'Empty trash?' : `Permanently delete ${pendingPurge?.name ?? 'item'}?`}>
         {(close) => <>
-          <p>{pendingPurge === 'all' ? `This permanently deletes all ${items.length} trashed item${items.length === 1 ? '' : 's'} and their OmniDesign history.` : 'This permanently deletes the design and its OmniDesign history.'} This cannot be undone. Linked source folders remain untouched.</p>
+          <p>{pendingPurge === 'all' ? `This permanently deletes all ${items.length} trashed item${items.length === 1 ? '' : 's'} and their OmniDesign history.` : pendingPurge?.kind === 'project' ? 'This permanently deletes the project, its designs, and their OmniDesign history.' : 'This permanently deletes the design and its OmniDesign history.'} This cannot be undone. Linked source folders remain untouched.</p>
+          {error && <p className="trash-error" role="alert">{error}</p>}
           <div className="clone-modal-actions"><Button className="secondary-action" isDisabled={busy} onPress={close}>Cancel</Button><Button className="clone-confirm-action danger-confirm-action" isDisabled={busy} onPress={() => void run(() => pendingPurge === 'all' ? onEmpty(items) : pendingPurge ? onPurge(pendingPurge) : Promise.resolve(), close)}>{busy ? 'Deleting…' : pendingPurge === 'all' ? 'Empty trash' : 'Delete permanently'}</Button></div>
         </>}
       </AppModal>
