@@ -1669,8 +1669,21 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await within(editorialBranch).findByRole('list', { name: 'Editorial direction revisions' })).toBeInTheDocument()
     expect(bridge.workspace.getBranch).toHaveBeenCalledWith('design-1', alternativeId)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Editorial direction for comparison' }))
+    type PreviewRegistration = Awaited<ReturnType<typeof bridge.preview.register>>
+    let resolveSourcePreview: ((value: PreviewRegistration) => void) | undefined
+    let resolveDestinationPreview: ((value: PreviewRegistration) => void) | undefined
+    vi.mocked(bridge.preview.register)
+      .mockImplementationOnce(async () => new Promise<PreviewRegistration>((resolve) => { resolveSourcePreview = resolve }))
+      .mockImplementationOnce(async () => new Promise<PreviewRegistration>((resolve) => { resolveDestinationPreview = resolve }))
     fireEvent.click(screen.getByRole('button', { name: 'Compare branches' }))
-    expect(await screen.findByRole('dialog', { name: 'Compare branches' })).toBeInTheDocument()
+    const comparisonDialog = await screen.findByRole('dialog', { name: 'Compare branches' })
+    expect(within(comparisonDialog).getAllByText('Loading preview…')).toHaveLength(2)
+    const direction = within(comparisonDialog).getByRole('group', { name: 'Branch combination direction' })
+    expect(within(direction).getByText('Editorial direction')).toHaveAttribute('title', 'Editorial direction')
+    await act(async () => {
+      resolveSourcePreview?.({ token: 'source-token', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' })
+      resolveDestinationPreview?.({ token: 'destination-token', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' })
+    })
     await waitFor(() => expect(bridge.workspace.compareBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1'))
     expect(screen.getByTitle('Main · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
     expect(screen.getByTitle('Editorial direction · index.html')).toHaveAttribute('sandbox', 'allow-scripts')

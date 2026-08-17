@@ -2005,7 +2005,7 @@ button:not(:disabled):active {
 .branch-revision-list svg { width: 13px; }
 .branch-revision-list li > span:nth-child(2) { display: grid; gap: 1px; }
 .branch-manager-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--text-faint); font-size: 11px; }
-.branch-comparison-modal { width: min(96vw, 1120px); }
+.branch-comparison-modal { width: min(100%, 1120px); }
 .branch-comparison-modal [role='dialog'] { max-height: calc(100dvh - 32px); overflow-y: auto; }
 .branch-comparison-direction { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); }
 .branch-comparison-direction > span { min-width: 0; display: grid; gap: 2px; }

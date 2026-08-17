@@ -886,13 +886,15 @@ test('completes the Phase 4 branching, context, comparison, combination, and exp
     await secondRun.app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(900, 600); window.webContents.setZoomFactor(2) })
     await expect.poll(() => comparison.evaluate((dialog) => {
       const bounds = dialog.getBoundingClientRect()
+      const overlay = dialog.closest<HTMLElement>('.modal-overlay')
       const previews = [...dialog.querySelectorAll<HTMLElement>('.branch-comparison-previews article')].map((article) => article.getBoundingClientRect())
       return {
-        contained: bounds.top >= 0 && bounds.bottom <= window.innerHeight,
+        contained: bounds.left >= 0 && bounds.right <= window.innerWidth && bounds.top >= 0 && bounds.bottom <= window.innerHeight,
+        noHorizontalOverflow: !!overlay && overlay.scrollWidth <= overlay.clientWidth,
         stacked: previews.length === 2 && previews[1]!.top > previews[0]!.top,
         scrollable: getComputedStyle(dialog).overflowY === 'auto',
       }
-    })).toEqual({ contained: true, stacked: true, scrollable: true })
+    })).toEqual({ contained: true, noHorizontalOverflow: true, stacked: true, scrollable: true })
     await secondRun.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
     await comparison.getByRole('button', { name: 'Summarize differences' }).click()
     await expect(comparison.getByRole('region', { name: 'AI branch summary' })).toContainText(/differs|no authored file differences/)
