@@ -1446,7 +1446,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Conversation view' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation' }))
 
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
@@ -1462,7 +1462,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Design conversation' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview view' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
 
     expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()

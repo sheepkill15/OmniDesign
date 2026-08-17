@@ -391,7 +391,7 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     expect(zoomedGeometry.previewWidth).toBeGreaterThanOrEqual(300)
     expect(zoomedGeometry.sidebarWidth).toBeLessThanOrEqual(64)
     await expect(run.window.getByRole('region', { name: 'Design conversation' })).toBeHidden()
-    await run.window.getByRole('button', { name: 'Conversation view' }).click()
+    await run.window.getByRole('button', { name: 'Conversation' }).click()
     await expect(sendChange).toBeVisible()
     await sendChange.click({ trial: true })
     await expect.poll(() => run.window.evaluate(() => ({
@@ -430,7 +430,7 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     await run.window.getByRole('button', { name: 'Library', exact: true }).click()
     await run.window.getByRole('group', { name: 'Designs' }).getByRole('button', { name: `Open ${longDesignTitle}` }).click()
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
-    await run.window.getByRole('button', { name: 'Conversation view' }).click()
+    await run.window.getByRole('button', { name: 'Conversation' }).click()
     await expect(run.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
     await run.window.getByRole('button', { name: 'Remove', exact: true }).click()
     await run.window.getByRole('button', { name: 'Trash', exact: true }).click()
@@ -521,11 +521,11 @@ test('switches workspace layouts from the visible layout control', async () => {
     await expectFirstResultUnobstructed(run.window)
 
     const layout = run.window.getByRole('group', { name: 'Workspace layout' })
-    await expect(layout.getByRole('button', { name: 'Split view' })).toHaveAttribute('aria-pressed', 'true')
-    await layout.getByRole('button', { name: 'Conversation view' }).click()
+    await expect(layout.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-pressed', 'true')
+    await layout.getByRole('button', { name: 'Conversation' }).click()
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toHaveCount(0)
     await expect(run.window.getByRole('region', { name: 'Design conversation' })).toBeVisible()
-    await layout.getByRole('button', { name: 'Preview view' }).click()
+    await layout.getByRole('button', { name: 'Preview' }).click()
     await expect(run.window.getByRole('region', { name: 'Design conversation' })).toHaveCount(0)
     await expect(run.window.getByRole('region', { name: 'Generated design preview' })).toBeVisible()
 

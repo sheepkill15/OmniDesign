@@ -146,9 +146,9 @@ function describeStoppedGeneration(job: GenerationJob): { readonly title: string
 }
 
 const dockedLayouts: readonly { readonly id: Extract<LayoutMode, 'conversation' | 'split' | 'preview'>; readonly label: string; readonly icon: Icon }[] = [
-  { id: 'conversation', label: 'Conversation view', icon: ChatBubbleLeftRightIcon },
-  { id: 'split', label: 'Split view', icon: ViewColumnsIcon },
-  { id: 'preview', label: 'Preview view', icon: WindowIcon },
+  { id: 'conversation', label: 'Conversation', icon: ChatBubbleLeftRightIcon },
+  { id: 'split', label: 'Split', icon: ViewColumnsIcon },
+  { id: 'preview', label: 'Preview', icon: WindowIcon },
 ]
 
 function LayoutSwitcher({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
