@@ -86,7 +86,7 @@ function NamedDefinitions({ section, title, description, values, valuePlaceholde
     <section className="definition-section" aria-labelledby={`definition-${title.toLowerCase()}`}>
       <div className="definition-section-heading">
         <span><h2 id={`definition-${title.toLowerCase()}`}>{title}</h2><p>{description}</p></span>
-        <Button className="secondary-action" onPress={() => onChange([...values, { name: '', value: '', description: null }])}><PlusIcon aria-hidden="true" />Add {title.toLowerCase().replace(/s$/, '')}</Button>
+        <Button className="secondary-action" aria-label={`Add ${title.toLowerCase().replace(/s$/, '')}`} onPress={() => onChange([...values, { name: '', value: '', description: null }])}><PlusIcon aria-hidden="true" />Add</Button>
       </div>
       {values.length ? <div className="definition-token-list">
         {values.map((value, index) => <div className="definition-token-row" data-section={section} key={index}>
@@ -106,7 +106,7 @@ function TypographyDefinitions({ values, onChange }: { readonly values: readonly
     <section className="definition-section" aria-labelledby="definition-typography">
       <div className="definition-section-heading">
         <span><h2 id="definition-typography">Typography</h2><p>Define semantic text roles rather than component-specific font declarations.</p></span>
-        <Button className="secondary-action" onPress={() => onChange([...values, { name: '', fontFamily: '', fontSize: '', fontWeight: '', lineHeight: '', letterSpacing: null, description: null }])}><PlusIcon aria-hidden="true" />Add text role</Button>
+        <Button className="secondary-action" aria-label="Add text role" onPress={() => onChange([...values, { name: '', fontFamily: '', fontSize: '', fontWeight: '', lineHeight: '', letterSpacing: null, description: null }])}><PlusIcon aria-hidden="true" />Add</Button>
       </div>
       {values.length ? <div className="definition-token-list">
         {values.map((value, index) => <div className="definition-typography-row" key={index}>

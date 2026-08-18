@@ -137,7 +137,7 @@ function FolderRow({ node, depth, selectedFolderId, drag, onSelect, onRename, on
           <Menu aria-label={`${node.folder.name} actions`}>
             <MenuItem id="subfolder" onAction={() => onAddSubfolder(node.folder)}>New subfolder…</MenuItem>
             <MenuItem id="rename" onAction={() => onRename(node.folder)}>Rename…</MenuItem>
-            <MenuItem id="delete" onAction={() => onDelete(node.folder)}>Delete folder</MenuItem>
+            <MenuItem id="delete" aria-label="Delete folder" textValue="Delete folder" onAction={() => onDelete(node.folder)}>Delete</MenuItem>
           </Menu>
         </DropdownButton>
       </div>
@@ -315,14 +315,14 @@ export function Library(props: LibraryProps) {
             </DropdownButton>
             <DropdownButton label="Filter by project type" triggerClassName="secondary-action" popoverClassName="project-popover" placement="bottom" trigger={<span>Type: {projectKind === 'all' ? 'All' : projectKind === 'linked' ? 'Linked' : 'Standalone'}</span>}>
               <Menu aria-label="Project type" onAction={(key) => setProjectKind(key as ProjectKindFilter)}>
-                <MenuItem id="all">All project types</MenuItem>
+                <MenuItem id="all" aria-label="All project types" textValue="All project types">All</MenuItem>
                 <MenuItem id="linked">Linked</MenuItem>
                 <MenuItem id="standalone">Standalone</MenuItem>
               </Menu>
             </DropdownButton>
             <DropdownButton label="Filter by provider" triggerClassName="secondary-action" popoverClassName="project-popover" placement="bottom" trigger={<span>Provider: {providerId === 'all' ? 'All' : providerLabel(providerId)}</span>}>
               <Menu aria-label="Provider" onAction={(key) => setProviderId(String(key))}>
-                <MenuItem id="all">All providers</MenuItem>
+                <MenuItem id="all" aria-label="All providers" textValue="All providers">All</MenuItem>
                 {providerOptions.map((option) => <MenuItem id={option} key={option}>{providerLabel(option)}</MenuItem>)}
               </Menu>
             </DropdownButton>
