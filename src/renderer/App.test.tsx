@@ -1282,12 +1282,12 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Design conversation' })
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
 
-    expect(screen.getByRole('img', { name: 'Preview of revision current head' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
-    expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent(new Date(thumbnailDesign.revisions[0].createdAt).toLocaleString())
-    expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent('A calm dashboard')
+    expect(screen.getByRole('img', { name: 'Preview of revision current version' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
+    expect(screen.getByRole('menuitem', { name: /Current version/ })).toHaveTextContent(new Date(thumbnailDesign.revisions[0].createdAt).toLocaleString())
+    expect(screen.getByRole('menuitem', { name: /Current version/ })).toHaveTextContent('A calm dashboard')
   })
 
-  it('compares an earlier revision with the current head using authored file changes', async () => {
+  it('compares an earlier revision with the current version using authored file changes', async () => {
     const historicalDesign: OmniDesignDocument = { ...engagedDesign, selectedRevisionId: 'revision-1' }
     const bridge = installBridge([engagedDesign], engagedDesign)
     vi.mocked(bridge.workspace.selectRevision).mockResolvedValue(historicalDesign)
@@ -2145,11 +2145,9 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Generated design preview' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
-    const caption = await screen.findByTitle('Double-click to open in focused view')
-    // A single click stays on the canvas; only a double-click opens the page.
-    fireEvent.click(caption)
-    expect(screen.getByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
-    fireEvent.dblClick(caption)
+    await screen.findByTitle('Double-click to open in focused view')
+    // The page label is a real button so keyboard users can open a page from the canvas.
+    fireEvent.click(await screen.findByRole('button', { name: 'Open index.html in focused view' }))
 
     // Back in focused mode: the canvas-only fit controls are gone.
     await waitFor(() => expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument())

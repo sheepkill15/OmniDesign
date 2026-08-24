@@ -96,6 +96,8 @@ export function App() {
   const [generationsOpen, setGenerationsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  // Which surface the current design was opened from, so Back can return there ('home' otherwise).
+  const [designOrigin, setDesignOrigin] = useState<'home' | 'library' | 'generations' | 'trash'>('home')
   const [definitionsProject, setDefinitionsProject] = useState<ProjectSummary | null>(null)
   const [definitionSetupPath, setDefinitionSetupPath] = useState<'proposal' | 'manual' | null>(null)
   const [definitionPromptProject, setDefinitionPromptProject] = useState<ProjectSummary | null>(null)
@@ -263,14 +265,14 @@ export function App() {
     }
   }
   const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false); setLibraryOpen(false); setDefinitionsProject(null); setDefinitionSetupPath(null); setDefinitionPromptProject(null); setDefinitionSetupChooserProject(null) }
-  const home = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
-  const openLibrary = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
+  const home = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('home'); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
+  const openLibrary = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('library'); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
-  const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
+  const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('home'); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
   const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh(); localDependencyState.refresh() }
-  const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
-  const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
+  const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('generations'); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
+  const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('trash'); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
   const openDefinitions = (project: ProjectSummary, setupPath: 'proposal' | 'manual' | null = null) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDefinitionSetupPath(setupPath); setDefinitionsProject(project) }
   const definitionsSaved = (version: ProjectDesignDefinitionVersion) => {
     setDefinitionsProject((current) => current ? { ...current, currentDefinitionVersion: version.version } : current)
@@ -289,12 +291,15 @@ export function App() {
     }
   }
   const openDesign = (design: OmniDesignDocument) => {
+    // Remember which surface the user came from so the workspace's Back control returns there instead
+    // of always dumping them on Home.
+    setDesignOrigin(libraryOpen ? 'library' : generationsOpen ? 'generations' : trashOpen ? 'trash' : 'home')
     closePanels()
     const project = projects.find((candidate) => candidate.id === design.projectId)
     setActiveProject(project && project.kind === 'linked' && project.designCount > 1 ? project : null)
     setActiveDesign(design)
   }
-  const openProjectDesign = (project: ProjectSummary, design: OmniDesignDocument) => { closePanels(); setActiveProject(project); setActiveDesign(design) }
+  const openProjectDesign = (project: ProjectSummary, design: OmniDesignDocument) => { closePanels(); setDesignOrigin('home'); setActiveProject(project); setActiveDesign(design) }
   // A project with exactly one design opens straight into its workspace; empty or multi-design projects
   // open the project page (composer plus design grid).
   const openProject = (project: ProjectSummary) => {
@@ -308,6 +313,9 @@ export function App() {
   }
   const backFromDesign = () => {
     void window.omnidesign?.preview.closePopOut()
+    if (designOrigin === 'library') { openLibrary(); return }
+    if (designOrigin === 'generations') { openGenerations(); return }
+    if (designOrigin === 'trash') { openTrash(); return }
     if (activeProject && activeProject.designCount > 1) { setActiveDesign(null); void refresh() }
     else home()
   }
