@@ -73,9 +73,9 @@ export function ProjectSelectionMenu({ projects, includeStandalone = true, onAct
   const linkedProjects = projects.filter((project) => project.kind === 'linked')
   return (
     <Menu aria-label="Design project" onAction={(key) => onAction(String(key))}>
-      {includeStandalone && <MenuItem id="standalone">Standalone design</MenuItem>}
-      <MenuItem id="folder">Choose local project folder…</MenuItem>
-      <MenuItem id="clone">Clone Git repository…</MenuItem>
+      {includeStandalone && <MenuItem id="standalone" aria-label="Standalone design" textValue="Standalone design">Standalone</MenuItem>}
+      <MenuItem id="folder" aria-label="Choose local project folder…" textValue="Choose local project folder">Local folder…</MenuItem>
+      <MenuItem id="clone" aria-label="Clone Git repository…" textValue="Clone Git repository">Clone repository…</MenuItem>
       {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
         <Header className="project-popover-header">Add to a project</Header>
         {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}

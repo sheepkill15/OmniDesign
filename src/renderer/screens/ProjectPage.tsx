@@ -39,17 +39,33 @@ export function ProjectPage({ project, projects, designs, providers, providersLo
   const runBulk = async (operation: (designId: string) => Promise<unknown>, failure: string) => {
     setBulkBusy(true)
     setActionError(null)
+    const failedIds: string[] = []
+    const failureDetails: string[] = []
     try {
-      for (const id of selectedIds) await operation(id)
-      setSelectedIds(new Set())
+      for (const id of selectedIds) {
+        try {
+          await operation(id)
+        } catch (reason) {
+          failedIds.push(id)
+          if (reason instanceof Error && reason.message) failureDetails.push(reason.message)
+        }
+      }
       await onRefresh()
+      setSelectedIds(new Set(failedIds))
+      if (failedIds.length) {
+        const completed = selectedIds.size - failedIds.length
+        setActionError(`${failure} ${completed ? `${completed} completed; ` : ''}${failedIds.length} failed.${failureDetails[0] ? ` ${failureDetails[0]}` : ''}`)
+      }
     } catch (reason) {
-      setActionError(`${failure}${reason instanceof Error && reason.message ? ` ${reason.message}` : ''}`)
+      setActionError(`${failure} The project view could not be refreshed.${reason instanceof Error && reason.message ? ` ${reason.message}` : ''}`)
     } finally {
       setBulkBusy(false)
     }
   }
-  const bulkTrash = () => runBulk((id) => window.omnidesign!.workspace.trash('design', id), 'Some designs could not be removed.')
+  const bulkTrash = () => runBulk(async (id) => {
+    const result = await window.omnidesign!.workspace.trash('design', id)
+    if (result.cancelled) throw new Error('Removal was cancelled while active work remained.')
+  }, 'Some designs could not be removed.')
   const bulkMove = (projectId: string) => runBulk((id) => window.omnidesign!.workspace.associateDesign(id, projectId), 'Some designs could not be moved.')
   const runProjectAction = async (action: 'reconnect' | 'convert' | 'remove', operation: () => Promise<void>, failure: string) => {
     setPendingAction(action)

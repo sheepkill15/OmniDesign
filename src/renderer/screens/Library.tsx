@@ -137,7 +137,7 @@ function FolderRow({ node, depth, selectedFolderId, drag, onSelect, onRename, on
           <Menu aria-label={`${node.folder.name} actions`}>
             <MenuItem id="subfolder" onAction={() => onAddSubfolder(node.folder)}>New subfolder…</MenuItem>
             <MenuItem id="rename" onAction={() => onRename(node.folder)}>Rename…</MenuItem>
-            <MenuItem id="delete" onAction={() => onDelete(node.folder)}>Delete folder</MenuItem>
+            <MenuItem id="delete" aria-label="Delete folder" textValue="Delete folder" onAction={() => onDelete(node.folder)}>Delete</MenuItem>
           </Menu>
         </DropdownButton>
       </div>
@@ -182,6 +182,7 @@ export function Library(props: LibraryProps) {
   const [folderDraft, setFolderDraft] = useState('')
   const [dragProjectId, setDragProjectId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null | undefined>(undefined)
+  const [railOpen, setRailOpen] = useState(false)
 
   const run = async (action: () => Promise<unknown>, failure: string) => {
     setError(null)
@@ -279,14 +280,14 @@ export function Library(props: LibraryProps) {
 
   return (
     <main className="library-main">
-      <aside className="library-rail" aria-label="Folders">
-        <div className="library-rail-heading"><span>Folders</span><Button className="icon-button" aria-label="New folder" onPress={addRootFolder}><FolderPlusIcon aria-hidden="true" /></Button></div>
+      <aside className="library-rail" aria-label="Folders" data-open={railOpen || undefined}>
+        <div className="library-rail-heading"><span>Folders</span><span className="library-rail-heading-actions"><Button className="text-button library-rail-close" onPress={() => setRailOpen(false)}>Close</Button><Button className="icon-button" aria-label="New folder" onPress={addRootFolder}><FolderPlusIcon aria-hidden="true" /></Button></span></div>
         <div className="library-folder-tree">
-          <Button className="library-folder-open library-folder-root" data-active={!selectedFolderId && !unfiledOnly || undefined} onPress={() => { setSelectedFolderId(null); setUnfiledOnly(false) }}><RectangleStackIcon aria-hidden="true" /><span>All projects</span></Button>
+          <Button className="library-folder-open library-folder-root" data-active={!selectedFolderId && !unfiledOnly || undefined} onPress={() => { setSelectedFolderId(null); setUnfiledOnly(false); setRailOpen(false) }}><RectangleStackIcon aria-hidden="true" /><span>All projects</span></Button>
           <div className="library-folder-root-drop" {...dropTargetProps(folderDrag, null)}>
-            <Button className="library-folder-open library-folder-root" data-active={unfiledOnly || undefined} onPress={() => { setSelectedFolderId(null); setUnfiledOnly(true) }}><FolderIcon aria-hidden="true" /><span>Unfiled</span></Button>
+            <Button className="library-folder-open library-folder-root" data-active={unfiledOnly || undefined} onPress={() => { setSelectedFolderId(null); setUnfiledOnly(true); setRailOpen(false) }}><FolderIcon aria-hidden="true" /><span>Unfiled</span></Button>
           </div>
-          {folderTree.map((node) => <FolderRow key={node.folder.id} node={node} depth={0} selectedFolderId={selectedFolderId} drag={folderDrag} onSelect={(id) => { setSelectedFolderId(id); setUnfiledOnly(false) }} onRename={renameFolder} onDelete={deleteFolder} onAddSubfolder={addSubfolder} />)}
+          {folderTree.map((node) => <FolderRow key={node.folder.id} node={node} depth={0} selectedFolderId={selectedFolderId} drag={folderDrag} onSelect={(id) => { setSelectedFolderId(id); setUnfiledOnly(false); setRailOpen(false) }} onRename={renameFolder} onDelete={deleteFolder} onAddSubfolder={addSubfolder} />)}
           {!folders.length && <p className="library-rail-empty">Create folders to organize your projects.</p>}
         </div>
         {tags.length > 0 && <div className="library-rail-tags">
@@ -300,6 +301,7 @@ export function Library(props: LibraryProps) {
         <header className="page-heading library-heading">
           <div><h1>Library</h1><p>Browse every project and design. Organize with folders, label with tags.</p></div>
           <div className="library-controls">
+            <Button className="secondary-action library-rail-toggle" aria-expanded={railOpen} onPress={() => setRailOpen((current) => !current)}><FolderIcon aria-hidden="true" />Browse folders and tags</Button>
             <TextField aria-label="Search the library" className="library-search">
               <MagnifyingGlassIcon aria-hidden="true" />
               <Input value={query} placeholder={`Search ${folderName}…`} onChange={(event) => setQuery(event.target.value)} />
@@ -313,14 +315,14 @@ export function Library(props: LibraryProps) {
             </DropdownButton>
             <DropdownButton label="Filter by project type" triggerClassName="secondary-action" popoverClassName="project-popover" placement="bottom" trigger={<span>Type: {projectKind === 'all' ? 'All' : projectKind === 'linked' ? 'Linked' : 'Standalone'}</span>}>
               <Menu aria-label="Project type" onAction={(key) => setProjectKind(key as ProjectKindFilter)}>
-                <MenuItem id="all">All project types</MenuItem>
+                <MenuItem id="all" aria-label="All project types" textValue="All project types">All</MenuItem>
                 <MenuItem id="linked">Linked</MenuItem>
                 <MenuItem id="standalone">Standalone</MenuItem>
               </Menu>
             </DropdownButton>
             <DropdownButton label="Filter by provider" triggerClassName="secondary-action" popoverClassName="project-popover" placement="bottom" trigger={<span>Provider: {providerId === 'all' ? 'All' : providerLabel(providerId)}</span>}>
               <Menu aria-label="Provider" onAction={(key) => setProviderId(String(key))}>
-                <MenuItem id="all">All providers</MenuItem>
+                <MenuItem id="all" aria-label="All providers" textValue="All providers">All</MenuItem>
                 {providerOptions.map((option) => <MenuItem id={option} key={option}>{providerLabel(option)}</MenuItem>)}
               </Menu>
             </DropdownButton>

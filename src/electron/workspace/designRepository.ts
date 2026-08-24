@@ -246,6 +246,14 @@ export class DesignRepositoryManager {
     this.run(this.getWorkingPath(designId, branchId), ['checkout', '--force', branchName])
   }
 
+  public branchWorktreeMatchesCommit(designId: string, branchId: string, commit: string): boolean {
+    if (!commitPattern.test(commit)) throw new Error('The branch commit is invalid.')
+    const repositoryPath = this.getWorkingPath(designId, branchId)
+    const head = this.run(repositoryPath, ['rev-parse', 'HEAD']).trim()
+    const status = this.run(repositoryPath, ['status', '--porcelain=v1', '--untracked-files=all'])
+    return head === commit && status.length === 0
+  }
+
   public checkoutMain(designId: string): void {
     this.checkoutBranchHead(designId, designId)
   }
@@ -326,7 +334,7 @@ export class DesignRepositoryManager {
   }
 
   public restoreBranchToCommit(designId: string, branchId: string, commit: string): void {
-    if (!commitPattern.test(commit)) throw new Error('The destination commit is invalid.')
+    if (!commitPattern.test(commit)) throw new Error('The branch commit is invalid.')
     const repositoryPath = this.getWorkingPath(designId, branchId)
     const branchName = branchId === designId ? 'main' : `od/${branchId}`
     this.run(repositoryPath, ['checkout', '--force', branchName])

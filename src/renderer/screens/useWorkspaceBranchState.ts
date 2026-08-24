@@ -21,7 +21,6 @@ export function useWorkspaceBranchState(design: OmniDesignDocument) {
   const [summarizingBranches, setSummarizingBranches] = useState(false)
   const [combinationPreview, setCombinationPreview] = useState<{ readonly token: string; readonly pages: readonly DesignPage[]; readonly entryPagePath: string | null } | null>(null)
   const [combiningBranches, setCombiningBranches] = useState(false)
-  const [completedCombination, setCompletedCombination] = useState<CombinationAttempt | null>(null)
 
   return {
     separateBranch, setSeparateBranch,
@@ -44,6 +43,5 @@ export function useWorkspaceBranchState(design: OmniDesignDocument) {
     summarizingBranches, setSummarizingBranches,
     combinationPreview, setCombinationPreview,
     combiningBranches, setCombiningBranches,
-    completedCombination, setCompletedCombination,
   }
 }

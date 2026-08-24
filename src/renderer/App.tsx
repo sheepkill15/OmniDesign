@@ -85,6 +85,7 @@ export function App() {
   const [tags, setTags] = useState<Tag[]>([])
   const [trashItems, setTrashItems] = useState<TrashItem[]>([])
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
+  const [completedCombination, setCompletedCombination] = useState<{ readonly designId: string; readonly attempt: CombinationAttempt } | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null)
   const [composerProject, setComposerProject] = useState<ProjectSummary | null>(null)
   const [associationNotice, setAssociationNotice] = useState<{ readonly designId: string; readonly projectId: string; readonly projectName: string; readonly mode: 'associated' | 'suggested' } | null>(null)
@@ -203,7 +204,8 @@ export function App() {
       if (finished) void refresh()
     })
   }, [refresh, updateDesign, workspaceApi])
-  useEffect(() => workspaceApi?.onChanged(({ designId }) => {
+  useEffect(() => workspaceApi?.onChanged(({ designId, completedCombination: completed }) => {
+    if (completed) setCompletedCombination({ designId, attempt: completed })
     void workspaceApi.get(designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The changed design could not be refreshed.'))
     void refresh()
   }), [refresh, updateDesign, workspaceApi])
@@ -370,8 +372,18 @@ export function App() {
   const restoreTrash = async (item: TrashItem) => { await workspaceApi?.restoreTrash(item.kind, item.id); await refresh() }
   const purgeTrash = async (item: TrashItem) => { await workspaceApi?.purgeTrash(item.kind, item.id); await refresh() }
   const emptyTrash = async (items: readonly TrashItem[]) => {
-    for (const item of items) await workspaceApi?.purgeTrash(item.kind, item.id)
+    const failures: string[] = []
+    let completed = 0
+    for (const item of items) {
+      try {
+        await workspaceApi?.purgeTrash(item.kind, item.id)
+        completed += 1
+      } catch (reason) {
+        failures.push(`${item.name}: ${reason instanceof Error && reason.message ? reason.message : 'Deletion failed.'}`)
+      }
+    }
     await refresh()
+    if (failures.length) throw new Error(`${completed ? `${completed} item${completed === 1 ? '' : 's'} deleted; ` : ''}${failures.length} failed. ${failures[0]}`)
   }
   const trashDesign = async (design: OmniDesignDocument) => {
     const result = await workspaceApi?.trash('design', design.id)
@@ -446,7 +458,7 @@ export function App() {
         : definitionsProject
         ? <DesignDefinitions project={definitionsProject} providers={providerState.providers} initialSetupPath={definitionSetupPath} onBack={() => { setDefinitionsProject(null); setDefinitionSetupPath(null) }} onSaved={definitionsSaved} />
         : activeDesign
-        ? <DesignWorkspace key={`${activeDesign.id}:${activeDesign.activeBranchId}`} design={activeDesign} providers={providerState.providers} providersLoading={providerState.loading} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
+        ? <DesignWorkspace key={`${activeDesign.id}:${activeDesign.activeBranchId}`} design={activeDesign} providers={providerState.providers} providersLoading={providerState.loading} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} completedCombination={completedCombination?.designId === activeDesign.id ? completedCombination.attempt : null} onCompletedCombinationChange={(attempt) => setCompletedCombination(attempt ? { designId: activeDesign.id, attempt } : null)} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
         : activeProject
         ? <ProjectPage project={activeProject} projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onRefresh={async () => { await refresh() }} onOpenProviders={openProviders} onOpenDefinitions={() => openDefinitions(activeProject)} />
         : <Home projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}

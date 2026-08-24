@@ -91,9 +91,9 @@ export function AttachmentPicker({ onChoose, placement = 'top', includeBranches 
   return (
     <DropdownButton label="Attach files or folders" triggerClassName="icon-button attachment-picker" popoverClassName="project-popover attachment-picker-popover" placement={placement} trigger={<PaperClipIcon aria-hidden="true" />}>
       <Menu aria-label="Choose attachment type" onAction={(key) => onChoose(String(key) as AttachmentPickerKind)}>
-        <MenuItem id="files">Choose files…</MenuItem>
-        <MenuItem id="folder">Choose folder…</MenuItem>
-        {includeBranches && <MenuItem id="branches">Attach branches…</MenuItem>}
+        <MenuItem id="files" aria-label="Choose files…" textValue="Choose files">Files…</MenuItem>
+        <MenuItem id="folder" aria-label="Choose folder…" textValue="Choose folder">Folder…</MenuItem>
+        {includeBranches && <MenuItem id="branches" aria-label="Attach branches…" textValue="Attach branches">Branches…</MenuItem>}
       </Menu>
     </DropdownButton>
   )

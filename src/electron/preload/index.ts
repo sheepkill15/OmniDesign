@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ProviderActivity, ProviderPrompt } from '../provider/types.js'
-import type { GenerationActivity, GenerationSelection, Layout } from '../workspace/contracts.js'
+import type { CombinationAttempt, GenerationActivity, GenerationSelection, Layout } from '../workspace/contracts.js'
 
 contextBridge.exposeInMainWorld('omnidesign', {
   providers: {
@@ -115,8 +115,8 @@ contextBridge.exposeInMainWorld('omnidesign', {
       ipcRenderer.on('workspace:activity', handler)
       return () => ipcRenderer.removeListener('workspace:activity', handler)
     },
-    onChanged: (listener: (event: { readonly designId: string }) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, value: { readonly designId: string }) => listener(value)
+    onChanged: (listener: (event: { readonly designId: string; readonly completedCombination?: CombinationAttempt }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, value: { readonly designId: string; readonly completedCombination?: CombinationAttempt }) => listener(value)
       ipcRenderer.on('workspace:changed', handler)
       return () => ipcRenderer.removeListener('workspace:changed', handler)
     },

@@ -6,6 +6,7 @@ import {
   ArrowPathIcon,
   ArrowRightIcon,
   ArrowTopRightOnSquareIcon,
+  ArrowsRightLeftIcon,
   ChatBubbleLeftRightIcon,
   CheckCircleIcon,
   ClipboardDocumentIcon,
@@ -144,35 +145,39 @@ function describeStoppedGeneration(job: GenerationJob): { readonly title: string
   return { title: 'Generation failed', message: 'Review the technical details, then continue partial work or retry from the last revision.', openProviders: false }
 }
 
-const layoutModes: readonly { readonly id: LayoutMode; readonly label: string; readonly icon: Icon }[] = [
-  { id: 'split', label: 'Split view', icon: ViewColumnsIcon },
-  { id: 'conversation', label: 'Conversation only', icon: ChatBubbleLeftRightIcon },
-  { id: 'preview', label: 'Preview only', icon: WindowIcon },
-  { id: 'popped', label: 'Pop out preview', icon: ArrowTopRightOnSquareIcon },
+const dockedLayouts: readonly { readonly id: Extract<LayoutMode, 'conversation' | 'split' | 'preview'>; readonly label: string; readonly icon: Icon }[] = [
+  { id: 'conversation', label: 'Conversation', icon: ChatBubbleLeftRightIcon },
+  { id: 'split', label: 'Split', icon: ViewColumnsIcon },
+  { id: 'preview', label: 'Preview', icon: WindowIcon },
 ]
 
-function LayoutMenu({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
-  const current = layoutModes.find((candidate) => candidate.id === mode) ?? layoutModes[0]
-  const CurrentIcon = current.icon
+function LayoutSwitcher({ mode, onChange }: { readonly mode: LayoutMode; readonly onChange: (mode: LayoutMode) => void }) {
   return (
-    <DropdownButton
-      label={`Layout: ${current.label}`}
-      triggerClassName="toolbar-button"
-      popoverClassName="project-popover layout-menu"
-      placement="bottom"
-      trigger={<><CurrentIcon aria-hidden="true" /><span className="toolbar-label">{current.label}</span></>}
-    >
-      <Menu aria-label="Workspace layout" onAction={(key) => onChange(key as LayoutMode)}>
-        {layoutModes.map((option) => {
+    <div className="workspace-layout-actions">
+      <div className="workspace-layout-toggle" role="group" aria-label="Workspace layout">
+        {dockedLayouts.map((option) => {
           const OptionIcon = option.icon
-          return <MenuItem id={option.id} key={option.id} textValue={option.label}><span><OptionIcon aria-hidden="true" />{option.label}</span>{mode === option.id && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+          return (
+            <TooltipTrigger delay={350} key={option.id}>
+              <Button className="workspace-layout-option" aria-label={option.label} aria-pressed={mode === option.id} data-active={mode === option.id || undefined} onPress={() => onChange(option.id)}>
+                <OptionIcon aria-hidden="true" />
+              </Button>
+              <Tooltip className="tooltip">{option.label}</Tooltip>
+            </TooltipTrigger>
+          )
         })}
-      </Menu>
-    </DropdownButton>
+      </div>
+      <TooltipTrigger delay={350}>
+        <Button className="workspace-popout-button" aria-label="Pop out preview" aria-pressed={mode === 'popped'} data-active={mode === 'popped' || undefined} onPress={() => onChange('popped')}>
+          <ArrowTopRightOnSquareIcon aria-hidden="true" />
+        </Button>
+        <Tooltip className="tooltip">Pop out preview</Tooltip>
+      </TooltipTrigger>
+    </div>
   )
 }
 
-export function DesignWorkspace({ design, providers, providersLoading, projects, associationNotice, activity, busy, detailLevel, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders, onOpenDefinitions }: {
+export function DesignWorkspace({ design, providers, providersLoading, projects, associationNotice, activity, busy, detailLevel, completedCombination, onCompletedCombinationChange, onBack, onChange, onRename, onTrash, onAssociate, onAssociateAndRestart, onDismissAssociation, onOpenProviders, onOpenDefinitions }: {
   readonly design: OmniDesignDocument
   readonly providers: readonly ProviderStatus[]
   readonly providersLoading: boolean
@@ -181,6 +186,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   readonly activity: GenerationActivity | null
   readonly busy: boolean
   readonly detailLevel: 'full' | 'concise'
+  readonly completedCombination: CombinationAttempt | null
+  readonly onCompletedCombinationChange: (attempt: CombinationAttempt | null) => void
   readonly onBack: () => void
   readonly onChange: (design: OmniDesignDocument) => void
   readonly onRename: (design: OmniDesignDocument, title: string) => Promise<OmniDesignDocument>
@@ -226,9 +233,11 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     combinationAttempt, setCombinationAttempt, combinationHistory, setCombinationHistory,
     branchSummaries, setBranchSummaries, summarizingBranches, setSummarizingBranches,
     combinationPreview, setCombinationPreview, combiningBranches, setCombiningBranches,
-    completedCombination, setCompletedCombination,
   } = useWorkspaceBranchState(design)
+  const setCompletedCombination = onCompletedCombinationChange
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
+  const [settlingCompletedCombination, setSettlingCompletedCombination] = useState(false)
+  const [branchComparisonPreviewFailed, setBranchComparisonPreviewFailed] = useState(false)
   const split = useRef<HTMLDivElement>(null)
   // Keep the conversation pinned to the bottom while the user is already there (within a 30px
   // deadzone); if they have scrolled up to read, leave their position alone.
@@ -509,7 +518,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
   const compareBranches = async () => {
     if (!api || lineageSelection.length !== 2) return
-    const destinationBranchId = lineageSelection.includes(design.activeBranchId) ? design.activeBranchId : lineageSelection[0]!
+    const mainBranchId = design.branches.find((branch) => branch.isMain && lineageSelection.includes(branch.id))?.id
+    const destinationBranchId = mainBranchId ?? (lineageSelection.includes(design.activeBranchId) ? design.activeBranchId : lineageSelection[0]!)
     const sourceBranchId = lineageSelection.find((id) => id !== destinationBranchId)!
     const compared = await runWorkspaceAction(() => api.compareBranches(design.id, sourceBranchId, destinationBranchId), 'The branches could not be compared.')
     if (!compared) return
@@ -517,6 +527,17 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     setBranchComparison(compared)
     setBranchComparisonTokens(null)
     setBranchComparisonPage(compared.destination.entryPagePath ?? compared.source.entryPagePath ?? compared.destination.pages[0]?.path ?? compared.source.pages[0]?.path ?? null)
+  }
+  const swapBranchComparison = async () => {
+    if (!api || !branchComparison || combiningBranches || summarizingBranches) return
+    const compared = await runWorkspaceAction(() => api.compareBranches(design.id, branchComparison.destination.branchId, branchComparison.source.branchId), 'The branch roles could not be swapped.')
+    if (!compared) return
+    setBranchComparison(compared)
+    setBranchComparisonTokens(null)
+    setCombinationPrompt('')
+    setBranchComparisonPage((current) => current && [...compared.source.pages, ...compared.destination.pages].some((page) => page.path === current)
+      ? current
+      : compared.destination.entryPagePath ?? compared.source.entryPagePath ?? compared.destination.pages[0]?.path ?? compared.source.pages[0]?.path ?? null)
   }
   const toggleBranchRevisions = async (branchId: string) => {
     if (!api) return
@@ -544,6 +565,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
 
   useEffect(() => {
+    setBranchComparisonPreviewFailed(false)
     if (!branchComparison) return
     let cancelled = false
     void Promise.all([
@@ -551,7 +573,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       window.omnidesign?.preview.register(design.id, branchComparison.destination.revisionId),
     ]).then(([source, destination]) => {
       if (!cancelled && source && destination) setBranchComparisonTokens({ source: source.token, destination: destination.token })
-    }).catch(() => { if (!cancelled) setBranchComparisonTokens(null) })
+    }).catch(() => { if (!cancelled) { setBranchComparisonTokens(null); setBranchComparisonPreviewFailed(true) } })
     return () => { cancelled = true }
   }, [branchComparison, design.id])
   useEffect(() => {
@@ -584,8 +606,6 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     if (attempt.state === 'completed') {
       setBranchComparison(null)
       setCompletedCombination(attempt)
-      const updated = await api.switchBranch(design.id, attempt.destinationBranchId!)
-      onChange(updated)
     } else setCombinationAttempt(attempt)
   }
   const summarizeBranches = async () => {
@@ -602,8 +622,6 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     setCombinationAttempt(null)
     setBranchComparison(null)
     setCompletedCombination(completed)
-    const updated = completed.destinationBranchId ? await api.switchBranch(design.id, completed.destinationBranchId) : await api.get(design.id)
-    if (updated) onChange(updated)
   }
   const abortCombination = async () => {
     if (!api || !combinationAttempt) return
@@ -625,6 +643,26 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       setBranchComparison(null)
       setCompletedCombination(attempt)
     }
+  }
+  const settleCompletedCombination = async (removeSource: boolean) => {
+    if (!api || !completedCombination || settlingCompletedCombination) return
+    setSettlingCompletedCombination(true)
+    const destination = completedCombination.destinationBranchId
+      ? await runWorkspaceAction(() => api.switchBranch(design.id, completedCombination.destinationBranchId!), 'The destination branch could not be opened.')
+      : await runWorkspaceAction(() => api.get(design.id), 'The completed design could not be refreshed.')
+    if (!destination) { setSettlingCompletedCombination(false); return }
+    if (removeSource && completedCombination.sourceBranchId) {
+      const updated = await runWorkspaceAction(async () => {
+        await api.removeBranch(design.id, completedCombination.sourceBranchId!, false)
+        return api.get(design.id)
+      }, 'The source branch could not be removed. It remains available as a separate direction.')
+      if (!updated) { setSettlingCompletedCombination(false); return }
+      setCompletedCombination(null)
+      onChange(updated)
+      return
+    }
+    setCompletedCombination(null)
+    onChange(destination)
   }
   const fixQualityIssues = async () => {
     if (!api || !qualityDiagnostics.length || busy || !selectedIsHead || !hasUsableSelection) return
@@ -845,7 +883,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         </section>}
         {associationNotice?.mode === 'associated' && <div className="generation-recovery" role="status"><span><strong>Design associated with {associationNotice.projectName}.</strong>Optionally adapt this design to the linked project's design language in a new revision.</span><Button className="secondary-action" onPress={() => void adaptToAssociatedProject()}>Adapt design</Button><Button className="secondary-action" onPress={onDismissAssociation}>Keep current design</Button></div>}
         {associationNotice?.mode === 'suggested' && <div className="generation-recovery" role="status"><span><strong>Possible project match: {associationNotice.projectName}.</strong>This standalone request mentions the linked project; generation can continue while you associate it.</span><Button className="secondary-action" onPress={() => void associateSuggested()}>Associate project</Button>{activeJob && <Button className="secondary-action" onPress={() => void restartSuggested()}>Associate and restart</Button>}<Button className="secondary-action" onPress={onDismissAssociation}>Dismiss</Button></div>}
-        {definitionsVisible && design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply to this design</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current design</Button></div>}
+        {definitionsVisible && design.pendingDefinitionVersion && <div className="generation-recovery" role="status"><span><strong>Project definitions version {design.pendingDefinitionVersion} is ready.</strong>{design.definitionApplicationState === 'applying' ? 'Applying the shared design system…' : design.definitionApplicationError ?? 'Apply the update to this design, keep its current version, or update every pending design in the project.'}</span><Button className="secondary-action" aria-label="Apply to this design" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitions()}>Apply here</Button><Button className="secondary-action" isDisabled={busy || design.definitionApplicationState === 'applying'} onPress={() => void applyDefinitionsToAll()}>Apply to all</Button><Button className="secondary-action" aria-label="Keep current design" isDisabled={design.definitionApplicationState === 'applying'} onPress={() => void keepDefinitions()}>Keep current</Button></div>}
       </div>
       {focusedFeedbackQueue.length > 0 && <section className="focused-feedback-queue" aria-label="Focused feedback queue">
         <header><span><QueueListIcon aria-hidden="true" /><span><strong>{focusedFeedbackQueue.length} focused note{focusedFeedbackQueue.length === 1 ? '' : 's'} queued</strong><small>Review them on the preview, then fix them together.</small></span></span><Button className="primary-action" isDisabled={busy || !selectedIsHead || !hasUsableSelection || !previewToken} onPress={() => void submitFocusedFeedbackBatch()}><WrenchScrewdriverIcon aria-hidden="true" />Fix all</Button></header>
@@ -876,8 +914,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
               </MenuSection>
               <MenuSection className="project-popover-section">
                 <Header className="project-popover-header">Actions</Header>
-                <MenuItem id="__new__" className="branch-create-option" textValue="New branch" isDisabled={!selectedIsHead}><span><PlusIcon aria-hidden="true" /><span><strong>New branch</strong><small>{selectedIsHead ? 'Created with your next prompt' : 'Return to the current head first'}</small></span></span>{separateBranch && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
-                <MenuItem id="__manage__" textValue="Manage branches"><span>Manage branches</span></MenuItem>
+                <MenuItem id="__new__" className="branch-create-option" aria-label="New branch" textValue="New branch" isDisabled={!selectedIsHead}><span><PlusIcon aria-hidden="true" /><span><strong>New</strong><small>{selectedIsHead ? 'Created with your next prompt' : 'Return to the current head first'}</small></span></span>{separateBranch && <CheckCircleIcon aria-hidden="true" />}</MenuItem>
+                <MenuItem id="__manage__" aria-label="Manage branches" textValue="Manage branches"><span>Manage</span></MenuItem>
               </MenuSection>
             </Menu>
           </DropdownButton>
@@ -901,10 +939,10 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         <span><CheckCircleIcon aria-hidden="true" />Isolated preview</span>
         <div className="preview-controls">
           <div className="preview-view-toggle" role="group" aria-label="Preview layout">
-            <Button className="preview-toggle-option" data-active={previewViewMode === 'focused' || undefined} aria-pressed={previewViewMode === 'focused'} onPress={() => setPreviewViewMode('focused')}><WindowIcon aria-hidden="true" />Focused</Button>
-            <Button className="preview-toggle-option" data-active={previewViewMode === 'canvas' || undefined} aria-pressed={previewViewMode === 'canvas'} onPress={() => { setFocusedTarget(null); setPreviewViewMode('canvas') }}><Squares2X2Icon aria-hidden="true" />Canvas</Button>
+            <Button className="preview-toggle-option preview-layout-option" aria-label="Focused" data-active={previewViewMode === 'focused' || undefined} aria-pressed={previewViewMode === 'focused'} onPress={() => setPreviewViewMode('focused')}><WindowIcon aria-hidden="true" /><span className="preview-control-label">Focused</span></Button>
+            <Button className="preview-toggle-option preview-layout-option" aria-label="Canvas" data-active={previewViewMode === 'canvas' || undefined} aria-pressed={previewViewMode === 'canvas'} onPress={() => { setFocusedTarget(null); setPreviewViewMode('canvas') }}><Squares2X2Icon aria-hidden="true" /><span className="preview-control-label">Canvas</span></Button>
           </div>
-          <Button className="preview-toggle-option" data-active={selectionActive || undefined} aria-pressed={selectionActive} isDisabled={!selectedIsHead || !previewToken} onPress={() => { setFocusedTarget(null); setFocusedComment(''); setPreviewViewMode('focused'); setSelectionActive((current) => !current) }}><CursorArrowRaysIcon aria-hidden="true" />Select element</Button>
+          <Button className="preview-toggle-option preview-selection-option" aria-label="Select element" data-active={selectionActive || undefined} aria-pressed={selectionActive} isDisabled={!selectedIsHead || !previewToken} onPress={() => { setFocusedTarget(null); setFocusedComment(''); setPreviewViewMode('focused'); setSelectionActive((current) => !current) }}><CursorArrowRaysIcon aria-hidden="true" /><span className="preview-control-label">Select element</span></Button>
           {previewViewMode === 'focused' && previewPages.length > 1 && (
             <DropdownButton label="Preview page" triggerClassName="preview-page-picker" popoverClassName="project-popover" placement="bottom" trigger={<span>{currentPageLabel}</span>}>
               <Menu aria-label="Preview page" onAction={(key) => {
@@ -925,8 +963,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
                 </MenuSection>
                 <MenuSection className="project-popover-section">
                   <Header className="project-popover-header">{currentPageLabel}</Header>
-                  <MenuItem id="__set_home__" textValue="Set as home page">Set as home page</MenuItem>
-                  <MenuItem id="__rename__" textValue="Rename page">Rename page…</MenuItem>
+                  <MenuItem id="__set_home__" aria-label="Set as home page" textValue="Set as home page">Set as home</MenuItem>
+                  <MenuItem id="__rename__" aria-label="Rename page" textValue="Rename page">Rename…</MenuItem>
                 </MenuSection>
               </Menu>
             </DropdownButton>
@@ -958,7 +996,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
         <IconButton label="Back" icon={ArrowLeftIcon} onPress={onBack} />
         <span className="workspace-title"><EditableTitle value={design.title} label="design" variant="workspace" pending={design.titlePending} onSave={renameDesign} /><small>{providerStatus} · {busy ? activity?.stage ?? 'Working' : 'Saved locally'}</small></span>
         <div className="toolbar-actions">
-            <LayoutMenu mode={mode} onChange={setMode} />
+          <LayoutSwitcher mode={mode} onChange={setMode} />
           <DropdownButton
             label={`History · ${design.revisions.length}`}
             triggerClassName="toolbar-button"
@@ -1014,13 +1052,14 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       <AppModal isOpen={branchComparison !== null} onOpenChange={(open) => { if (!open && !combiningBranches) { setBranchComparison(null); setBranchComparisonTokens(null) } }} className="branch-comparison-modal" title="Compare branches">
         {(close) => branchComparison && <>
           {branchComparisonStale && <div className="generation-recovery" role="status"><span><strong>This comparison is stale.</strong>One of these branch heads changed after the evidence was captured. Refresh before summarizing or combining.</span><Button className="secondary-action" onPress={() => void refreshBranchComparison()}>Refresh comparison</Button></div>}
+          <div className="branch-comparison-direction" role="group" aria-label="Branch combination direction"><span><small>Source</small><strong title={branchComparison.source.title}>{branchComparison.source.title}</strong></span><ArrowsRightLeftIcon aria-hidden="true" /><span><small>Destination</small><strong title={branchComparison.destination.title}>{branchComparison.destination.title}</strong></span><Button className="secondary-action" isDisabled={combiningBranches || summarizingBranches} onPress={() => void swapBranchComparison()}>Swap roles</Button></div>
           <div className="branch-comparison-page-tabs" role="tablist" aria-label="Pages to compare">{comparedPagePaths.map((page) => <button type="button" key={page} role="tab" aria-selected={branchComparisonPage === page} data-active={branchComparisonPage === page || undefined} onClick={() => setBranchComparisonPage(page)}>{branchComparison.destination.pages.find((candidate) => candidate.path === page)?.title ?? branchComparison.source.pages.find((candidate) => candidate.path === page)?.title ?? page}</button>)}</div>
           <div className="branch-comparison-previews">
-            {(['destination', 'source'] as const).map((side) => { const branch = branchComparison[side]; const token = branchComparisonTokens?.[side]; const hasPage = !!branchComparisonPage && branch.pages.some((page) => page.path === branchComparisonPage); return <article key={side}><header><span>{side === 'destination' ? 'Destination' : 'Source'}</span><strong>{branch.title}</strong></header>{token && branchComparisonPage && hasPage ? <iframe title={`${branch.title} · ${branchComparisonPage}`} src={comparisonPageUrl(token, branchComparisonPage)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable">{hasPage ? 'Preview unavailable' : 'This page exists only in the other branch'}</div>}</article> })}
+            {(['source', 'destination'] as const).map((side) => { const branch = branchComparison[side]; const token = branchComparisonTokens?.[side]; const hasPage = !!branchComparisonPage && branch.pages.some((page) => page.path === branchComparisonPage); return <article key={side}><header><span>{side === 'destination' ? 'Destination' : 'Source'}</span><strong title={branch.title}>{branch.title}</strong></header>{token && branchComparisonPage && hasPage ? <iframe title={`${branch.title} · ${branchComparisonPage}`} src={comparisonPageUrl(token, branchComparisonPage)} sandbox="allow-scripts" referrerPolicy="no-referrer" /> : <div className="branch-comparison-unavailable" role={hasPage && !branchComparisonPreviewFailed ? 'status' : undefined}>{hasPage ? branchComparisonPreviewFailed ? 'Preview unavailable' : 'Loading preview…' : 'This page exists only in the other branch'}</div>}</article> })}
           </div>
-          <section className="revision-comparison-changes" aria-label="Branch authored file changes"><header><span><strong>{branchComparison.changes.files.length} authored file{branchComparison.changes.files.length === 1 ? '' : 's'} changed</strong><small>Destination compared with source. Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{branchComparison.changes.additions}</strong><strong>−{branchComparison.changes.deletions}</strong></span></header>{branchComparison.changes.files.length ? <ul>{branchComparison.changes.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files differ between these branch heads.</p>}</section>
+          <section className="revision-comparison-changes" aria-label="Branch authored file changes"><header><span><strong>{branchComparison.changes.files.length} authored file{branchComparison.changes.files.length === 1 ? '' : 's'} changed</strong><small>Source changes relative to destination. Managed build output is excluded.</small></span><span className="revision-comparison-totals"><strong>+{branchComparison.changes.additions}</strong><strong>−{branchComparison.changes.deletions}</strong></span></header>{branchComparison.changes.files.length ? <ul>{branchComparison.changes.files.map((file) => <li key={file.path}><span data-status={file.status}>{file.status}</span><code>{file.path}</code><small>{file.additions === null || file.deletions === null ? 'Binary' : `+${file.additions} −${file.deletions}`}</small></li>)}</ul> : <p>No authored files differ between these branch heads.</p>}</section>
           <section className="branch-ai-summary" aria-label="AI branch summary"><header><span><strong>AI summary</strong><small>Generated only when requested and kept with the captured branch heads.</small></span><Button className="secondary-action" isDisabled={branchComparisonStale || summarizingBranches || !hasUsableSelection} onPress={() => void summarizeBranches()}>{summarizingBranches ? 'Summarizing…' : visibleBranchSummary ? 'Generate a new summary' : 'Summarize differences'}</Button></header>{visibleBranchSummary ? <div><span className="branch-summary-meta">{visibleBranchSummary.providerId} · {new Date(visibleBranchSummary.createdAt).toLocaleString()}{visibleBranchSummary.stale ? ' · Stale' : ''}</span><Markdown text={visibleBranchSummary.summary} />{visibleBranchSummary.stale && <p className="branch-summary-stale" role="status">This summary describes older branch heads. It remains available as history and will not regenerate automatically.</p>}</div> : <p>No AI summary has been generated for these branch heads.</p>}</section>
-          <section className="combine-branches-composer" aria-label="Combine branches" aria-busy={combiningBranches}><header><span><strong>Best of both directions</strong><small>Combine automatically, or optionally describe what the destination should keep and adopt.</small></span></header>{combiningBranches && <div className="combination-progress" role="status" aria-live="polite"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Combining {branchComparison.source.title} into {branchComparison.destination.title}…</strong><small>The agent is reviewing both directions, applying changes only to the destination, and then validating the result. This may take a few minutes.</small></span></div>}<TextField aria-label="Combination prompt"><TextArea disabled={combiningBranches} value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Optional: guide how ${branchComparison.source.title} should be combined into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" isDisabled={branchComparisonStale || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches && <ArrowPathIcon className="spin" aria-hidden="true" />}{combiningBranches ? 'Combining…' : 'Combine into destination'}</Button></div></section>
+          <section className="combine-branches-composer" aria-label="Combine branches" aria-busy={combiningBranches}><header><span><strong>Best of both directions</strong><small>Combine automatically, or optionally describe what the destination should keep and adopt.</small></span></header>{combiningBranches && <div className="combination-progress" role="status" aria-live="polite"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>Combining {branchComparison.source.title} into {branchComparison.destination.title}…</strong><small>The agent is reviewing both directions, applying changes only to the destination, and then validating the result. This may take a few minutes.</small></span></div>}<TextField aria-label="Combination prompt"><TextArea disabled={combiningBranches} value={combinationPrompt} onChange={(event) => setCombinationPrompt(event.target.value)} placeholder={`Optional: guide how ${branchComparison.source.title} should be combined into ${branchComparison.destination.title}…`} /></TextField><div><GenerationSettingsMenu providers={readyProviders} providerId={selection.providerId} modelId={selection.modelId} effort={selection.effort} loading={providersLoading} onChange={applySelection} /><Button className="clone-confirm-action" aria-label={`Combine ${branchComparison.source.title} into ${branchComparison.destination.title}`} isDisabled={branchComparisonStale || combiningBranches || !hasUsableSelection} onPress={() => void beginCombination()}>{combiningBranches && <ArrowPathIcon className="spin" aria-hidden="true" />}{combiningBranches ? 'Combining…' : 'Combine'}</Button></div></section>
           <div className="clone-modal-actions"><Button className="secondary-action" isDisabled={combiningBranches} onPress={close}>Close</Button></div>
         </>}
       </AppModal>
@@ -1031,8 +1070,8 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           <div className="combination-recovery-actions"><Button className="secondary-action" onPress={() => void runWorkspaceAction(() => api!.openCombinationEditor(design.id, combinationAttempt.id).then(() => true), 'A code editor could not be opened.')}>Open in editor</Button><Button className="secondary-action" isDisabled={combiningBranches || !combinationAttempt.sourceBranchId || !combinationAttempt.destinationBranchId} onPress={() => void retryCombination()}>Retry intelligent combination</Button><Button className="secondary-action" onPress={() => void abortCombination()}>Abort combination</Button><Button className="clone-confirm-action" onPress={() => void finishCombination()}>Check resolution</Button></div>
         </>}
       </AppModal>
-      <AppModal isOpen={completedCombination !== null} onOpenChange={(open) => { if (!open) setCompletedCombination(null) }} className="branch-manager-modal" title="Combination complete">
-        {(close) => completedCombination && <><p><strong>{completedCombination.destinationBranchTitle}</strong> now includes the combined direction. The source branch remains unchanged.</p><p>Do you want to keep <strong>{completedCombination.sourceBranchTitle}</strong> as a separate direction?</p><div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Keep source branch</Button><Button className="clone-confirm-action" isDisabled={!completedCombination.sourceBranchId} onPress={() => void (async () => { if (!api || !completedCombination.sourceBranchId) return; await api.removeBranch(design.id, completedCombination.sourceBranchId, false); const updated = await api.get(design.id); setCompletedCombination(null); if (updated) onChange(updated) })()}>Remove source branch</Button></div></>}
+      <AppModal isOpen={completedCombination !== null} onOpenChange={(open) => { if (!open) void settleCompletedCombination(false) }} className="branch-manager-modal" title="Combination complete">
+        {() => completedCombination && <><p><strong>{completedCombination.destinationBranchTitle}</strong> now includes the combined direction. The source branch remains unchanged.</p><p>Do you want to keep <strong>{completedCombination.sourceBranchTitle}</strong> as a separate direction?</p><div className="clone-modal-actions"><Button className="secondary-action" aria-label="Keep source branch" isDisabled={settlingCompletedCombination} onPress={() => void settleCompletedCombination(false)}>Keep source</Button><Button className="clone-confirm-action" aria-label="Remove source branch" isDisabled={settlingCompletedCombination || !completedCombination.sourceBranchId} onPress={() => void settleCompletedCombination(true)}>Remove source</Button></div></>}
       </AppModal>
       <AppModal isOpen={comparison !== null} onOpenChange={(open) => { if (!open) setComparison(null) }} className="revision-comparison-modal" title="Compare revisions">
         {(close) => comparison && <>
