@@ -1061,6 +1061,9 @@ app.enableSandbox()
 void app.whenReady().then(() => {
   const store = new WorkspaceStore(resolveWorkspaceDirectory())
   workspaceStore = store
+  // The preload bridge reads the saved theme synchronously during document load so the first paint
+  // already carries the right theme; an async settings round-trip would flash the wrong one.
+  ipcMain.on('bootstrap:get-theme', (event) => { event.returnValue = store.getTheme() })
   workspace = new WorkspaceService(store)
   generationQueue = new GenerationQueue(
     store,
