@@ -149,6 +149,17 @@ describe('ProviderService', () => {
     expect(codex.prompt).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: 'thread-1' }), expect.any(Function))
   })
 
+  it('rejects session identifiers containing shell metacharacters', async () => {
+    const codex = createAdapter('codex')
+    const service = new ProviderService([codex])
+
+    await expect(service.runDesignAgent({ requestId: 'request-evil', providerId: 'codex', modelId: 'model-1', prompt: 'Continue', workspacePath, resumeSessionId: 'thread-1" & calc' }))
+      .rejects.toThrow('The provider session reference is invalid.')
+    await expect(service.prompt({ requestId: 'request-evil', providerId: 'claude', modelId: 'model-1', prompt: 'Hi', resumeSessionId: '%PATH%' }))
+      .rejects.toThrow('The provider session reference is invalid.')
+    expect(codex.prompt).not.toHaveBeenCalled()
+  })
+
   it('runs analysis directly in the selected writable repository with the other repositories available', async () => {
     const codex = createAdapter('codex')
     const service = new ProviderService([codex])

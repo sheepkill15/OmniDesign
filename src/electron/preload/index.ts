@@ -2,7 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { ProviderActivity, ProviderPrompt } from '../provider/types.js'
 import type { CombinationAttempt, GenerationActivity, GenerationSelection, Layout } from '../workspace/contracts.js'
 
+// Read synchronously during document load (before first paint) so the saved theme is applied without
+// a dark-first flash for light-theme users.
+const initialTheme = ipcRenderer.sendSync('bootstrap:get-theme') as 'dark' | 'light' | null
+
 contextBridge.exposeInMainWorld('omnidesign', {
+  initialTheme,
   providers: {
     developmentProviderEnabled: Boolean(process.env.VITE_DEV_SERVER_URL || process.env.OMNIDESIGN_ENABLE_MOCK_PROVIDER === '1'),
     getCached: () => ipcRenderer.invoke('providers:get-cached'),

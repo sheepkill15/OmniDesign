@@ -442,6 +442,8 @@ interface PreviewBounds {
 
 interface Window {
   readonly omnidesign: {
+    // Resolved synchronously by the preload bridge so the theme can be applied before first paint.
+    readonly initialTheme: 'dark' | 'light' | null
     readonly providers: {
       readonly developmentProviderEnabled: boolean
       getCached(): Promise<ProviderStatus[]>

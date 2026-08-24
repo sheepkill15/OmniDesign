@@ -3,16 +3,19 @@ import {
   Bars2Icon,
   ChevronRightIcon,
   DocumentDuplicateIcon,
+  EllipsisHorizontalIcon,
   FolderIcon,
   FolderPlusIcon,
   MagnifyingGlassIcon,
   RectangleStackIcon,
   TagIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { useMemo, useState, type DragEvent } from 'react'
-import { Button, Input, Menu, MenuItem, MenuSection, Header as AriaHeader, TextField } from 'react-aria-components'
+import { Button, Input, Menu, MenuItem, MenuSection, Header as AriaHeader, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import { DropdownButton } from '../components/DropdownButton'
 import { AppModal } from '../components/AppModal'
+import { EmptyState } from '../components/EmptyState'
 
 type FolderDialog =
   | { readonly mode: 'create'; readonly parentFolderId: string | null; readonly title: string }
@@ -37,7 +40,7 @@ function TagChip({ tag, selected, onToggle, onRemove }: {
       {onToggle
         ? <Button className="library-tag-toggle" aria-pressed={selected} onPress={onToggle}>{tag.name}</Button>
         : <span className="library-tag-label">{tag.name}</span>}
-      {onRemove && <Button className="library-tag-remove" aria-label={`Remove tag ${tag.name}`} onPress={onRemove}>×</Button>}
+      {onRemove && <TooltipTrigger delay={350}><Button className="library-tag-remove" aria-label={`Remove tag ${tag.name}`} onPress={onRemove}><XMarkIcon aria-hidden="true" /></Button><Tooltip className="tooltip">Remove tag</Tooltip></TooltipTrigger>}
     </span>
   )
 }
@@ -133,7 +136,7 @@ function FolderRow({ node, depth, selectedFolderId, drag, onSelect, onRename, on
           <span>{node.folder.name}</span>
           <span className="library-folder-count" aria-hidden="true">{node.projectCount || ''}</span>
         </Button>
-        <DropdownButton label={`Manage ${node.folder.name}`} triggerClassName="icon-button library-folder-menu" popoverClassName="project-popover" placement="bottom" trigger={<span aria-hidden="true">⋯</span>}>
+        <DropdownButton label={`Manage ${node.folder.name}`} tooltip={`Manage ${node.folder.name}`} triggerClassName="icon-button library-folder-menu" popoverClassName="project-popover" placement="bottom" trigger={<EllipsisHorizontalIcon aria-hidden="true" />}>
           <Menu aria-label={`${node.folder.name} actions`}>
             <MenuItem id="subfolder" onAction={() => onAddSubfolder(node.folder)}>New subfolder…</MenuItem>
             <MenuItem id="rename" onAction={() => onRename(node.folder)}>Rename…</MenuItem>
@@ -180,6 +183,7 @@ export function Library(props: LibraryProps) {
   const [error, setError] = useState<string | null>(null)
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null)
   const [folderDraft, setFolderDraft] = useState('')
+  const [folderDeleteTarget, setFolderDeleteTarget] = useState<Folder | null>(null)
   const [dragProjectId, setDragProjectId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null | undefined>(undefined)
   const [railOpen, setRailOpen] = useState(false)
@@ -253,7 +257,7 @@ export function Library(props: LibraryProps) {
     close()
     setFolderDialog(null)
   }
-  const deleteFolder = (folder: Folder) => { if (window.confirm(`Delete “${folder.name}”? Projects inside it return to the library root; no designs are deleted.`)) void run(() => props.onDeleteFolder(folder.id), 'The folder could not be deleted.') }
+  const deleteFolder = (folder: Folder) => setFolderDeleteTarget(folder)
 
   const folderName = selectedFolderId ? folders.find((folder) => folder.id === selectedFolderId)?.name ?? 'Folder' : unfiledOnly ? 'Unfiled' : 'All projects'
 
@@ -281,7 +285,7 @@ export function Library(props: LibraryProps) {
   return (
     <main className="library-main">
       <aside className="library-rail" aria-label="Folders" data-open={railOpen || undefined}>
-        <div className="library-rail-heading"><span>Folders</span><span className="library-rail-heading-actions"><Button className="text-button library-rail-close" onPress={() => setRailOpen(false)}>Close</Button><Button className="icon-button" aria-label="New folder" onPress={addRootFolder}><FolderPlusIcon aria-hidden="true" /></Button></span></div>
+        <div className="library-rail-heading"><span>Folders</span><span className="library-rail-heading-actions"><Button className="text-button library-rail-close" onPress={() => setRailOpen(false)}>Close</Button><TooltipTrigger delay={350}><Button className="icon-button" aria-label="New folder" onPress={addRootFolder}><FolderPlusIcon aria-hidden="true" /></Button><Tooltip className="tooltip">New folder</Tooltip></TooltipTrigger></span></div>
         <div className="library-folder-tree">
           <Button className="library-folder-open library-folder-root" data-active={!selectedFolderId && !unfiledOnly || undefined} onPress={() => { setSelectedFolderId(null); setUnfiledOnly(false); setRailOpen(false) }}><RectangleStackIcon aria-hidden="true" /><span>All projects</span></Button>
           <div className="library-folder-root-drop" {...dropTargetProps(folderDrag, null)}>
@@ -353,7 +357,7 @@ export function Library(props: LibraryProps) {
                 </span>
               </article>
             ))}
-            {!visibleProjects.length && <p className="settings-empty">No projects match the current folder and filters.</p>}
+            {!visibleProjects.length && <EmptyState icon={FolderIcon} title="No projects here" body="No projects match the current folder and filters." />}
           </div>
         </section>
 
@@ -375,7 +379,7 @@ export function Library(props: LibraryProps) {
                         <span className="design-card-meta"><span>{new Date(design.updatedAt).toLocaleDateString()}</span><span>{providerLabel(design.lastSelection.providerId)}</span></span>
                         <span className="library-card-actions">
                           <TagAssignMenu tags={tags} assigned={design.tags} onToggle={(tag, next) => void run(() => props.onToggleTag('design', design.id, tag, next), 'The tag could not be updated.')} onCreate={(name) => void run(async () => { const tag = await props.onCreateTag(name); if (tag) await props.onToggleTag('design', design.id, tag, true) }, 'The tag could not be created.')} />
-                          <DropdownButton label={`Actions for ${design.title}`} triggerClassName="icon-button" popoverClassName="project-popover" placement="bottom" trigger={<span aria-hidden="true">⋯</span>}>
+                          <DropdownButton label={`Actions for ${design.title}`} tooltip={`Actions for ${design.title}`} triggerClassName="icon-button" popoverClassName="project-popover" placement="bottom" trigger={<EllipsisHorizontalIcon aria-hidden="true" />}>
                             <Menu aria-label={`${design.title} actions`}>
                               <MenuItem id="open" onAction={() => props.onOpenDesign(design)}>Open</MenuItem>
                               <MenuItem id="duplicate" onAction={() => void run(() => props.onDuplicateDesign(design), 'The design could not be duplicated.')}>Duplicate</MenuItem>
@@ -402,6 +406,12 @@ export function Library(props: LibraryProps) {
             <Input autoFocus value={folderDraft} placeholder="Folder name" maxLength={120} onChange={(event) => setFolderDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submitFolderDialog(close) }} />
           </TextField>
           <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" isDisabled={!folderDraft.trim()} onPress={() => void submitFolderDialog(close)}>{folderDialog?.mode === 'rename' ? 'Rename' : 'Create folder'}</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={folderDeleteTarget !== null} onOpenChange={(open) => { if (!open) setFolderDeleteTarget(null) }} title="Delete folder">
+        {(close) => <>
+          <p>Delete “{folderDeleteTarget?.name}”? Projects inside it return to the library root; no designs are deleted.</p>
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" onPress={() => { const folder = folderDeleteTarget; close(); setFolderDeleteTarget(null); if (folder) void run(() => props.onDeleteFolder(folder.id), 'The folder could not be deleted.') }}>Delete folder</Button></div>
         </>}
       </AppModal>
     </main>

@@ -125,7 +125,7 @@ function isProviderPrompt(value: unknown): value is ProviderPrompt {
     && typeof request.requestId === 'string' && request.requestId.length > 0 && request.requestId.length <= 100
     && typeof request.modelId === 'string' && request.modelId.length > 0
     && (request.effort === undefined || typeof request.effort === 'string')
-    && (request.resumeSessionId === undefined || (typeof request.resumeSessionId === 'string' && request.resumeSessionId.length > 0 && request.resumeSessionId.length <= 1_000))
+    && (request.resumeSessionId === undefined || (typeof request.resumeSessionId === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(request.resumeSessionId)))
     && typeof request.prompt === 'string' && request.prompt.length <= 100_000
 }
 
@@ -219,6 +219,16 @@ function refreshProviderStatuses(): Promise<readonly (ProviderStatus | typeof de
 function requireWorkspaceStore(): WorkspaceStore {
   if (!workspaceStore) throw new Error('Workspace store is not ready.')
   return workspaceStore
+}
+
+// Attachment paths chosen through the native dialog are remembered by the store; comparisons tolerate
+// Windows case-insensitivity and differing separators.
+function isKnownAttachmentPath(candidate: string): boolean {
+  const resolved = path.resolve(candidate)
+  return requireWorkspaceStore().getKnownAttachmentPaths().some((known) => {
+    const knownResolved = path.resolve(known)
+    return process.platform === 'win32' ? knownResolved.toLowerCase() === resolved.toLowerCase() : knownResolved === resolved
+  })
 }
 
 function requireGenerationQueue(): GenerationQueue {
@@ -759,16 +769,21 @@ function registerIpc(): void {
     const { kind } = attachmentPickerRequestSchema.parse(value)
     const selection = await dialog.showOpenDialog(mainWindow!, { properties: kind === 'files' ? ['openFile', 'multiSelections'] : ['openDirectory'] })
     if (selection.canceled) return []
-    return selection.filePaths.flatMap((attachmentPath) => {
+    const remembered = selection.filePaths.flatMap((attachmentPath) => {
       try {
         const stats = statSync(attachmentPath)
         return [{ id: randomUUID(), path: attachmentPath, name: path.basename(attachmentPath), kind: stats.isDirectory() ? 'folder' as const : 'file' as const, size: stats.isDirectory() ? null : stats.size, modifiedAt: stats.mtime.toISOString(), selectedAt: new Date().toISOString(), status: 'available' as const }]
       } catch { return [] }
     })
+    for (const attachment of remembered) requireWorkspaceStore().rememberAttachmentPath(attachment.path)
+    return remembered
   })
   ipcMain.handle('workspace:open-attachment', async (event, value: unknown) => {
     authorize(event)
     const attachment = attachmentSchema.parse(value)
+    // Only paths previously chosen through the native dialog may be opened; a compromised renderer
+    // must not be able to launch arbitrary local files.
+    if (!isKnownAttachmentPath(attachment.path)) throw new Error('Re-select this attachment before opening it.')
     if (!statSync(attachment.path).isFile() && !statSync(attachment.path).isDirectory()) throw new Error('Attachment is no longer available.')
     const error = await shell.openPath(attachment.path)
     if (error) throw new Error(error)
@@ -1046,6 +1061,9 @@ app.enableSandbox()
 void app.whenReady().then(() => {
   const store = new WorkspaceStore(resolveWorkspaceDirectory())
   workspaceStore = store
+  // The preload bridge reads the saved theme synchronously during document load so the first paint
+  // already carries the right theme; an async settings round-trip would flash the wrong one.
+  ipcMain.on('bootstrap:get-theme', (event) => { event.returnValue = store.getTheme() })
   workspace = new WorkspaceService(store)
   generationQueue = new GenerationQueue(
     store,
@@ -1185,6 +1203,10 @@ void app.whenReady().then(() => {
   session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
     callback({ cancel: !isAllowedPreviewNetworkUrl(details.url, developmentServerUrl) })
   })
+  // Previewed model output (including the pop-out window on the default session) must never gain
+  // browser capabilities such as notifications, media capture, geolocation, or clipboard writes.
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
+  session.defaultSession.setPermissionCheckHandler(() => false)
   previewServer = new PreviewContentServer(session.defaultSession, previewFrameAncestors())
   thumbnailCapturer = new ThumbnailCapturer(session.defaultSession, previewServer)
   mainWindow = createMainWindow()
@@ -1265,5 +1287,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   updateService?.stop()
+  // Stop provider child processes before the app tears down so no CLI agent survives the exit holding
+  // workspace locks or consuming subscription quota.
+  generationQueue?.abortAll()
   generationQueue?.recoverAfterRestart()
 })

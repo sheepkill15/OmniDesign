@@ -346,7 +346,10 @@ export function DesignPreview({ designId, revisionId, token, captureNeeded, page
                       postMessage (see the sync effect), so switching the live tile never reloads. */}
                   <iframe data-page={page.path} title={page.title ?? page.path} src={pageUrl(page.path)} sandbox="allow-scripts" referrerPolicy="no-referrer" scrolling={fit === 'fixed' ? 'auto' : 'no'} inert tabIndex={-1} aria-hidden="true" onLoad={(event) => { syncFrame(event.currentTarget, livePath); syncSelection(event.currentTarget) }} />
                 </div>
-                <figcaption className="preview-tile-label" title="Double-click to open in focused view" onDoubleClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</figcaption>
+                <figcaption className="preview-tile-label" title="Double-click to open in focused view">
+                  {/* A real button so keyboard users can open a canvas page; double-click stays as a pointer shortcut. */}
+                  <button type="button" className="preview-tile-open" aria-label={`Open ${page.title ?? page.path} in focused view`} onClick={() => onOpenPage(page.path)}><span className="preview-tile-name">{page.title ?? page.path}</span>{page.isHome && <span className="preview-tile-home">Home</span>}</button>
+                </figcaption>
               </figure>
             )
           })}
