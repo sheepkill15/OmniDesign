@@ -80,11 +80,12 @@ describe('WorkspaceStore', () => {
     database.close()
 
     const reopened = new WorkspaceStore(directory)
-    expect(reopened.getDesign(created.id).layout).toMatchObject({ conversationWidth: 40, mode: 'split' })
+    expect(reopened.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 40, mode: 'split' })
     reopened.close()
   })
 
-  it('creates and restores one protected Main branch without manufacturing revisions', () => {    const { directory, store } = createStore()
+  it('creates and restores one protected Main branch without manufacturing revisions', () => {
+    const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
 
     expect(created).toMatchObject({

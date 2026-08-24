@@ -180,6 +180,7 @@ export function Library(props: LibraryProps) {
   const [error, setError] = useState<string | null>(null)
   const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null)
   const [folderDraft, setFolderDraft] = useState('')
+  const [folderDeleteTarget, setFolderDeleteTarget] = useState<Folder | null>(null)
   const [dragProjectId, setDragProjectId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null | undefined>(undefined)
   const [railOpen, setRailOpen] = useState(false)
@@ -253,7 +254,7 @@ export function Library(props: LibraryProps) {
     close()
     setFolderDialog(null)
   }
-  const deleteFolder = (folder: Folder) => { if (window.confirm(`Delete “${folder.name}”? Projects inside it return to the library root; no designs are deleted.`)) void run(() => props.onDeleteFolder(folder.id), 'The folder could not be deleted.') }
+  const deleteFolder = (folder: Folder) => setFolderDeleteTarget(folder)
 
   const folderName = selectedFolderId ? folders.find((folder) => folder.id === selectedFolderId)?.name ?? 'Folder' : unfiledOnly ? 'Unfiled' : 'All projects'
 
@@ -402,6 +403,12 @@ export function Library(props: LibraryProps) {
             <Input autoFocus value={folderDraft} placeholder="Folder name" maxLength={120} onChange={(event) => setFolderDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submitFolderDialog(close) }} />
           </TextField>
           <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" isDisabled={!folderDraft.trim()} onPress={() => void submitFolderDialog(close)}>{folderDialog?.mode === 'rename' ? 'Rename' : 'Create folder'}</Button></div>
+        </>}
+      </AppModal>
+      <AppModal isOpen={folderDeleteTarget !== null} onOpenChange={(open) => { if (!open) setFolderDeleteTarget(null) }} title="Delete folder">
+        {(close) => <>
+          <p>Delete “{folderDeleteTarget?.name}”? Projects inside it return to the library root; no designs are deleted.</p>
+          <div className="clone-modal-actions"><Button className="secondary-action" onPress={close}>Cancel</Button><Button className="clone-confirm-action" onPress={() => { const folder = folderDeleteTarget; close(); setFolderDeleteTarget(null); if (folder) void run(() => props.onDeleteFolder(folder.id), 'The folder could not be deleted.') }}>Delete folder</Button></div>
         </>}
       </AppModal>
     </main>

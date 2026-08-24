@@ -1,4 +1,5 @@
-import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { commandEnvironment, resolveSpawnInvocation, terminateProcessTree } from './command.js'
 import type { ResolvedCommand } from './command.js'
 
