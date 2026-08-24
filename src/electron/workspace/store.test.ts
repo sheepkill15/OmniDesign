@@ -70,8 +70,21 @@ describe('WorkspaceStore', () => {
     migrated.close()
   })
 
-  it('creates and restores one protected Main branch without manufacturing revisions', () => {
+  it('falls back to a default layout when a branch layout column is malformed', () => {
     const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
+    store.close()
+
+    const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
+    database.prepare('UPDATE design_branches SET layout_json = ? WHERE id = ?').run('{not json', created.id)
+    database.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id).layout).toMatchObject({ conversationWidth: 40, mode: 'split' })
+    reopened.close()
+  })
+
+  it('creates and restores one protected Main branch without manufacturing revisions', () => {    const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
 
     expect(created).toMatchObject({

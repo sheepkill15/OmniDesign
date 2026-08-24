@@ -193,7 +193,7 @@ export function NewDesignComposer({ providers, providersLoading = false, busy, f
     }
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey && prompt.trim()) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && prompt.trim()) {
       event.preventDefault()
       void submit()
     }

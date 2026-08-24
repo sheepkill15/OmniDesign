@@ -210,10 +210,11 @@ export function App() {
     void refresh()
   }), [refresh, updateDesign, workspaceApi])
   useEffect(() => window.omnidesign?.preview.onThumbnail((event) => {
-    void refresh()
-    if (event.designId !== activeDesign?.id || !workspaceApi) return
+    // A thumbnail only changes that one design's snapshot (which updateDesign also applies to the
+    // library list), so a full multi-endpoint refresh per captured page is unnecessary IPC churn.
+    if (!workspaceApi) return
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The generated thumbnail could not refresh the design.'))
-  }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
+  }), [updateDesign, workspaceApi])
 
   useEffect(() => {
     if (definitionsProject || definitionPromptProject || definitionSetupChooserProject) return

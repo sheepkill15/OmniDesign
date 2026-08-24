@@ -278,7 +278,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     : latestJob && ['failed', 'cancelled', 'interrupted'].includes(latestJob.state) ? latestJob : undefined
   const stoppedGeneration = retryableJob ? describeStoppedGeneration(retryableJob) : null
   const api = window.omnidesign?.workspace
-  const readyProviders = providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length)
+  const readyProviders = useMemo(() => providers.filter((provider) => provider.installed && provider.authenticated && provider.models.length), [providers])
   const hasUsableSelection = readyProviders.some((provider) => provider.id === selection.providerId && provider.models.some((model) => model.id === selection.modelId))
   const runWorkspaceAction = async <T,>(action: () => Promise<T>, failureMessage: string): Promise<T | undefined> => {
     setFeedback(null)
@@ -321,12 +321,27 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     }
   }
 
-  useEffect(() => setDraft(design.draft), [design.id, design.draft])
+  // Persisted composer state is mirrored back into local state only when someone else changed it.
+  // Echoing this component's own saves would revert any characters typed between the debounced save
+  // and the refreshed document arriving over IPC.
+  const lastSavedDraft = useRef(design.draft)
+  const lastSavedAttachments = useRef(design.draftAttachments)
+  const lastSavedBranchContexts = useRef(design.draftBranchContexts)
+  useEffect(() => {
+    if (design.draft !== lastSavedDraft.current) setDraft(design.draft)
+    lastSavedDraft.current = design.draft
+  }, [design.id, design.draft])
   useEffect(() => () => {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
   }, [design.id])
-  useEffect(() => setAttachments(design.draftAttachments), [design.id, design.draftAttachments])
-  useEffect(() => setBranchContexts(design.draftBranchContexts), [design.id, design.draftBranchContexts])
+  useEffect(() => {
+    if (design.draftAttachments !== lastSavedAttachments.current) setAttachments(design.draftAttachments)
+    lastSavedAttachments.current = design.draftAttachments
+  }, [design.id, design.draftAttachments])
+  useEffect(() => {
+    if (design.draftBranchContexts !== lastSavedBranchContexts.current) setBranchContexts(design.draftBranchContexts)
+    lastSavedBranchContexts.current = design.draftBranchContexts
+  }, [design.id, design.draftBranchContexts])
   useEffect(() => setConversationWidth(design.layout.conversationWidth), [design.id, design.layout.conversationWidth])
   useEffect(() => setMode(design.layout.mode), [design.id, design.layout.mode])
   useEffect(() => setSelection(design.lastSelection), [design.id, design.lastSelection.providerId, design.lastSelection.modelId, design.lastSelection.effort])
@@ -398,7 +413,12 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   }
   useEffect(() => {
     if (!api) return
-    const timer = window.setTimeout(() => { void api.saveDraft(design.id, draft, attachments, branchContexts).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Your draft could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) })) }, 300)
+    const timer = window.setTimeout(() => {
+      lastSavedDraft.current = draft
+      lastSavedAttachments.current = attachments
+      lastSavedBranchContexts.current = branchContexts
+      void api.saveDraft(design.id, draft, attachments, branchContexts).catch((reason: unknown) => setFeedback({ tone: 'error', message: 'Your draft could not be saved.', ...(reason instanceof Error ? { detail: reason.message } : {}) }))
+    }, 300)
     return () => window.clearTimeout(timer)
   }, [api, design.id, draft, attachments, branchContexts])
   useEffect(() => {
@@ -503,11 +523,11 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     setForkTarget(message)
     setForkSelectionKeys([`${selection.providerId}:${selection.modelId}`])
   }
-  const availableForkSelections = readyProviders.flatMap((provider) => provider.models.map((model) => ({
+  const availableForkSelections = useMemo(() => readyProviders.flatMap((provider) => provider.models.map((model) => ({
     key: `${provider.id}:${model.id}`,
     label: `${provider.name} · ${model.name}`,
     selection: { providerId: provider.id, modelId: model.id, effort: provider.id === selection.providerId && model.id === selection.modelId ? selection.effort : model.effortLevels.find((level) => level.isDefault)?.id ?? model.effortLevels[0]?.id ?? null },
-  })))
+  }))), [readyProviders, selection.providerId, selection.modelId, selection.effort])
   const submitFork = async () => {
     if (!api || !forkTarget || !forkSelectionKeys.length) return
     const selections = availableForkSelections.filter((candidate) => forkSelectionKeys.includes(candidate.key)).map((candidate) => candidate.selection)
@@ -859,10 +879,13 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
     setBranchComparisonTokens(null)
     setBranchComparisonPage(refreshed.destination.entryPagePath ?? refreshed.source.entryPagePath ?? refreshed.destination.pages[0]?.path ?? refreshed.source.pages[0]?.path ?? null)
   }
+  // Recomputed on every streaming activity tick otherwise; the feed mapping sorts the full message
+  // and step history each time.
+  const conversationFeed = useMemo(() => buildConversationFeed(design, detailLevel), [design, detailLevel])
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
-        {buildConversationFeed(design, detailLevel).map((item) => item.kind === 'message'
+        {conversationFeed.map((item) => item.kind === 'message'
           ? <ConversationMessage key={item.message.id} message={item.message} replySource={item.message.replyToMessageId ? design.messages.find((candidate) => candidate.id === item.message.replyToMessageId) ?? null : null} canReply={selectedIsHead} speaking={speakingMessageId === item.message.id} onOpenAttachment={(attachment) => void openAttachment(attachment)} onReply={(message) => void chooseReply(message)} onCopy={(message) => void copyMessage(message)} onRead={readMessage} onFork={openFork} />
           : item.kind === 'activity'
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
@@ -892,7 +915,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       <div className="workspace-composer">
         {replyMessage && <div className="composer-reply-reference"><ArrowUturnLeftIcon aria-hidden="true" /><span><strong>Replying to {replyMessage.role === 'user' ? 'your message' : 'OmniDesign'}</strong><small>{replyMessage.text}</small></span><Button aria-label="Clear reply" onPress={() => void clearReply()}>×</Button></div>}
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
         {branchContexts.length > 0 && <div className="attachment-list" aria-label="Attached branch context">{branchContexts.map((context) => <span className="attachment-chip" data-status={context.status} key={context.branchId}><ShareIcon aria-hidden="true" />{context.title}{context.status === 'unavailable' ? ' (unavailable)' : ''}<Button aria-label={`Remove ${context.title} branch context`} onPress={() => setBranchContexts((current) => current.filter((candidate) => candidate.branchId !== context.branchId))}>×</Button></span>)}</div>}

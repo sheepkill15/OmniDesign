@@ -58,7 +58,7 @@
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --background: #eeeDE8;
+  --background: #eeede8;
   --surface-1: #f6f5f1;
   --surface-2: #e7e5df;
   --surface-3: #dedbd3;
@@ -2051,10 +2051,10 @@ button:not(:disabled):active {
 .branch-ai-summary > header > span { display: grid; gap: 2px; }
 .branch-ai-summary strong { color: var(--text); font-size: 12px; }
 .branch-ai-summary small, .branch-ai-summary > p, .branch-summary-meta { color: var(--text-faint); font-size: 10px; }
-.branch-ai-summary > div { display: grid; gap: 7px; color: var(--text-muted); font-size: 12px; line-height: 1.55; }
+.branch-ai-summary > div { display: grid; gap: 7px; color: var(--text-faint); font-size: 12px; line-height: 1.55; }
 .branch-ai-summary .markdown > :first-child { margin-top: 0; }
 .branch-ai-summary .markdown > :last-child { margin-bottom: 0; }
-.branch-summary-stale { margin: 0; padding: 8px 9px; border-radius: var(--radius-control); background: var(--surface-selected); color: var(--text-muted); }
+.branch-summary-stale { margin: 0; padding: 8px 9px; border-radius: var(--radius-control); background: var(--surface-selected); color: var(--text-faint); }
 .combine-branches-composer { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--surface-2); }
 .combine-branches-composer header > span { display: grid; gap: 2px; }
 .combine-branches-composer header strong { color: var(--text); font-size: 12px; }
@@ -2063,7 +2063,7 @@ button:not(:disabled):active {
 .combination-progress > svg { width: 18px; color: var(--accent); }
 .combination-progress > span { display: grid; gap: 3px; }
 .combination-progress strong { color: var(--text); font-size: 11px; }
-.combination-progress small { color: var(--text-muted); font-size: 10px; line-height: 1.45; }
+.combination-progress small { color: var(--text-faint); font-size: 10px; line-height: 1.45; }
 .combine-branches-composer textarea { width: 100%; min-height: 78px; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-1); color: var(--text); font: inherit; }
 .combine-branches-composer > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .combination-recovery-preview { height: min(52vh, 520px); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--surface-2); }
@@ -4222,7 +4222,7 @@ button[aria-expanded="true"] .dropdown-caret {
   justify-content: center;
   padding: 0 6px;
   background: var(--marker-background);
-  color: var(--text-muted);
+  color: var(--text-faint);
   box-shadow: var(--shadow-overlay);
   cursor: default;
   opacity: .62;
@@ -4291,8 +4291,8 @@ button[aria-expanded="true"] .dropdown-caret {
 .focused-target-chip > svg { color: var(--accent); flex: 0 0 auto; height: 18px; width: 18px; }
 .focused-target-chip > span { display: grid; flex: 1; gap: 2px; min-width: 0; }
 .focused-target-chip strong, .focused-target-chip small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.focused-target-chip small, .focused-target-reference { color: var(--text-muted); font-size: 12px; }
-.focused-target-chip > button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font-size: 18px; }
+.focused-target-chip small, .focused-target-reference { color: var(--text-faint); font-size: 12px; }
+.focused-target-chip > button { background: transparent; border: 0; color: var(--text-faint); cursor: pointer; font-size: 18px; }
 .focused-target-reference { margin-top: 8px; }
 @media (forced-colors: active) {
   .definition-section [data-invalid] input { border-color: Mark; }

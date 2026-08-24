@@ -22,6 +22,13 @@ function safeParseJson(value: string): unknown {
   }
 }
 
+// Layout is validated on write; tolerate a malformed or version-skewed column here so one bad row
+// cannot make the whole design (or library listing) unreadable.
+function parseLayoutColumn(value: string): Layout {
+  const parsed = layoutSchema.safeParse(safeParseJson(value))
+  return parsed.success ? parsed.data : layoutSchema.parse({ conversationWidth: 40 })
+}
+
 interface DesignRow {
   id: string
   project_id: string
@@ -1432,12 +1439,16 @@ export class WorkspaceStore {
       SELECT id, comment, target_json, created_at
       FROM focused_feedback_queue WHERE branch_id = ? ORDER BY created_at, rowid
     `).all(branchId) as unknown as Array<{ id: string; comment: string; target_json: string; created_at: string }>
-    return rows.map((row) => focusedFeedbackSchema.parse({
-      id: row.id,
-      comment: row.comment,
-      target: focusedTargetSchema.parse(safeParseJson(row.target_json)),
-      createdAt: row.created_at,
-    }))
+    return rows.flatMap((row) => {
+      const target = focusedTargetSchema.safeParse(safeParseJson(row.target_json))
+      if (!target.success) return []
+      return [focusedFeedbackSchema.parse({
+        id: row.id,
+        comment: row.comment,
+        target: target.data,
+        createdAt: row.created_at,
+      })]
+    })
   }
 
   public queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): FocusedFeedback[] {
@@ -2503,7 +2514,7 @@ export class WorkspaceStore {
         effort: branch.last_effort,
       },
       generationSteps: this.listGenerationStepsForBranch(branchId),
-      layout: layoutSchema.parse(JSON.parse(branch.layout_json)),
+      layout: parseLayoutColumn(branch.layout_json),
       messages: messageRows.map((message) => ({ id: message.id, ownerBranchId: message.owner_branch_id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), branchContexts: this.hydrateBranchContexts(message.branch_contexts_json, row.id), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), focusedFeedback: this.hydrateFocusedFeedback(message.focused_feedback_json), replyToMessageId: message.reply_to_message_id, createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
         id: candidate.id,
