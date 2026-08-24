@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Button, Header, Input, Menu, MenuItem, MenuSection, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
 import {
+  ArrowDownIcon,
   ArrowDownTrayIcon,
   ArrowLeftIcon,
   ArrowPathIcon,
@@ -34,6 +35,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { AppModal } from '../components/AppModal'
+import { EmptyState } from '../components/EmptyState'
 import { DropdownButton } from '../components/DropdownButton'
 import { Markdown } from '../components/Markdown'
 import { DesignPreview, type FocusedEditThread } from './DesignPreview'
@@ -253,13 +255,17 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   // deadzone); if they have scrolled up to read, leave their position alone.
   const feed = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
-  const scrollFeedToBottom = () => { const element = feed.current; if (element) element.scrollTop = element.scrollHeight }
+  const [atBottom, setAtBottom] = useState(true)
+  const scrollFeedToBottom = () => { const element = feed.current; if (element) { element.scrollTop = element.scrollHeight; setAtBottom(true) } }
   const onFeedScroll = () => {
     const element = feed.current
-    if (element) stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 30
+    if (!element) return
+    const bottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 30
+    stickToBottom.current = bottom
+    setAtBottom(bottom)
   }
   // Opening a design (or re-showing the feed after a layout change) starts pinned to the bottom.
-  useLayoutEffect(() => { stickToBottom.current = true; scrollFeedToBottom() }, [design.id, mode])
+  useLayoutEffect(() => { stickToBottom.current = true; setAtBottom(true); scrollFeedToBottom() }, [design.id, mode])
   // While new content streams in, follow it to the bottom only when the user is already there.
   useEffect(() => {
     const element = feed.current
@@ -917,6 +923,19 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
   // Recomputed on every streaming activity tick otherwise; the feed mapping sorts the full message
   // and step history each time.
   const conversationFeed = useMemo(() => buildConversationFeed(design, detailLevel), [design, detailLevel])
+  // Announce generation stage transitions politely (role="status"), once per change — never stream
+  // every token through the live region.
+  const [generationAnnouncement, setGenerationAnnouncement] = useState('')
+  useEffect(() => {
+    const stage = activity?.stage
+    if (!stage) return
+    if (stage === 'complete') setGenerationAnnouncement('Generation complete. A new revision is ready.')
+    else if (stage === 'failed') setGenerationAnnouncement('Generation failed. Recovery options are available in the conversation.')
+    else if (stage === 'cancelled' || stage === 'interrupted') setGenerationAnnouncement('Generation was stopped.')
+    else if (stage === 'generating') setGenerationAnnouncement('Generating design changes.')
+    else if (stage === 'queued') setGenerationAnnouncement('Prompt queued.')
+  }, [activity?.stage])
+  useEffect(() => { setGenerationAnnouncement('') }, [design.id])
   const conversationPane = (
     <section className="conversation-pane" aria-label="Design conversation">
       <div className="conversation-feed" ref={feed} onScroll={onFeedScroll}>
@@ -925,6 +944,9 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
           : item.kind === 'activity'
           ? <GenerationActivitySection id={item.id} key={item.id} steps={item.steps} />
           : <div className={`conversation-step step-${item.step.stage}`} key={item.step.id}><span className="conversation-step-label">{item.step.label}</span>{item.step.detail && <span className="conversation-step-detail">{item.step.detail}</span>}</div>)}
+        {!atBottom && Boolean(runningJob || queuedJobs.length) && <div className="jump-to-newest"><Button className="secondary-action" onPress={scrollFeedToBottom}><ArrowDownIcon aria-hidden="true" />Jump to latest</Button></div>}
+        {/* aria-live without role="status": it must announce without becoming a queryable status region. */}
+        <div className="visually-hidden" aria-live="polite" aria-atomic="true">{generationAnnouncement}</div>
         {activity && (runningJob || (queuedJobs.length > 0 && !design.queuePaused)) && <div className="generation-progress" role="status"><ArrowPathIcon className="spin" aria-hidden="true" /><span><strong>{activity.stage}</strong>{activity.detail}</span>{runningJob && <Button className="secondary-action" isDisabled={pendingAction === 'cancel'} onPress={() => void cancelGeneration()}><StopIcon aria-hidden="true" />Stop</Button>}</div>}
         {queuedJobs.length > 0 && <section className="workspace-queue" aria-label="Queued prompts"><header><span><strong>{queuedJobs.length} queued prompt{queuedJobs.length === 1 ? '' : 's'}</strong><small>{design.queuePaused ? 'Waiting for you to resume generation' : runningJob ? 'Runs after the current request' : 'Waiting to start'}</small></span>{design.queuePaused && !retryableJob && <Button className="secondary-action" isDisabled={pendingAction === 'resume-queue'} onPress={() => void resumeGenerationQueue()}>Resume queue</Button>}</header>{queuedJobs.map((job) => <article key={job.id}><span><strong>{job.prompt}</strong><small>{job.providerId === 'mock' ? 'Development provider' : `${job.providerId} · ${job.modelId}`}</small></span><Button className="text-button" isDisabled={pendingAction === `remove-${job.id}`} onPress={() => void removeGeneration(job.id)}>Remove</Button></article>)}</section>}
         {feedback && <div className="workspace-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}><span><strong>{feedback.message}</strong>{feedback.detail && <small>{feedback.detail}</small>}</span><Button className="text-button" onPress={() => setFeedback(null)}>Dismiss</Button></div>}
@@ -948,13 +970,13 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       </section>}
       {!selectedIsHead && <div className="historical-banner"><ClockIcon aria-hidden="true" /><span><strong>Viewing an earlier revision</strong>Compare it with the current version or restore it before prompting.</span><span className="historical-actions"><Button className="secondary-action" isDisabled={comparisonLoading} onPress={() => void compareToCurrent()}>{comparisonLoading ? 'Comparing…' : 'Compare to current'}</Button><Button className="secondary-action" onPress={() => void restore()}>Restore revision</Button></span></div>}
       <div className="workspace-composer">
-        {replyMessage && <div className="composer-reply-reference"><ArrowUturnLeftIcon aria-hidden="true" /><span><strong>Replying to {replyMessage.role === 'user' ? 'your message' : 'OmniDesign'}</strong><small>{replyMessage.text}</small></span><Button aria-label="Clear reply" onPress={() => void clearReply()}>×</Button></div>}
+        {replyMessage && <div className="composer-reply-reference"><ArrowUturnLeftIcon aria-hidden="true" /><span><strong>Replying to {replyMessage.role === 'user' ? 'your message' : 'OmniDesign'}</strong><small>{replyMessage.text}</small></span><TooltipTrigger delay={350}><Button className="chip-remove" aria-label="Clear reply" onPress={() => void clearReply()}><XMarkIcon aria-hidden="true" /></Button><Tooltip className="tooltip">Clear reply</Tooltip></TooltipTrigger></div>}
         <TextField aria-label="Request a design change"><TextArea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe the next change…" disabled={!selectedIsHead} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() }
         }} /></TextField>
         {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<TooltipTrigger delay={350}><Button className="chip-remove" aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}><XMarkIcon aria-hidden="true" /></Button><Tooltip className="tooltip">Remove</Tooltip></TooltipTrigger></span>)}</div>}
         {branchContexts.length > 0 && <div className="attachment-list" aria-label="Attached branch context">{branchContexts.map((context) => <span className="attachment-chip" data-status={context.status} key={context.branchId}><ShareIcon aria-hidden="true" />{context.title}{context.status === 'unavailable' ? ' (unavailable)' : ''}<TooltipTrigger delay={350}><Button className="chip-remove" aria-label={`Remove ${context.title} branch context`} onPress={() => setBranchContexts((current) => current.filter((candidate) => candidate.branchId !== context.branchId))}><XMarkIcon aria-hidden="true" /></Button><Tooltip className="tooltip">Remove</Tooltip></TooltipTrigger></span>)}</div>}
-        {separateBranch && <div className="separate-branch-notice" role="status" aria-busy={creatingBranch}>{creatingBranch ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ShareIcon aria-hidden="true" />}<span>{creatingBranch ? 'Creating a separate branch…' : 'This change will happen in a separate branch'}</span><button type="button" className="branch-info-button" aria-label="About separate branches" title="A branch is a separate design direction. Your current branch stays unchanged while OmniDesign explores this prompt in a new one."><InformationCircleIcon aria-hidden="true" /></button></div>}
+        {separateBranch && <div className="separate-branch-notice" role="status" aria-busy={creatingBranch}>{creatingBranch ? <ArrowPathIcon className="spin" aria-hidden="true" /> : <ShareIcon aria-hidden="true" />}<span>{creatingBranch ? 'Creating a separate branch…' : 'This change will happen in a separate branch'}</span><IconButton className="branch-info-button" label="Separate branch: your current branch stays unchanged while OmniDesign explores this prompt in a new one" icon={InformationCircleIcon} /></div>}
         <div className="workspace-composer-footer">
           <AttachmentPicker placement="top" includeBranches={design.branches.length > 1} onChoose={(kind) => void chooseAttachments(kind)} />
           <DropdownButton
@@ -1044,7 +1066,7 @@ export function DesignWorkspace({ design, providers, providersLoading, projects,
       </div>
       {previewToken && design.selectedRevisionId
         ? <DesignPreview designId={design.id} revisionId={design.selectedRevisionId} token={previewToken} captureNeeded={selectedIsHead && !!selectedRevision && (!selectedRevision.thumbnailDataUrl || !qualityCheckCurrent)} pages={previewPages} viewMode={previewViewMode} fit={previewFit} device={previewDevice} customWidth={previewCustomWidth} customHeight={previewCustomHeight} selectedPage={previewPage} canvasViewport={canvasViewport} onCanvasViewportChange={setCanvasViewport} onSelectPage={setPreviewPage} onOpenPage={(path) => { setPreviewPage(path); setPreviewViewMode('focused') }} selectionActive={selectionActive} focusedTarget={focusedTarget} focusedComment={focusedComment} focusedThreads={focusedEditThreads} focusedBusy={busy} canSubmitFocused={selectedIsHead && hasUsableSelection} onSelection={(target) => { setFocusedTarget(target); setFocusedComment(''); if (target.dynamicDescription) setFeedback({ tone: 'success', message: 'Selected the nearest source-authored element.', detail: `${target.path}:${target.startLine}-${target.endLine}` }) }} onSelectionCancelled={() => { setFocusedTarget(null); setFocusedComment('') }} onSelectionError={(message) => setFeedback({ tone: 'error', message })} onFocusedCommentChange={setFocusedComment} onQueueFocused={() => void queueFocusedFeedback()} onSubmitFocused={() => void submitFocusedFeedback()} onClearFocused={() => { setFocusedTarget(null); setFocusedComment('') }} onRemoveFocusedFeedback={(feedbackId) => void removeFocusedFeedback(feedbackId)} />
-        : <div className="preview-empty"><p>Preview appears after the first valid revision.</p></div>}
+        : <div className="preview-empty"><EmptyState icon={ComputerDesktopIcon} title="No preview yet" body="The preview appears here after the first valid revision." /></div>}
     </section>
   )
 
