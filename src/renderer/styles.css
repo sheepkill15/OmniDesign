@@ -1416,6 +1416,19 @@ button:not(:disabled):active {
 .attachment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-subtle); font-size: 12px; }
 .attachment-chip[data-status="changed"], .attachment-chip[data-status="missing"] { color: var(--warning); border-color: currentColor; }
 .attachment-chip button { color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; }
+
+.attachment-chip .chip-remove {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.attachment-chip .chip-remove svg {
+  width: 11px;
+  height: 11px;
+}
 .message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .attachment-link { background: transparent; cursor: pointer; font: inherit; }
 .attachment-link[data-disabled] { cursor: default; opacity: .65; }
@@ -1621,8 +1634,36 @@ button:not(:disabled):active {
   color: var(--text-subtle);
 }
 
-.generation-list {
+/* Shared empty-state primitive: icon, title, optional body, optional next action. */
+.empty-state {
   display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin: 0;
+  padding: 20px 4px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-subtle);
+}
+
+.empty-state svg {
+  width: 20px;
+  height: 20px;
+  color: var(--text-faint);
+}
+
+.empty-state strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.generation-list {  display: grid;
   gap: 0;
   margin-top: 0;
   border: 0;
@@ -1883,6 +1924,10 @@ button:not(:disabled):active {
 .workspace-queue article small { color: var(--text-faint); font-size: 11px; }
 
 .generation-actions { display: flex; align-items: center; gap: 8px; }
+
+/* Busy labels swap text (Resume→Resuming…); hold the button's width so siblings do not shift. */
+.generation-row .secondary-action { min-width: 92px; }
+.combine-branches-composer .clone-confirm-action { min-width: 120px; }
 
 .design-card:hover,
 .design-card:focus-within {
@@ -3591,13 +3636,20 @@ button[aria-expanded="true"] .dropdown-caret {
 }
 
 .library-tag-remove {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
   border: 0;
   background: none;
   color: var(--text-faint);
   cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 0 0 2px;
+}
+
+.library-tag-remove svg {
+  width: 12px;
+  height: 12px;
 }
 
 .library-tag-remove:hover {

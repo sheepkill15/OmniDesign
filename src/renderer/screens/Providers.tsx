@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Button } from 'react-aria-components'
-import { ArrowPathIcon, ArrowTopRightOnSquareIcon, CommandLineIcon } from '@heroicons/react/24/outline'
+import { ArrowPathIcon, ArrowTopRightOnSquareIcon, CommandLineIcon, CpuChipIcon } from '@heroicons/react/24/outline'
 import { AppModal } from '../components/AppModal'
+import { EmptyState } from '../components/EmptyState'
 
 type SetupProviderId = 'codex' | 'claude'
 type SetupDependencyId = 'git'
@@ -102,7 +103,7 @@ export function Providers({ providers, loading, error, dependencies, dependencie
                 </div>
               </article>
             })}
-            {!loading && !providers.length && <p className="settings-empty">No provider availability information is available. Refresh to test local provider tools.</p>}
+            {!loading && !providers.length && <EmptyState icon={CpuChipIcon} title="No providers detected" body="Refresh to test the local provider tools installed on this computer." action={<Button className="secondary-action" onPress={onRefresh}>Refresh providers</Button>} />}
           </div>
         </section>
         <section className="settings-section" aria-labelledby="local-tools-heading">
@@ -118,7 +119,7 @@ export function Providers({ providers, loading, error, dependencies, dependencie
                 {!dependency.installed && <Button className="secondary-action provider-setup-action" onPress={() => beginSetup({ kind: 'dependency', id: dependency.id })}>Set up {dependency.name}</Button>}
               </div>
             </article>)}
-            {dependenciesLoading && !dependencies.length && <p className="settings-empty" role="status">Checking local tools…</p>}
+            {dependenciesLoading && !dependencies.length && <div role="status" className="empty-state"><ArrowPathIcon className="spin" aria-hidden="true" /><strong>Checking local tools…</strong></div>}
           </div>
         </section>
       </div>

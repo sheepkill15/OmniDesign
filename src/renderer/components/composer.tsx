@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { Button, Header, Input, Menu, MenuItem, MenuSection, Slider, SliderThumb, SliderTrack, TextArea, TextField } from 'react-aria-components'
-import { ArrowPathIcon, ArrowRightIcon, CheckCircleIcon, CommandLineIcon, DocumentDuplicateIcon, ExclamationTriangleIcon, FolderIcon } from '@heroicons/react/24/outline'
+import { Button, Header, Input, Menu, MenuItem, MenuSection, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { ArrowPathIcon, ArrowRightIcon, CheckCircleIcon, CommandLineIcon, DocumentDuplicateIcon, ExclamationTriangleIcon, FolderIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { AppModal } from './AppModal'
 import { DropdownButton } from './DropdownButton'
 import { AttachmentPicker, type AttachmentPickerKind } from './common'
@@ -214,7 +214,7 @@ export function NewDesignComposer({ providers, providersLoading = false, busy, f
       <TextField className="prompt-field" aria-label="What would you like to design?">
         <TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onKeyDown} placeholder="What would you like to design?" />
       </TextField>
-      {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
+      {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<TooltipTrigger delay={350}><Button className="chip-remove" aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}><XMarkIcon aria-hidden="true" /></Button><Tooltip className="tooltip">Remove</Tooltip></TooltipTrigger></span>)}</div>}
       <div className="composer-footer">
         <div className="composer-leading">
           <AttachmentPicker onChoose={(kind) => void chooseAttachments(kind)} />

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Button } from 'react-aria-components'
-import { StopIcon } from '@heroicons/react/24/outline'
+import { ArrowPathIcon, StopIcon } from '@heroicons/react/24/outline'
 import { GenerationElapsed } from '../components/GenerationElapsed'
+import { EmptyState } from '../components/EmptyState'
 import { GenerationActivitySection, terminalGenerationStages } from '../components/common'
 
 export function Generations({ designs, onOpen, onCancel, onRemove, onResume }: {
@@ -54,7 +55,7 @@ export function Generations({ designs, onOpen, onCancel, onRemove, onResume }: {
                 {progress.length ? <GenerationActivitySection className="active-generation-activity" id={`${job.id}-progress`} steps={progress} title="Progress details" /> : null}
               </article>
             })}
-            {!jobs.length && <p className="settings-empty">No generations are queued or running.</p>}
+            {!jobs.length && <EmptyState icon={ArrowPathIcon} title="All caught up" body="No generations are queued or running. Start one from any design." />}
           </div>
         </section>
       </div>

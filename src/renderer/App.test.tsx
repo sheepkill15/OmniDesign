@@ -525,7 +525,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
     expect(await screen.findByRole('heading', { name: 'Trash' })).toBeInTheDocument()
-    expect(screen.getByText('No deleted projects or designs.')).toBeInTheDocument()
+    expect(screen.getByText('Nothing deleted')).toBeInTheDocument()
   })
 
   it('requires confirmation before permanently deleting trash', async () => {
