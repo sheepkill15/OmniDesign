@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Button } from 'react-aria-components'
+import { TrashIcon } from '@heroicons/react/24/outline'
 import { AppModal } from '../components/AppModal'
+import { EmptyState } from '../components/EmptyState'
 
 export function Trash({ items, onRestore, onPurge, onEmpty }: { readonly items: readonly TrashItem[]; readonly onRestore: (item: TrashItem) => Promise<void>; readonly onPurge: (item: TrashItem) => Promise<void>; readonly onEmpty: (items: readonly TrashItem[]) => Promise<void> }) {
   const [pendingPurge, setPendingPurge] = useState<TrashItem | 'all' | null>(null)
@@ -31,14 +33,15 @@ export function Trash({ items, onRestore, onPurge, onEmpty }: { readonly items: 
               <Button className="secondary-action" isDisabled={busy} onPress={() => void run(() => onRestore(item))}>Restore</Button>
               <Button className="secondary-action danger-action" isDisabled={busy} onPress={() => setPendingPurge(item)}>Delete permanently</Button>
             </article>)}
-            {!items.length && <p className="settings-empty">No deleted projects or designs.</p>}
+            {!items.length && <EmptyState icon={TrashIcon} title="Nothing deleted" body="Deleted projects and designs appear here for 30 days before they purge." />}
           </div>
           {error && <p className="trash-error" role="alert">{error}</p>}
         </section>
       </div>
       <AppModal isOpen={pendingPurge !== null} onOpenChange={(open) => { if (!open && !busy) setPendingPurge(null) }} title={pendingPurge === 'all' ? 'Empty trash?' : `Permanently delete ${pendingPurge?.name ?? 'item'}?`}>
         {(close) => <>
-          <p>{pendingPurge === 'all' ? `This permanently deletes all ${items.length} trashed item${items.length === 1 ? '' : 's'} and their OmniDesign history.` : 'This permanently deletes the design and its OmniDesign history.'} This cannot be undone. Linked source folders remain untouched.</p>
+          <p>{pendingPurge === 'all' ? `This permanently deletes all ${items.length} trashed item${items.length === 1 ? '' : 's'} and their OmniDesign history.` : pendingPurge?.kind === 'project' ? 'This permanently deletes the project, its designs, and their OmniDesign history.' : 'This permanently deletes the design and its OmniDesign history.'} This cannot be undone. Linked source folders remain untouched.</p>
+          {error && <p className="trash-error" role="alert">{error}</p>}
           <div className="clone-modal-actions"><Button className="secondary-action" isDisabled={busy} onPress={close}>Cancel</Button><Button className="clone-confirm-action danger-confirm-action" isDisabled={busy} onPress={() => void run(() => pendingPurge === 'all' ? onEmpty(items) : pendingPurge ? onPurge(pendingPurge) : Promise.resolve(), close)}>{busy ? 'Deleting…' : pendingPurge === 'all' ? 'Empty trash' : 'Delete permanently'}</Button></div>
         </>}
       </AppModal>

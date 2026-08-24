@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { Button, Header, Input, Menu, MenuItem, MenuSection, Slider, SliderThumb, SliderTrack, TextArea, TextField } from 'react-aria-components'
-import { ArrowPathIcon, ArrowRightIcon, CheckCircleIcon, CommandLineIcon, DocumentDuplicateIcon, ExclamationTriangleIcon, FolderIcon } from '@heroicons/react/24/outline'
+import { Button, Header, Input, Menu, MenuItem, MenuSection, Slider, SliderThumb, SliderTrack, TextArea, TextField, Tooltip, TooltipTrigger } from 'react-aria-components'
+import { ArrowPathIcon, ArrowRightIcon, CheckCircleIcon, CommandLineIcon, DocumentDuplicateIcon, ExclamationTriangleIcon, FolderIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { AppModal } from './AppModal'
 import { DropdownButton } from './DropdownButton'
 import { AttachmentPicker, type AttachmentPickerKind } from './common'
@@ -73,9 +73,9 @@ export function ProjectSelectionMenu({ projects, includeStandalone = true, onAct
   const linkedProjects = projects.filter((project) => project.kind === 'linked')
   return (
     <Menu aria-label="Design project" onAction={(key) => onAction(String(key))}>
-      {includeStandalone && <MenuItem id="standalone">Standalone design</MenuItem>}
-      <MenuItem id="folder">Choose local project folder…</MenuItem>
-      <MenuItem id="clone">Clone Git repository…</MenuItem>
+      {includeStandalone && <MenuItem id="standalone" aria-label="Standalone design" textValue="Standalone design">Standalone</MenuItem>}
+      <MenuItem id="folder" aria-label="Choose local project folder…" textValue="Choose local project folder">Local folder…</MenuItem>
+      <MenuItem id="clone" aria-label="Clone Git repository…" textValue="Clone Git repository">Clone repository…</MenuItem>
       {linkedProjects.length > 0 && <MenuSection className="project-popover-section">
         <Header className="project-popover-header">Add to a project</Header>
         {linkedProjects.map((project) => <MenuItem id={`project:${project.id}`} key={project.id}>{project.name}</MenuItem>)}
@@ -193,7 +193,7 @@ export function NewDesignComposer({ providers, providersLoading = false, busy, f
     }
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey && prompt.trim()) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && prompt.trim()) {
       event.preventDefault()
       void submit()
     }
@@ -214,7 +214,7 @@ export function NewDesignComposer({ providers, providersLoading = false, busy, f
       <TextField className="prompt-field" aria-label="What would you like to design?">
         <TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onKeyDown} placeholder="What would you like to design?" />
       </TextField>
-      {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<Button aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}>×</Button></span>)}</div>}
+      {attachments.length > 0 && <div className="attachment-list" aria-label="Attached references">{attachments.map((attachment) => <span className="attachment-chip" data-status={attachment.status} key={attachment.id}>{attachment.name}{attachment.status !== 'available' && ` (${attachment.status})`}<TooltipTrigger delay={350}><Button className="chip-remove" aria-label={`Remove ${attachment.name}`} onPress={() => setAttachments((current) => current.filter((candidate) => candidate.id !== attachment.id))}><XMarkIcon aria-hidden="true" /></Button><Tooltip className="tooltip">Remove</Tooltip></TooltipTrigger></span>)}</div>}
       <div className="composer-footer">
         <div className="composer-leading">
           <AttachmentPicker onChoose={(kind) => void chooseAttachments(kind)} />

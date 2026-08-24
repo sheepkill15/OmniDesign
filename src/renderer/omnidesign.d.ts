@@ -442,6 +442,8 @@ interface PreviewBounds {
 
 interface Window {
   readonly omnidesign: {
+    // Resolved synchronously by the preload bridge so the theme can be applied before first paint.
+    readonly initialTheme: 'dark' | 'light' | null
     readonly providers: {
       readonly developmentProviderEnabled: boolean
       getCached(): Promise<ProviderStatus[]>
@@ -538,7 +540,7 @@ interface Window {
       setEntryPage(designId: string, entryPagePath: string | null): Promise<OmniDesignDocument>
       savePageMetadata(designId: string, path: string, title: string | null, order: number): Promise<OmniDesignDocument>
       onActivity(listener: (activity: GenerationActivity) => void): () => void
-      onChanged(listener: (event: { readonly designId: string }) => void): () => void
+      onChanged(listener: (event: { readonly designId: string; readonly completedCombination?: CombinationAttempt }) => void): () => void
       onCloneActivity(listener: (detail: string) => void): () => void
     }
     readonly settings: {

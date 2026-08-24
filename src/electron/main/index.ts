@@ -68,7 +68,7 @@ import {
   themeSchema,
   trashItemRequestSchema,
 } from '../workspace/contracts.js'
-import type { GenerationActivity } from '../workspace/contracts.js'
+import type { CombinationAttempt, GenerationActivity } from '../workspace/contracts.js'
 import { writeOfflineZip } from '../workspace/exportService.js'
 import { GenerationQueue } from '../workspace/generationQueue.js'
 import { PreviewContentServer } from '../workspace/previewServer.js'
@@ -125,7 +125,7 @@ function isProviderPrompt(value: unknown): value is ProviderPrompt {
     && typeof request.requestId === 'string' && request.requestId.length > 0 && request.requestId.length <= 100
     && typeof request.modelId === 'string' && request.modelId.length > 0
     && (request.effort === undefined || typeof request.effort === 'string')
-    && (request.resumeSessionId === undefined || (typeof request.resumeSessionId === 'string' && request.resumeSessionId.length > 0 && request.resumeSessionId.length <= 1_000))
+    && (request.resumeSessionId === undefined || (typeof request.resumeSessionId === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(request.resumeSessionId)))
     && typeof request.prompt === 'string' && request.prompt.length <= 100_000
 }
 
@@ -221,6 +221,16 @@ function requireWorkspaceStore(): WorkspaceStore {
   return workspaceStore
 }
 
+// Attachment paths chosen through the native dialog are remembered by the store; comparisons tolerate
+// Windows case-insensitivity and differing separators.
+function isKnownAttachmentPath(candidate: string): boolean {
+  const resolved = path.resolve(candidate)
+  return requireWorkspaceStore().getKnownAttachmentPaths().some((known) => {
+    const knownResolved = path.resolve(known)
+    return process.platform === 'win32' ? knownResolved.toLowerCase() === resolved.toLowerCase() : knownResolved === resolved
+  })
+}
+
 function requireGenerationQueue(): GenerationQueue {
   if (!generationQueue) throw new Error('Generation queue is not ready.')
   return generationQueue
@@ -230,8 +240,8 @@ function sendGenerationActivity(activity: GenerationActivity): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:activity', activity)
 }
 
-function sendWorkspaceChanged(designId: string): void {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { designId })
+function sendWorkspaceChanged(designId: string, completedCombination?: CombinationAttempt): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { designId, ...(completedCombination ? { completedCombination } : {}) })
 }
 
 function generateBranchTitleInBackground(designId: string, branchId: string, initialTitle: string, prompt: string, providerId: 'codex' | 'claude', modelId: string, effort: string | null, attachments: readonly import('../workspace/contracts.js').Attachment[]): void {
@@ -759,16 +769,21 @@ function registerIpc(): void {
     const { kind } = attachmentPickerRequestSchema.parse(value)
     const selection = await dialog.showOpenDialog(mainWindow!, { properties: kind === 'files' ? ['openFile', 'multiSelections'] : ['openDirectory'] })
     if (selection.canceled) return []
-    return selection.filePaths.flatMap((attachmentPath) => {
+    const remembered = selection.filePaths.flatMap((attachmentPath) => {
       try {
         const stats = statSync(attachmentPath)
         return [{ id: randomUUID(), path: attachmentPath, name: path.basename(attachmentPath), kind: stats.isDirectory() ? 'folder' as const : 'file' as const, size: stats.isDirectory() ? null : stats.size, modifiedAt: stats.mtime.toISOString(), selectedAt: new Date().toISOString(), status: 'available' as const }]
       } catch { return [] }
     })
+    for (const attachment of remembered) requireWorkspaceStore().rememberAttachmentPath(attachment.path)
+    return remembered
   })
   ipcMain.handle('workspace:open-attachment', async (event, value: unknown) => {
     authorize(event)
     const attachment = attachmentSchema.parse(value)
+    // Only paths previously chosen through the native dialog may be opened; a compromised renderer
+    // must not be able to launch arbitrary local files.
+    if (!isKnownAttachmentPath(attachment.path)) throw new Error('Re-select this attachment before opening it.')
     if (!statSync(attachment.path).isFile() && !statSync(attachment.path).isDirectory()) throw new Error('Attachment is no longer available.')
     const error = await shell.openPath(attachment.path)
     if (error) throw new Error(error)
@@ -828,6 +843,7 @@ function registerIpc(): void {
     const prompt = request.prompt || DEFAULT_BRANCH_COMBINATION_PROMPT
     const prepared = requireWorkspace().startCombination(request.designId, request.comparisonId, prompt, { providerId: request.providerId, modelId: request.modelId, effort: request.effort })
     if (request.providerId === 'mock') return requireWorkspace().beginCombinationFallback(prepared.attempt.id, 'The development provider uses the deterministic fallback merge for combination previews.')
+    let completedCombination: CombinationAttempt | undefined
     try {
       const reply = await providers.runAnalysisAgent({
         requestId: randomUUID(), providerId: request.providerId, modelId: request.modelId,
@@ -841,6 +857,7 @@ function registerIpc(): void {
       })
       try {
         const completed = await requireWorkspace().completeIntelligentCombination(prepared.attempt.id, reply.text)
+        completedCombination = completed
         requireGenerationQueue().refresh()
         return completed
       } catch (error) {
@@ -849,7 +866,7 @@ function registerIpc(): void {
     } catch (error) {
       return requireWorkspace().beginCombinationFallback(prepared.attempt.id, error instanceof Error ? error.message : 'The intelligent combination failed.')
     } finally {
-      sendWorkspaceChanged(request.designId)
+      sendWorkspaceChanged(request.designId, completedCombination)
     }
   })
   ipcMain.handle('workspace:finish-combination', async (event, value: unknown) => {
@@ -857,7 +874,7 @@ function registerIpc(): void {
     const request = combinationAttemptRequestSchema.parse(value)
     const result = await requireWorkspace().finishManualCombination(request.attemptId)
     requireGenerationQueue().refresh()
-    sendWorkspaceChanged(request.designId)
+    sendWorkspaceChanged(request.designId, result)
     return result
   })
   ipcMain.handle('workspace:abort-combination', (event, value: unknown) => {
@@ -1044,6 +1061,9 @@ app.enableSandbox()
 void app.whenReady().then(() => {
   const store = new WorkspaceStore(resolveWorkspaceDirectory())
   workspaceStore = store
+  // The preload bridge reads the saved theme synchronously during document load so the first paint
+  // already carries the right theme; an async settings round-trip would flash the wrong one.
+  ipcMain.on('bootstrap:get-theme', (event) => { event.returnValue = store.getTheme() })
   workspace = new WorkspaceService(store)
   generationQueue = new GenerationQueue(
     store,
@@ -1183,6 +1203,10 @@ void app.whenReady().then(() => {
   session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
     callback({ cancel: !isAllowedPreviewNetworkUrl(details.url, developmentServerUrl) })
   })
+  // Previewed model output (including the pop-out window on the default session) must never gain
+  // browser capabilities such as notifications, media capture, geolocation, or clipboard writes.
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
+  session.defaultSession.setPermissionCheckHandler(() => false)
   previewServer = new PreviewContentServer(session.defaultSession, previewFrameAncestors())
   thumbnailCapturer = new ThumbnailCapturer(session.defaultSession, previewServer)
   mainWindow = createMainWindow()
@@ -1263,5 +1287,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   updateService?.stop()
+  // Stop provider child processes before the app tears down so no CLI agent survives the exit holding
+  // workspace locks or consuming subscription quota.
+  generationQueue?.abortAll()
   generationQueue?.recoverAfterRestart()
 })

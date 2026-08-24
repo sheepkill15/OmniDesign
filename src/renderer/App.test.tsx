@@ -525,7 +525,7 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
     expect(await screen.findByRole('heading', { name: 'Trash' })).toBeInTheDocument()
-    expect(screen.getByText('No deleted projects or designs.')).toBeInTheDocument()
+    expect(screen.getByText('Nothing deleted')).toBeInTheDocument()
   })
 
   it('requires confirmation before permanently deleting trash', async () => {
@@ -545,6 +545,19 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.purgeTrash).toHaveBeenCalledWith('design', 'design-1'))
   })
 
+  it('describes permanent project deletion as removing the project and its designs', async () => {
+    const bridge = installBridge()
+    vi.mocked(bridge.workspace.listTrash).mockResolvedValue([{
+      id: 'project-2', kind: 'project', name: 'Aurora', projectId: null, projectName: null, sourceProjectPath: 'C:\\Projects\\Aurora',
+      trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z',
+    }])
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete permanently' }))
+    expect(screen.getByRole('dialog', { name: 'Permanently delete Aurora?' })).toHaveTextContent('permanently deletes the project, its designs')
+  })
+
   it('confirms before emptying all trash items', async () => {
     const bridge = installBridge()
     vi.mocked(bridge.workspace.listTrash).mockResolvedValue([
@@ -559,6 +572,29 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Empty trash' }))
 
     await waitFor(() => expect(bridge.workspace.purgeTrash).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes Trash and reports partial permanent-deletion failures', async () => {
+    const bridge = installBridge()
+    const items: TrashItem[] = [
+      { id: 'design-1', kind: 'design', name: 'Calm dashboard', projectId: 'project-1', projectName: 'Calm dashboard', sourceProjectPath: null, trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z' },
+      { id: 'project-2', kind: 'project', name: 'Aurora', projectId: null, projectName: null, sourceProjectPath: 'C:\\Projects\\Aurora', trashedAt: '2026-07-20T10:00:00.000Z', purgeAt: '2026-08-19T10:00:00.000Z' },
+    ]
+    let remaining = items
+    vi.mocked(bridge.workspace.listTrash).mockImplementation(async () => remaining)
+    vi.mocked(bridge.workspace.purgeTrash).mockImplementation(async (kind, id) => {
+      if (id === 'project-2') throw new Error('The project files are locked.')
+      remaining = remaining.filter((item) => item.kind !== kind || item.id !== id)
+    })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Empty trash' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Empty trash' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 item deleted; 1 failed')
+    expect(screen.queryByText('Calm dashboard', { exact: true })).not.toBeInTheDocument()
+    expect(screen.getByText('Aurora', { exact: true })).toBeInTheDocument()
   })
 
   it('shows active work globally and can remove queued work from the generations view', async () => {
@@ -895,7 +931,9 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: /Standalone design/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose local project folder…' }))
+    const localFolder = screen.getByRole('menuitem', { name: 'Choose local project folder…' })
+    expect(localFolder).toHaveTextContent('Local folder…')
+    fireEvent.click(localFolder)
     await waitFor(() => expect(screen.getByRole('button', { name: /Aurora/ })).toBeInTheDocument())
     const prompt = screen.getByRole('textbox', { name: 'What would you like to design?' })
     fireEvent.change(prompt, { target: { value: 'A linked dashboard' } })
@@ -967,7 +1005,9 @@ describe('Phase 1 walking skeleton UI', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Definitions' }))
     expect(await screen.findByRole('heading', { name: 'Design definitions' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Add color' }))
+    const addColor = screen.getByRole('button', { name: 'Add color' })
+    expect(addColor).toHaveTextContent(/^Add$/)
+    fireEvent.click(addColor)
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'primary' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: '#725d78' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'Primary actions' } })
@@ -1175,7 +1215,9 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Attach files or folders' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Choose files…' }))
+    const filesOption = await screen.findByRole('menuitem', { name: 'Choose files…' })
+    expect(filesOption).toHaveTextContent('Files…')
+    fireEvent.click(filesOption)
     expect(await screen.findByText('reference.pdf')).toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: 'What would you like to design?' }), { target: { value: 'Use this reference' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create design' }))
@@ -1240,12 +1282,12 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Design conversation' })
     fireEvent.click(screen.getByRole('button', { name: /History/ }))
 
-    expect(screen.getByRole('img', { name: 'Preview of revision current head' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
-    expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent(new Date(thumbnailDesign.revisions[0].createdAt).toLocaleString())
-    expect(screen.getByRole('menuitem', { name: /Current head/ })).toHaveTextContent('A calm dashboard')
+    expect(screen.getByRole('img', { name: 'Preview of revision current version' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw==')
+    expect(screen.getByRole('menuitem', { name: /Current version/ })).toHaveTextContent(new Date(thumbnailDesign.revisions[0].createdAt).toLocaleString())
+    expect(screen.getByRole('menuitem', { name: /Current version/ })).toHaveTextContent('A calm dashboard')
   })
 
-  it('compares an earlier revision with the current head using authored file changes', async () => {
+  it('compares an earlier revision with the current version using authored file changes', async () => {
     const historicalDesign: OmniDesignDocument = { ...engagedDesign, selectedRevisionId: 'revision-1' }
     const bridge = installBridge([engagedDesign], engagedDesign)
     vi.mocked(bridge.workspace.selectRevision).mockResolvedValue(historicalDesign)
@@ -1410,8 +1452,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
 
-    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Conversation only' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation' }))
 
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Design conversation' })).toBeInTheDocument()
@@ -1427,8 +1468,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Design conversation' })
 
-    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Preview only' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
 
     expect(screen.queryByRole('region', { name: 'Design conversation' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Generated design preview' })).toBeInTheDocument()
@@ -1443,8 +1483,7 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     await screen.findByRole('region', { name: 'Generated design preview' })
 
-    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pop out preview' }))
 
     await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith(expect.objectContaining({ designId: 'design-1', revisionId: 'revision-1' })))
     expect(screen.queryByRole('region', { name: 'Generated design preview' })).not.toBeInTheDocument()
@@ -1474,7 +1513,9 @@ describe('Phase 1 walking skeleton UI', () => {
     fireEvent.keyDown(prompt, { key: 'Enter' })
     const followUp = await screen.findByRole('textbox', { name: 'Request a design change' })
     fireEvent.click(screen.getByRole('button', { name: 'Branch: Main' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: /New branch/ }))
+    const newBranch = await screen.findByRole('menuitem', { name: /New branch/ })
+    expect(within(newBranch).getByText('New', { exact: true })).toBeInTheDocument()
+    fireEvent.click(newBranch)
     expect(screen.getByText('This change will happen in a separate branch')).toBeInTheDocument()
     await waitFor(() => expect(bridge.workspace.saveBranchComposerState).toHaveBeenCalledWith('design-1', true, null))
     fireEvent.click(screen.getByRole('button', { name: 'Branch: New branch' }))
@@ -1633,18 +1674,33 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await within(editorialBranch).findByRole('list', { name: 'Editorial direction revisions' })).toBeInTheDocument()
     expect(bridge.workspace.getBranch).toHaveBeenCalledWith('design-1', alternativeId)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Editorial direction for comparison' }))
+    type PreviewRegistration = Awaited<ReturnType<typeof bridge.preview.register>>
+    let resolveSourcePreview: ((value: PreviewRegistration) => void) | undefined
+    let resolveDestinationPreview: ((value: PreviewRegistration) => void) | undefined
+    vi.mocked(bridge.preview.register)
+      .mockImplementationOnce(async () => new Promise<PreviewRegistration>((resolve) => { resolveSourcePreview = resolve }))
+      .mockImplementationOnce(async () => new Promise<PreviewRegistration>((resolve) => { resolveDestinationPreview = resolve }))
     fireEvent.click(screen.getByRole('button', { name: 'Compare branches' }))
-    expect(await screen.findByRole('dialog', { name: 'Compare branches' })).toBeInTheDocument()
+    const comparisonDialog = await screen.findByRole('dialog', { name: 'Compare branches' })
+    expect(within(comparisonDialog).getAllByText('Loading preview…')).toHaveLength(2)
+    const direction = within(comparisonDialog).getByRole('group', { name: 'Branch combination direction' })
+    expect(within(direction).getByText('Editorial direction')).toHaveAttribute('title', 'Editorial direction')
+    await act(async () => {
+      resolveSourcePreview?.({ token: 'source-token', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' })
+      resolveDestinationPreview?.({ token: 'destination-token', pages: [{ path: 'index.html', title: null, order: 0, isHome: true }], entryPagePath: 'index.html' })
+    })
     await waitFor(() => expect(bridge.workspace.compareBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1'))
     expect(screen.getByTitle('Main · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
     expect(screen.getByTitle('Editorial direction · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
-    fireEvent.click(screen.getByRole('tab', { name: 'About' }))
+    fireEvent.click(screen.getByRole('button', { name: 'About' }))
     expect(screen.getByText('This page exists only in the other branch')).toBeInTheDocument()
     expect(screen.getByTitle('Editorial direction · about.html')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Summarize differences' }))
     expect(await screen.findByText(/Editorial direction adds a denser typographic hierarchy/)).toBeInTheDocument()
     await waitFor(() => expect(bridge.workspace.summarizeBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1', { providerId: 'mock', modelId: 'mock-v1', effort: null }))
-    fireEvent.click(screen.getByRole('button', { name: 'Combine into destination' }))
+    const combine = screen.getByRole('button', { name: 'Combine Editorial direction into Main' })
+    expect(combine).toHaveTextContent(/^Combine$/)
+    fireEvent.click(combine)
     expect(screen.getByRole('status')).toHaveTextContent('Combining Editorial direction into Main')
     expect(screen.getByRole('textbox', { name: 'Combination prompt' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled()
@@ -1654,6 +1710,7 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(await screen.findByTitle('Unresolved destination preview')).toHaveAttribute('sandbox', 'allow-scripts')
     fireEvent.click(screen.getByRole('button', { name: 'Check resolution' }))
     const removeSource = await screen.findByRole('button', { name: 'Remove source branch' })
+    expect(removeSource).toHaveTextContent('Remove source')
     expect(removeSource).toHaveClass('clone-confirm-action')
     expect(removeSource).not.toHaveClass('danger-action')
   })
@@ -1672,8 +1729,7 @@ describe('Phase 1 walking skeleton UI', () => {
     const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
     fireEvent.click(await within(sidebar).findByRole('button', { name: 'Calm dashboard' }))
     await screen.findByRole('region', { name: 'Generated design preview' })
-    fireEvent.click(screen.getByRole('button', { name: /Layout/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Pop out preview' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pop out preview' }))
     await waitFor(() => expect(bridge.preview.popOut).toHaveBeenCalledWith(expect.objectContaining({ designId: 'design-1' })))
 
     vi.mocked(bridge.preview.popOut).mockClear()
@@ -2089,11 +2145,9 @@ describe('Phase 1 walking skeleton UI', () => {
     await screen.findByRole('region', { name: 'Generated design preview' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Canvas' }))
-    const caption = await screen.findByTitle('Double-click to open in focused view')
-    // A single click stays on the canvas; only a double-click opens the page.
-    fireEvent.click(caption)
-    expect(screen.getByRole('group', { name: 'Preview fit' })).toBeInTheDocument()
-    fireEvent.dblClick(caption)
+    await screen.findByTitle('Double-click to open in focused view')
+    // The page label is a real button so keyboard users can open a page from the canvas.
+    fireEvent.click(await screen.findByRole('button', { name: 'Open index.html in focused view' }))
 
     // Back in focused mode: the canvas-only fit controls are gone.
     await waitFor(() => expect(screen.queryByRole('group', { name: 'Preview fit' })).not.toBeInTheDocument())
@@ -2126,7 +2180,11 @@ describe('Phase 1 walking skeleton UI', () => {
     }))
 
     await waitFor(() => expect((document.querySelector('.preview-focused-fill iframe') as HTMLIFrameElement).dataset.page).toBe('about.html'))
-    expect(screen.getByRole('button', { name: 'Preview page' })).toHaveTextContent('About')
+    const pagePicker = screen.getByRole('button', { name: 'Preview page' })
+    expect(pagePicker).toHaveTextContent('About')
+    fireEvent.click(pagePicker)
+    expect(screen.getByRole('menuitem', { name: 'Set as home page' })).toHaveTextContent('Set as home')
+    expect(screen.getByRole('menuitem', { name: 'Rename page' })).toHaveTextContent('Rename…')
   })
 
   it('recovers saved designs into the home list', async () => {
@@ -2268,6 +2326,7 @@ describe('Phase 1 walking skeleton UI', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     const notifications = await screen.findByRole('switch', { name: 'System notifications' })
+    expect(screen.getByText('System', { selector: 'strong' })).toBeInTheDocument()
     expect(notifications).toBeChecked()
     fireEvent.click(notifications)
     expect(bridge.settings.saveNotificationsEnabled).toHaveBeenCalledWith(false)
@@ -2378,6 +2437,31 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(bridge.workspace.trash).toHaveBeenCalledWith('design', 'design-2')
   })
 
+  it('refreshes a partially completed bulk removal and keeps failed designs selected', async () => {
+    const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio' }
+    const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio' }
+    const bridge = installBridge([first, second])
+    vi.mocked(bridge.workspace.listProjects).mockResolvedValue([{ ...projectFromDesign(first), kind: 'linked', sourceProjectPath: 'C:\\Projects\\Studio', designCount: 2 }])
+    vi.mocked(bridge.workspace.trash)
+      .mockResolvedValueOnce({ cancelled: false })
+      .mockRejectedValueOnce(new Error('The second design is locked.'))
+    render(<App />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Primary navigation' })
+    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Studio' }))
+    const grid = await screen.findByRole('group', { name: 'Designs in this project' })
+    const overview = within(grid).getByRole('checkbox', { name: 'Select Overview' })
+    const settings = within(grid).getByRole('checkbox', { name: 'Select Settings screen' })
+    fireEvent.click(overview)
+    fireEvent.click(settings)
+    fireEvent.click(within(await screen.findByRole('group', { name: 'Bulk design actions' })).getByRole('button', { name: 'Remove' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 completed; 1 failed')
+    expect(overview).not.toBeChecked()
+    expect(settings).toBeChecked()
+    expect(bridge.workspace.list).toHaveBeenCalledTimes(2)
+  })
+
   it('moves selected designs to any other project, including a standalone project', async () => {
     const first: OmniDesignDocument = { ...design, id: 'design-1', title: 'Overview', projectId: 'studio', projectName: 'Studio', sourceProjectPath: 'C:\\Projects\\Studio' }
     const second: OmniDesignDocument = { ...design, id: 'design-2', title: 'Settings screen', projectId: 'studio', projectName: 'Studio', sourceProjectPath: 'C:\\Projects\\Studio' }
@@ -2451,6 +2535,12 @@ describe('Phase 1 walking skeleton UI', () => {
     expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Designs' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Folders' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by project type' }))
+    expect(screen.getByRole('menuitem', { name: 'All project types' })).toHaveTextContent(/^All$/)
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'All project types' }), { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by provider' }))
+    expect(screen.getByRole('menuitem', { name: 'All providers' })).toHaveTextContent(/^All$/)
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'All providers' }), { key: 'Escape' })
     // The existing design appears in the browse grid.
     const grid = screen.getByRole('group', { name: 'Designs' })
     expect(within(grid).getByRole('button', { name: 'Open Calm dashboard' })).toBeInTheDocument()

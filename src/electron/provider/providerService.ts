@@ -111,6 +111,9 @@ export class ProviderService {
     if (!request.prompt.trim()) throw new Error('Enter a prompt before sending it.')
     if (!SAFE_CAPABILITY_ID.test(request.modelId)) throw new Error('The selected model identifier is invalid.')
     if (request.effort && !SAFE_CAPABILITY_ID.test(request.effort)) throw new Error('The selected effort level is invalid.')
+    // The session id is forwarded as a CLI argument (e.g. `claude --resume <id>`), so it must never
+    // contain shell metacharacters that could break out of the argument on Windows cmd shims.
+    if (request.resumeSessionId && !SAFE_CAPABILITY_ID.test(request.resumeSessionId)) throw new Error('The provider session reference is invalid.')
   }
 }
 

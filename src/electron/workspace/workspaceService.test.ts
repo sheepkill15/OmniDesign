@@ -190,6 +190,31 @@ describe('WorkspaceService', { timeout: 30_000 }, () => {
     store.close()
   })
 
+  it('restores a source worktree if it changes during combination', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
+    directories.push(directory)
+    const store = new WorkspaceStore(directory)
+    const service = new WorkspaceService(store)
+    const main = await service.createDesign('A calm analytics dashboard', () => undefined)
+    const alternative = service.createDesignBranch(main.id, 'Warmer direction')
+    const sourceBranchId = alternative.activeBranchId
+    const source = await service.generate(main.id, 'Use a warmer accent', () => undefined)
+    const sourceRevisionId = source.activeRevisionId
+    service.switchDesignBranch(main.id, main.id)
+    const comparison = service.compareDesignBranches(main.id, sourceBranchId, main.id)
+    const prepared = service.startCombination(main.id, comparison.comparisonId, 'Bring the warmer accent into Main', { providerId: 'mock', modelId: 'mock-v1', effort: null })
+    const sourcePath = service.getDesignRepositoryPath(main.id, sourceBranchId)
+    const unexpectedPath = path.join(sourcePath, 'unexpected-provider-write.txt')
+    writeFileSync(unexpectedPath, 'This must not survive.')
+
+    const recovery = service.beginCombinationFallback(prepared.attempt.id, 'The provider could not finish the combination.')
+
+    expect(existsSync(unexpectedPath)).toBe(false)
+    expect(recovery).toMatchObject({ state: 'manual_resolution', diagnostic: expect.stringContaining('source branch was modified unexpectedly and has been restored') })
+    expect(service.switchDesignBranch(main.id, sourceBranchId).activeRevisionId).toBe(sourceRevisionId)
+    store.close()
+  })
+
   it('materializes the captured project definitions and exposes first-prompt AI Agent instructions', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'omnidesign-service-'))
     directories.push(directory)

@@ -85,6 +85,7 @@ export function App() {
   const [tags, setTags] = useState<Tag[]>([])
   const [trashItems, setTrashItems] = useState<TrashItem[]>([])
   const [activeDesign, setActiveDesign] = useState<OmniDesignDocument | null>(null)
+  const [completedCombination, setCompletedCombination] = useState<{ readonly designId: string; readonly attempt: CombinationAttempt } | null>(null)
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null)
   const [composerProject, setComposerProject] = useState<ProjectSummary | null>(null)
   const [associationNotice, setAssociationNotice] = useState<{ readonly designId: string; readonly projectId: string; readonly projectName: string; readonly mode: 'associated' | 'suggested' } | null>(null)
@@ -95,6 +96,8 @@ export function App() {
   const [generationsOpen, setGenerationsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  // Which surface the current design was opened from, so Back can return there ('home' otherwise).
+  const [designOrigin, setDesignOrigin] = useState<'home' | 'library' | 'generations' | 'trash'>('home')
   const [definitionsProject, setDefinitionsProject] = useState<ProjectSummary | null>(null)
   const [definitionSetupPath, setDefinitionSetupPath] = useState<'proposal' | 'manual' | null>(null)
   const [definitionPromptProject, setDefinitionPromptProject] = useState<ProjectSummary | null>(null)
@@ -203,15 +206,17 @@ export function App() {
       if (finished) void refresh()
     })
   }, [refresh, updateDesign, workspaceApi])
-  useEffect(() => workspaceApi?.onChanged(({ designId }) => {
+  useEffect(() => workspaceApi?.onChanged(({ designId, completedCombination: completed }) => {
+    if (completed) setCompletedCombination({ designId, attempt: completed })
     void workspaceApi.get(designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The changed design could not be refreshed.'))
     void refresh()
   }), [refresh, updateDesign, workspaceApi])
   useEffect(() => window.omnidesign?.preview.onThumbnail((event) => {
-    void refresh()
-    if (event.designId !== activeDesign?.id || !workspaceApi) return
+    // A thumbnail only changes that one design's snapshot (which updateDesign also applies to the
+    // library list), so a full multi-endpoint refresh per captured page is unnecessary IPC churn.
+    if (!workspaceApi) return
     void workspaceApi.get(event.designId).then((design) => { if (design) updateDesign(design) }).catch((reason: unknown) => setWorkspaceError(reason instanceof Error ? reason.message : 'The generated thumbnail could not refresh the design.'))
-  }), [activeDesign?.id, refresh, updateDesign, workspaceApi])
+  }), [updateDesign, workspaceApi])
 
   useEffect(() => {
     if (definitionsProject || definitionPromptProject || definitionSetupChooserProject) return
@@ -260,14 +265,14 @@ export function App() {
     }
   }
   const closePanels = () => { setGenerationsOpen(false); setProvidersOpen(false); setSettingsOpen(false); setTrashOpen(false); setLibraryOpen(false); setDefinitionsProject(null); setDefinitionSetupPath(null); setDefinitionPromptProject(null); setDefinitionSetupChooserProject(null) }
-  const home = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
-  const openLibrary = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
+  const home = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('home'); setActiveDesign(null); setActiveProject(null); setComposerProject(null); void refresh() }
+  const openLibrary = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('library'); setActiveDesign(null); setActiveProject(null); setComposerProject(null); setLibraryOpen(true); void refresh() }
   // The "+" on a sidebar project row jumps home with that project pre-filled in the composer target.
-  const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
+  const startDesignInProject = (project: ProjectSummary) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('home'); setActiveDesign(null); setActiveProject(null); setComposerProject(project) }
   const openSettings = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setSettingsOpen(true) }
   const openProviders = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setProvidersOpen(true); providerState.refresh(); localDependencyState.refresh() }
-  const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
-  const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
+  const openGenerations = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('generations'); setActiveDesign(null); setActiveProject(null); setGenerationsOpen(true); void refresh() }
+  const openTrash = () => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDesignOrigin('trash'); setActiveDesign(null); setActiveProject(null); setTrashOpen(true); void refresh() }
   const openDefinitions = (project: ProjectSummary, setupPath: 'proposal' | 'manual' | null = null) => { void window.omnidesign?.preview.closePopOut(); closePanels(); setDefinitionSetupPath(setupPath); setDefinitionsProject(project) }
   const definitionsSaved = (version: ProjectDesignDefinitionVersion) => {
     setDefinitionsProject((current) => current ? { ...current, currentDefinitionVersion: version.version } : current)
@@ -286,12 +291,15 @@ export function App() {
     }
   }
   const openDesign = (design: OmniDesignDocument) => {
+    // Remember which surface the user came from so the workspace's Back control returns there instead
+    // of always dumping them on Home.
+    setDesignOrigin(libraryOpen ? 'library' : generationsOpen ? 'generations' : trashOpen ? 'trash' : 'home')
     closePanels()
     const project = projects.find((candidate) => candidate.id === design.projectId)
     setActiveProject(project && project.kind === 'linked' && project.designCount > 1 ? project : null)
     setActiveDesign(design)
   }
-  const openProjectDesign = (project: ProjectSummary, design: OmniDesignDocument) => { closePanels(); setActiveProject(project); setActiveDesign(design) }
+  const openProjectDesign = (project: ProjectSummary, design: OmniDesignDocument) => { closePanels(); setDesignOrigin('home'); setActiveProject(project); setActiveDesign(design) }
   // A project with exactly one design opens straight into its workspace; empty or multi-design projects
   // open the project page (composer plus design grid).
   const openProject = (project: ProjectSummary) => {
@@ -305,6 +313,9 @@ export function App() {
   }
   const backFromDesign = () => {
     void window.omnidesign?.preview.closePopOut()
+    if (designOrigin === 'library') { openLibrary(); return }
+    if (designOrigin === 'generations') { openGenerations(); return }
+    if (designOrigin === 'trash') { openTrash(); return }
     if (activeProject && activeProject.designCount > 1) { setActiveDesign(null); void refresh() }
     else home()
   }
@@ -370,8 +381,18 @@ export function App() {
   const restoreTrash = async (item: TrashItem) => { await workspaceApi?.restoreTrash(item.kind, item.id); await refresh() }
   const purgeTrash = async (item: TrashItem) => { await workspaceApi?.purgeTrash(item.kind, item.id); await refresh() }
   const emptyTrash = async (items: readonly TrashItem[]) => {
-    for (const item of items) await workspaceApi?.purgeTrash(item.kind, item.id)
+    const failures: string[] = []
+    let completed = 0
+    for (const item of items) {
+      try {
+        await workspaceApi?.purgeTrash(item.kind, item.id)
+        completed += 1
+      } catch (reason) {
+        failures.push(`${item.name}: ${reason instanceof Error && reason.message ? reason.message : 'Deletion failed.'}`)
+      }
+    }
     await refresh()
+    if (failures.length) throw new Error(`${completed ? `${completed} item${completed === 1 ? '' : 's'} deleted; ` : ''}${failures.length} failed. ${failures[0]}`)
   }
   const trashDesign = async (design: OmniDesignDocument) => {
     const result = await workspaceApi?.trash('design', design.id)
@@ -446,7 +467,7 @@ export function App() {
         : definitionsProject
         ? <DesignDefinitions project={definitionsProject} providers={providerState.providers} initialSetupPath={definitionSetupPath} onBack={() => { setDefinitionsProject(null); setDefinitionSetupPath(null) }} onSaved={definitionsSaved} />
         : activeDesign
-        ? <DesignWorkspace key={`${activeDesign.id}:${activeDesign.activeBranchId}`} design={activeDesign} providers={providerState.providers} providersLoading={providerState.loading} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
+        ? <DesignWorkspace key={`${activeDesign.id}:${activeDesign.activeBranchId}`} design={activeDesign} providers={providerState.providers} providersLoading={providerState.loading} projects={projects} associationNotice={activeDesign.adaptationPending ? { projectId: activeDesign.projectId, projectName: activeDesign.projectName, mode: 'associated' } : associationNotice?.designId === activeDesign.id ? associationNotice : null} activity={activitiesByDesign[activeDesign.id] ?? null} busy={activeDesign.generationJobs.some((job) => job.state === 'queued' || job.state === 'running')} detailLevel={generationDetail} completedCombination={completedCombination?.designId === activeDesign.id ? completedCombination.attempt : null} onCompletedCombinationChange={(attempt) => setCompletedCombination(attempt ? { designId: activeDesign.id, attempt } : null)} onBack={backFromDesign} onChange={updateDesign} onRename={renameDesign} onTrash={trashDesign} onAssociate={associateDesign} onAssociateAndRestart={associateAndRestart} onDismissAssociation={() => { setAssociationNotice(null); void dismissAdaptation(activeDesign) }} onOpenProviders={openProviders} onOpenDefinitions={() => { const project = projects.find((candidate) => candidate.id === activeDesign.projectId); if (project) openDefinitions(project) }} />
         : activeProject
         ? <ProjectPage project={activeProject} projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} onCreate={create} onOpenDesign={openDesign} onRenameProject={renameProject} onDesignRenamed={(renamed) => { updateDesign(renamed); void refresh() }} onReconnect={reconnectProject} onConvertToStandalone={convertProjectToStandalone} onTrashProject={trashProject} onRefresh={async () => { await refresh() }} onOpenProviders={openProviders} onOpenDefinitions={() => openDefinitions(activeProject)} />
         : <Home projects={projects} designs={designs} providers={providerState.providers} providersLoading={providerState.loading} busy={creating} activity={null} composerProject={composerProject} onCreate={create} onOpenDesign={openDesign} onOpenProviders={openProviders} />}

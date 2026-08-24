@@ -15,7 +15,7 @@ function createStore(): WorkspaceStore {
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve = () => undefined
+  let resolve: () => void = () => undefined
   const promise = new Promise<void>((complete) => { resolve = complete })
   return { promise, resolve }
 }

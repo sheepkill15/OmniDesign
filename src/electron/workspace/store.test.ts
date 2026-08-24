@@ -70,6 +70,20 @@ describe('WorkspaceStore', () => {
     migrated.close()
   })
 
+  it('falls back to a default layout when a branch layout column is malformed', () => {
+    const { directory, store } = createStore()
+    const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
+    store.close()
+
+    const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
+    database.prepare('UPDATE design_branches SET layout_json = ? WHERE id = ?').run('{not json', created.id)
+    database.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getDesign(created.id)?.layout).toMatchObject({ conversationWidth: 40, mode: 'split' })
+    reopened.close()
+  })
+
   it('creates and restores one protected Main branch without manufacturing revisions', () => {
     const { directory, store } = createStore()
     const created = store.createStandaloneDesign('Create a calm dashboard', 'Calm dashboard')
@@ -572,6 +586,30 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('prunes terminal generation jobs beyond the per-branch retention window', () => {
+    const { directory, store } = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1_000).toISOString()
+    const jobs = []
+    for (let index = 0; index < 60; index += 1) {
+      const job = store.enqueueGenerationJob(design.id, `Prompt ${index}`, 'codex', 'model-1')
+      store.setGenerationJobState(job.id, 'running')
+      store.setGenerationJobState(job.id, 'failed', 'Long gone')
+      jobs.push(job.id)
+    }
+
+    const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
+    database.prepare('UPDATE generation_jobs SET created_at = ?').run(old)
+    database.close()
+
+    store.pruneGenerationBookkeeping(new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString())
+
+    const remaining = store.listGenerationJobs(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted']).map((job) => job.id)
+    expect(remaining.length).toBe(50)
+    expect(remaining).toEqual(jobs.slice(10))
+    store.close()
+  })
+
   it('persists editable design and project names without changing linked source paths', () => {
     const { directory, store } = createStore()
     const standalone = store.createStandaloneDesign('First', 'Initial standalone')
@@ -716,6 +754,22 @@ describe('WorkspaceStore', () => {
 
     const reopened = new WorkspaceStore(directory)
     expect(reopened.getGenerationDetail()).toBe('concise')
+    reopened.close()
+  })
+
+  it('remembers chosen attachment paths across reopen and caps the remembered list', () => {
+    const { directory, store } = createStore()
+    expect(store.getKnownAttachmentPaths()).toEqual([])
+    store.rememberAttachmentPath(path.join(directory, 'first.png'))
+    store.rememberAttachmentPath(path.join(directory, 'second.png'))
+    store.rememberAttachmentPath(path.join(directory, 'first.png'))
+    expect(store.getKnownAttachmentPaths()).toEqual([path.join(directory, 'first.png'), path.join(directory, 'second.png')])
+    for (let index = 0; index < 600; index += 1) store.rememberAttachmentPath(path.join(directory, `file-${index}.txt`))
+    expect(store.getKnownAttachmentPaths().length).toBe(500)
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getKnownAttachmentPaths().length).toBe(500)
     reopened.close()
   })
 

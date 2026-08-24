@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Releases are cut from every push to main; never let two runs race to publish
+# competing "latest" releases for different commits.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify:
     name: Verify release candidate

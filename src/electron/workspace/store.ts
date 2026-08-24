@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { z } from 'zod'
 import { attachmentSchema, branchComparisonSummarySchema, branchContextReferenceSchema, combinationAttemptSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, resolvedBranchContextSchema, tagSchema, themeSchema } from './contracts.js'
 import { providerStatusesSchema, type ProviderStatus } from '../provider/types.js'
 import type { Attachment, BranchComparisonSummary, BranchContextReference, CombinationAttempt, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, ResolvedBranchContext, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
@@ -19,6 +20,13 @@ function safeParseJson(value: string): unknown {
   } catch {
     return undefined
   }
+}
+
+// Layout is validated on write; tolerate a malformed or version-skewed column here so one bad row
+// cannot make the whole design (or library listing) unreadable.
+function parseLayoutColumn(value: string): Layout {
+  const parsed = layoutSchema.safeParse(safeParseJson(value))
+  return parsed.success ? parsed.data : layoutSchema.parse({ conversationWidth: 40 })
 }
 
 interface DesignRow {
@@ -1431,12 +1439,16 @@ export class WorkspaceStore {
       SELECT id, comment, target_json, created_at
       FROM focused_feedback_queue WHERE branch_id = ? ORDER BY created_at, rowid
     `).all(branchId) as unknown as Array<{ id: string; comment: string; target_json: string; created_at: string }>
-    return rows.map((row) => focusedFeedbackSchema.parse({
-      id: row.id,
-      comment: row.comment,
-      target: focusedTargetSchema.parse(safeParseJson(row.target_json)),
-      createdAt: row.created_at,
-    }))
+    return rows.flatMap((row) => {
+      const target = focusedTargetSchema.safeParse(safeParseJson(row.target_json))
+      if (!target.success) return []
+      return [focusedFeedbackSchema.parse({
+        id: row.id,
+        comment: row.comment,
+        target: target.data,
+        createdAt: row.created_at,
+      })]
+    })
   }
 
   public queueFocusedFeedback(designId: string, comment: string, target: FocusedTarget): FocusedFeedback[] {
@@ -2203,6 +2215,28 @@ export class WorkspaceStore {
     this.database.prepare(`INSERT INTO settings (key, value) VALUES ('generation.detail', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(detail)
   }
 
+  // Attachment paths may only be opened by user selection through the native dialog. Remembering them
+  // here lets the open handler reject renderer-supplied paths that were never chosen by the user.
+  private static readonly MAX_KNOWN_ATTACHMENT_PATHS = 500
+
+  public getKnownAttachmentPaths(): readonly string[] {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'attachments.known_paths'").get() as { value: string } | undefined
+    if (!setting) return []
+    try {
+      const parsed = z.string().array().safeParse(JSON.parse(setting.value))
+      return parsed.success ? parsed.data : []
+    } catch {
+      return []
+    }
+  }
+
+  public rememberAttachmentPath(attachmentPath: string): void {
+    const known = new Set(this.getKnownAttachmentPaths())
+    known.delete(attachmentPath)
+    const next = [attachmentPath, ...known].slice(0, WorkspaceStore.MAX_KNOWN_ATTACHMENT_PATHS)
+    this.database.prepare(`INSERT INTO settings (key, value) VALUES ('attachments.known_paths', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(next))
+  }
+
   public continueGenerationJob(id: string): GenerationJob {
     const previous = this.requireGenerationJob(id)
     if (!['failed', 'cancelled', 'interrupted'].includes(previous.state)) throw new Error('Only stopped generation jobs can continue.')
@@ -2480,7 +2514,7 @@ export class WorkspaceStore {
         effort: branch.last_effort,
       },
       generationSteps: this.listGenerationStepsForBranch(branchId),
-      layout: layoutSchema.parse(JSON.parse(branch.layout_json)),
+      layout: parseLayoutColumn(branch.layout_json),
       messages: messageRows.map((message) => ({ id: message.id, ownerBranchId: message.owner_branch_id, role: message.role, text: message.text, attachments: this.hydrateAttachments(message.attachments_json), branchContexts: this.hydrateBranchContexts(message.branch_contexts_json, row.id), focusedTarget: this.hydrateFocusedTarget(message.focused_target_json), focusedFeedback: this.hydrateFocusedFeedback(message.focused_feedback_json), replyToMessageId: message.reply_to_message_id, createdAt: message.created_at })),
       invalidCandidates: invalidCandidateRows.map((candidate): InvalidCandidate => ({
         id: candidate.id,
@@ -2763,6 +2797,28 @@ export class WorkspaceStore {
       WHERE d.trashed_at IS NOT NULL AND p.trashed_at IS NULL AND d.trashed_at <= ?
     `).all(cutoff, cutoff) as { id: string; kind: 'project' | 'design' }[]
     expired.forEach((item) => this.purgeTrashItem(item.kind, item.id))
+    this.pruneGenerationBookkeeping(cutoff)
+  }
+
+  // Terminal generation jobs and their steps would otherwise accumulate forever; keep the most recent
+  // ones per branch so recovery/retry context survives, and prune the rest after the trash horizon.
+  public pruneGenerationBookkeeping(cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString()): void {
+    const terminalStates = `('completed','failed','cancelled','interrupted')`
+    const recentKept = `
+      AND id NOT IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY branch_id ORDER BY created_at DESC, rowid DESC) AS recency
+          FROM generation_jobs WHERE state IN ${terminalStates}
+        ) WHERE recency <= 50
+      )`
+    this.transaction(() => {
+      this.database.prepare(`
+        DELETE FROM generation_steps WHERE job_id IN (
+          SELECT id FROM generation_jobs WHERE state IN ${terminalStates} AND created_at <= ?${recentKept}
+        )
+      `).run(cutoff)
+      this.database.prepare(`DELETE FROM generation_jobs WHERE state IN ${terminalStates} AND created_at <= ?${recentKept}`).run(cutoff)
+    })
   }
 
   private removeDesignArtifacts(designId: string): void {
