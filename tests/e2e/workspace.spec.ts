@@ -373,7 +373,7 @@ test('keeps the minimum window usable with keyboard and reduced-motion preferenc
     await expect(sendChange).toBeEnabled()
     await sendChange.click({ trial: true })
     const compactGeometry = await workspaceGeometry()
-    expect(compactGeometry).toMatchObject({ sendWidth: 35, sendContained: true, toolbarContained: true })
+    expect(compactGeometry).toMatchObject({ sendWidth: 36, sendContained: true, toolbarContained: true })
     expect(compactGeometry.sidebarWidth).toBeLessThanOrEqual(64)
     expect(compactGeometry.generationSettingsWidth).toBeLessThanOrEqual(248)
     expect(compactGeometry.branchSelectorWidth).toBeLessThanOrEqual(132)

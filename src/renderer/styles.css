@@ -2384,27 +2384,38 @@ button[aria-expanded="true"] .dropdown-caret {
 
 .conversation-pane {
   min-height: 0;
+  position: relative;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto auto auto;
   border-right: 1px solid var(--border);
   background: var(--surface-1);
 }
 
+/* The pane's hidden live region anchors here (top-left), out of both the grid flow and the way of
+   tight viewport geometry. */
+.conversation-pane > .visually-hidden {
+  top: 0;
+  left: 0;
+}
+
 .conversation-feed {
   overflow: auto;
   padding: 28px clamp(22px, 3vw, 48px);
-  /* The feed keeps a working minimum even when several banners stack up on a short window. */
-  min-height: 96px;
 }
 
+/* Sticky overlay inside the scroll container: it never adds layout height outside the feed, so
+   extremely constrained windows (e.g. 200% zoom) can still collapse the feed without overflowing. */
 .jump-to-newest {
+  position: sticky;
+  bottom: 4px;
+  z-index: 1;
   display: flex;
   justify-content: center;
-  padding: 4px 0;
 }
 
 .jump-to-newest .secondary-action {
   border-color: var(--border-strong);
+  background: var(--surface-3);
   box-shadow: var(--shadow-overlay);
 }
 
