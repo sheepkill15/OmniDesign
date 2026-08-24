@@ -1,9 +1,11 @@
-import { execFile, spawn } from 'node:child_process'
+import { ChildProcess, execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const SHELL_ENV_BEGIN = '__OMNIDESIGN_SHELL_ENV_BEGIN__'
 const SHELL_ENV_END = '__OMNIDESIGN_SHELL_ENV_END__'
+// Retained only for error diagnostics; a runaway provider stream must not exhaust main-process memory.
+const MAX_RETAINED_OUTPUT_BYTES = 5_000_000
 let macOsShellPathPromise: Promise<string | undefined> | undefined
 
 export interface ResolvedCommand {
@@ -94,14 +96,19 @@ export async function runCommand(
   })
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []
+  const retain = (buffers: Buffer[], chunk: Buffer): void => {
+    buffers.push(chunk)
+    let total = buffers.reduce((sum, buffer) => sum + buffer.length, 0)
+    while (total > MAX_RETAINED_OUTPUT_BYTES && buffers.length > 1) total -= buffers.shift()!.length
+  }
   let stdoutRemainder = ''
   let stderrRemainder = ''
   child.stdout.on('data', (chunk: Buffer) => {
-    stdout.push(chunk)
+    retain(stdout, chunk)
     stdoutRemainder = emitLines(stdoutRemainder, chunk.toString('utf8'), options.onStdoutLine)
   })
   child.stderr.on('data', (chunk: Buffer) => {
-    stderr.push(chunk)
+    retain(stderr, chunk)
     stderrRemainder = emitLines(stderrRemainder, chunk.toString('utf8'), options.onStderrLine)
   })
   if (options.input !== undefined) child.stdin.end(options.input)
@@ -120,11 +127,11 @@ export async function runCommand(
     }
     const timeout = options.timeoutMs === undefined ? undefined : setTimeout(() => {
       timedOut = true
-      child.kill()
+      terminateProcessTree(child)
     }, options.timeoutMs)
     const cancel = () => {
       cancelled = true
-      child.kill()
+      terminateProcessTree(child)
     }
     options.signal?.addEventListener('abort', cancel, { once: true })
     child.on('error', (error) => {
@@ -154,6 +161,25 @@ function emitLines(remainder: string, chunk: string, listener?: (line: string) =
   return nextRemainder
 }
 
+// On Windows, provider CLIs usually resolve to .cmd shims, so the direct child is a cmd.exe wrapper;
+// killing only it would orphan the actual Node CLI process still holding workspace locks. taskkill's
+// /T flag terminates the whole tree; elsewhere a plain signal is enough.
+export function terminateProcessTree(child: ChildProcess): void {
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+        .on('error', () => child.kill())
+    } catch {
+      child.kill()
+    }
+    return
+  }
+  child.kill()
+}
+
+// Doubles embedded quotes so cmd.exe never leaves the quoted region (its own escape syntax), keeping
+// metacharacters such as `&`, `|`, and `<` literal. Renderer-controlled argument values (model ids,
+// effort levels, session ids) are additionally restricted to a safe charset before reaching this path.
 function quoteCmdToken(token: string): string {
   return `"${token.replaceAll('"', '""')}"`
 }

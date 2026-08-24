@@ -89,6 +89,12 @@ export class GenerationQueue {
     return this.store.getGenerationJob(jobId) ?? job
   }
 
+  // Signals every in-flight job to stop (app shutdown). Provider child processes observe the aborted
+  // signals and terminate; state reconciliation happens through recoverAfterRestart().
+  public abortAll(): void {
+    for (const controller of this.abortControllers.values()) controller.abort()
+  }
+
   public continue(jobId: string): GenerationJob {
     const job = this.store.continueGenerationJob(jobId)
     if (job.definitionTargetVersion) {

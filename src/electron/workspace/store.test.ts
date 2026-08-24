@@ -719,6 +719,22 @@ describe('WorkspaceStore', () => {
     reopened.close()
   })
 
+  it('remembers chosen attachment paths across reopen and caps the remembered list', () => {
+    const { directory, store } = createStore()
+    expect(store.getKnownAttachmentPaths()).toEqual([])
+    store.rememberAttachmentPath(path.join(directory, 'first.png'))
+    store.rememberAttachmentPath(path.join(directory, 'second.png'))
+    store.rememberAttachmentPath(path.join(directory, 'first.png'))
+    expect(store.getKnownAttachmentPaths()).toEqual([path.join(directory, 'first.png'), path.join(directory, 'second.png')])
+    for (let index = 0; index < 600; index += 1) store.rememberAttachmentPath(path.join(directory, `file-${index}.txt`))
+    expect(store.getKnownAttachmentPaths().length).toBe(500)
+    store.close()
+
+    const reopened = new WorkspaceStore(directory)
+    expect(reopened.getKnownAttachmentPaths().length).toBe(500)
+    reopened.close()
+  })
+
   it('persists attachment references without copying content and snapshots them on queued work', () => {
     const { directory, store } = createStore()
     const attachmentPath = path.join(directory, 'reference.txt')

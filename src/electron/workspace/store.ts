@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { z } from 'zod'
 import { attachmentSchema, branchComparisonSummarySchema, branchContextReferenceSchema, combinationAttemptSchema, designBranchSchema, designSchema, focusedFeedbackSchema, focusedTargetSchema, folderSchema, generationJobSchema, generationSelectionSchema, layoutSchema, projectDesignDefinitionStateSchema, projectDesignDefinitionsSchema, projectDesignDefinitionVersionSchema, projectSummarySchema, resolvedBranchContextSchema, tagSchema, themeSchema } from './contracts.js'
 import { providerStatusesSchema, type ProviderStatus } from '../provider/types.js'
 import type { Attachment, BranchComparisonSummary, BranchContextReference, CombinationAttempt, Design, DesignBranch, DesignPage, FocusedFeedback, FocusedTarget, Folder, GenerationJob, GenerationJobState, GenerationSelection, GenerationStep, InvalidCandidate, Layout, Message, PreviewDiagnostic, ProjectDesignDefinitions, ProjectDesignDefinitionState, ProjectDesignDefinitionVersion, ProjectSummary, ResolvedBranchContext, Revision, Tag, TagColor, Theme, TrashItem } from './contracts.js'
@@ -2201,6 +2202,28 @@ export class WorkspaceStore {
 
   public saveGenerationDetail(detail: 'full' | 'concise'): void {
     this.database.prepare(`INSERT INTO settings (key, value) VALUES ('generation.detail', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(detail)
+  }
+
+  // Attachment paths may only be opened by user selection through the native dialog. Remembering them
+  // here lets the open handler reject renderer-supplied paths that were never chosen by the user.
+  private static readonly MAX_KNOWN_ATTACHMENT_PATHS = 500
+
+  public getKnownAttachmentPaths(): readonly string[] {
+    const setting = this.database.prepare("SELECT value FROM settings WHERE key = 'attachments.known_paths'").get() as { value: string } | undefined
+    if (!setting) return []
+    try {
+      const parsed = z.string().array().safeParse(JSON.parse(setting.value))
+      return parsed.success ? parsed.data : []
+    } catch {
+      return []
+    }
+  }
+
+  public rememberAttachmentPath(attachmentPath: string): void {
+    const known = new Set(this.getKnownAttachmentPaths())
+    known.delete(attachmentPath)
+    const next = [attachmentPath, ...known].slice(0, WorkspaceStore.MAX_KNOWN_ATTACHMENT_PATHS)
+    this.database.prepare(`INSERT INTO settings (key, value) VALUES ('attachments.known_paths', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(next))
   }
 
   public continueGenerationJob(id: string): GenerationJob {

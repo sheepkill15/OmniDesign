@@ -1,5 +1,5 @@
 import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
-import { commandEnvironment, resolveSpawnInvocation } from './command.js'
+import { commandEnvironment, resolveSpawnInvocation, terminateProcessTree } from './command.js'
 import type { ResolvedCommand } from './command.js'
 
 interface JsonRpcMessage {
@@ -50,11 +50,18 @@ export class JsonRpcProcess {
 
   public close(reason = new Error('Provider process was closed.')): void {
     this.finish(reason)
-    this.child.kill()
+    terminateProcessTree(this.child)
   }
 
   private read(chunk: string): void {
     this.buffer += chunk
+    // A single unterminated line must never grow without bound; an oversized one means the stream is
+    // no longer usable protocol output.
+    if (this.buffer.length > 16_000_000) {
+      this.finish(new Error('Provider emitted an oversized response.'))
+      terminateProcessTree(this.child)
+      return
+    }
     const lines = this.buffer.split('\n')
     this.buffer = lines.pop() ?? ''
     for (const line of lines) {
