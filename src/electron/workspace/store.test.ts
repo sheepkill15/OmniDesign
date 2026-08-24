@@ -586,6 +586,30 @@ describe('WorkspaceStore', () => {
     store.close()
   })
 
+  it('prunes terminal generation jobs beyond the per-branch retention window', () => {
+    const { directory, store } = createStore()
+    const design = store.createStandaloneDesign('First', 'Design')
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1_000).toISOString()
+    const jobs = []
+    for (let index = 0; index < 60; index += 1) {
+      const job = store.enqueueGenerationJob(design.id, `Prompt ${index}`, 'codex', 'model-1')
+      store.setGenerationJobState(job.id, 'running')
+      store.setGenerationJobState(job.id, 'failed', 'Long gone')
+      jobs.push(job.id)
+    }
+
+    const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
+    database.prepare('UPDATE generation_jobs SET created_at = ?').run(old)
+    database.close()
+
+    store.pruneGenerationBookkeeping(new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString())
+
+    const remaining = store.listGenerationJobs(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted']).map((job) => job.id)
+    expect(remaining.length).toBe(50)
+    expect(remaining).toEqual(jobs.slice(10))
+    store.close()
+  })
+
   it('persists editable design and project names without changing linked source paths', () => {
     const { directory, store } = createStore()
     const standalone = store.createStandaloneDesign('First', 'Initial standalone')

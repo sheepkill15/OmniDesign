@@ -1692,7 +1692,7 @@ describe('Phase 1 walking skeleton UI', () => {
     await waitFor(() => expect(bridge.workspace.compareBranches).toHaveBeenCalledWith('design-1', alternativeId, 'design-1'))
     expect(screen.getByTitle('Main · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
     expect(screen.getByTitle('Editorial direction · index.html')).toHaveAttribute('sandbox', 'allow-scripts')
-    fireEvent.click(screen.getByRole('tab', { name: 'About' }))
+    fireEvent.click(screen.getByRole('button', { name: 'About' }))
     expect(screen.getByText('This page exists only in the other branch')).toBeInTheDocument()
     expect(screen.getByTitle('Editorial direction · about.html')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Summarize differences' }))

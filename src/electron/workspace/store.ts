@@ -2797,6 +2797,28 @@ export class WorkspaceStore {
       WHERE d.trashed_at IS NOT NULL AND p.trashed_at IS NULL AND d.trashed_at <= ?
     `).all(cutoff, cutoff) as { id: string; kind: 'project' | 'design' }[]
     expired.forEach((item) => this.purgeTrashItem(item.kind, item.id))
+    this.pruneGenerationBookkeeping(cutoff)
+  }
+
+  // Terminal generation jobs and their steps would otherwise accumulate forever; keep the most recent
+  // ones per branch so recovery/retry context survives, and prune the rest after the trash horizon.
+  public pruneGenerationBookkeeping(cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString()): void {
+    const terminalStates = `('completed','failed','cancelled','interrupted')`
+    const recentKept = `
+      AND id NOT IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY branch_id ORDER BY created_at DESC, rowid DESC) AS recency
+          FROM generation_jobs WHERE state IN ${terminalStates}
+        ) WHERE recency <= 50
+      )`
+    this.transaction(() => {
+      this.database.prepare(`
+        DELETE FROM generation_steps WHERE job_id IN (
+          SELECT id FROM generation_jobs WHERE state IN ${terminalStates} AND created_at <= ?${recentKept}
+        )
+      `).run(cutoff)
+      this.database.prepare(`DELETE FROM generation_jobs WHERE state IN ${terminalStates} AND created_at <= ?${recentKept}`).run(cutoff)
+    })
   }
 
   private removeDesignArtifacts(designId: string): void {
