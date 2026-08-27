@@ -590,16 +590,15 @@ describe('WorkspaceStore', () => {
     const { directory, store } = createStore()
     const design = store.createStandaloneDesign('First', 'Design')
     const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1_000).toISOString()
-    const jobs = []
-    for (let index = 0; index < 60; index += 1) {
-      const job = store.enqueueGenerationJob(design.id, `Prompt ${index}`, 'codex', 'model-1')
-      store.setGenerationJobState(job.id, 'running')
-      store.setGenerationJobState(job.id, 'failed', 'Long gone')
-      jobs.push(job.id)
-    }
-
+    const jobs = Array.from({ length: 60 }, () => randomUUID())
     const database = new DatabaseSync(path.join(directory, 'omnidesign.sqlite'))
-    database.prepare('UPDATE generation_jobs SET created_at = ?').run(old)
+    const insert = database.prepare(`
+      INSERT INTO generation_jobs (id, design_id, branch_id, prompt, state, created_at, started_at, completed_at, error)
+      VALUES (?, ?, ?, ?, 'failed', ?, ?, ?, 'Long gone')
+    `)
+    database.exec('BEGIN')
+    jobs.forEach((id, index) => insert.run(id, design.id, design.activeBranchId, `Prompt ${index}`, old, old, old))
+    database.exec('COMMIT')
     database.close()
 
     store.pruneGenerationBookkeeping(new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString())
@@ -764,8 +763,10 @@ describe('WorkspaceStore', () => {
     store.rememberAttachmentPath(path.join(directory, 'second.png'))
     store.rememberAttachmentPath(path.join(directory, 'first.png'))
     expect(store.getKnownAttachmentPaths()).toEqual([path.join(directory, 'first.png'), path.join(directory, 'second.png')])
-    for (let index = 0; index < 600; index += 1) store.rememberAttachmentPath(path.join(directory, `file-${index}.txt`))
-    expect(store.getKnownAttachmentPaths().length).toBe(500)
+    store.rememberAttachmentPaths(Array.from({ length: 600 }, (_, index) => path.join(directory, `file-${index}.txt`)))
+    expect(store.getKnownAttachmentPaths()).toHaveLength(500)
+    expect(store.getKnownAttachmentPaths().at(0)).toBe(path.join(directory, 'file-599.txt'))
+    expect(store.getKnownAttachmentPaths().at(-1)).toBe(path.join(directory, 'file-100.txt'))
     store.close()
 
     const reopened = new WorkspaceStore(directory)
