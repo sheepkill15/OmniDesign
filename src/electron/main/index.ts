@@ -775,7 +775,7 @@ function registerIpc(): void {
         return [{ id: randomUUID(), path: attachmentPath, name: path.basename(attachmentPath), kind: stats.isDirectory() ? 'folder' as const : 'file' as const, size: stats.isDirectory() ? null : stats.size, modifiedAt: stats.mtime.toISOString(), selectedAt: new Date().toISOString(), status: 'available' as const }]
       } catch { return [] }
     })
-    for (const attachment of remembered) requireWorkspaceStore().rememberAttachmentPath(attachment.path)
+    requireWorkspaceStore().rememberAttachmentPaths(remembered.map((attachment) => attachment.path))
     return remembered
   })
   ipcMain.handle('workspace:open-attachment', async (event, value: unknown) => {

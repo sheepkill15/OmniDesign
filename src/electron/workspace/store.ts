@@ -2231,10 +2231,21 @@ export class WorkspaceStore {
   }
 
   public rememberAttachmentPath(attachmentPath: string): void {
-    const known = new Set(this.getKnownAttachmentPaths())
-    known.delete(attachmentPath)
-    const next = [attachmentPath, ...known].slice(0, WorkspaceStore.MAX_KNOWN_ATTACHMENT_PATHS)
-    this.database.prepare(`INSERT INTO settings (key, value) VALUES ('attachments.known_paths', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(next))
+    this.rememberAttachmentPaths([attachmentPath])
+  }
+
+  public rememberAttachmentPaths(attachmentPaths: readonly string[]): void {
+    const seen = new Set<string>()
+    const retained: string[] = []
+    for (let index = attachmentPaths.length - 1; index >= 0; index -= 1) {
+      const attachmentPath = attachmentPaths[index]
+      if (!seen.has(attachmentPath)) { seen.add(attachmentPath); retained.push(attachmentPath) }
+    }
+    for (const attachmentPath of this.getKnownAttachmentPaths()) {
+      if (!seen.has(attachmentPath)) { seen.add(attachmentPath); retained.push(attachmentPath) }
+    }
+    retained.length = Math.min(retained.length, WorkspaceStore.MAX_KNOWN_ATTACHMENT_PATHS)
+    this.database.prepare(`INSERT INTO settings (key, value) VALUES ('attachments.known_paths', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(JSON.stringify(retained))
   }
 
   public continueGenerationJob(id: string): GenerationJob {
